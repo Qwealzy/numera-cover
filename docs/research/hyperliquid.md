@@ -42,7 +42,13 @@ Raw `staticcall(abi.encode(args))`, no selector. Values = HyperCore state when t
 - Invalid index → `PrecompileError`, **burns all forwarded gas** [RUN]. Cap gas on the staticcall and
   validate the index at cover creation.
 - Gas: `2000 + 65 × (input_len + output_len)`.
-- Scaling of `entryNtl` / `isolatedRawUsd` — **VERIFY** (assumed USD × 1e6).
+- Position scaling **verified** [RUN 2026-10-01, testnet, founder wallet, BTC perp 3, 10× cross]:
+  precompile `szi=117`, `entryNtl=99526050`, `leverage=10`, `isIsolated=false` vs Info API
+  `szi="0.00117"`, `entryPx="85065.0"` → `szi = size × 10^szDecimals`, `entryNtl = USD × 1e6`
+  (0.00117 × 85065 = 99.526). `entryNtl/leverage = 9952605` ≈ API `marginUsed` 9.956 USDC.
+  `accountMarginSummary(0, user)` = (9996012, 9955892, 99558927, −89562915) = API
+  (accountValue, marginUsed, totalNtlPos, totalRawUsd) × 1e6. Info API `liquidationPx` was `null` for this
+  cross position — compute liq price ourselves, don't rely on the field.
 - Local tests: a plain Foundry fork does **not** execute precompiles. hyper-evm-lib's simulator has no
   `setOraclePx`; use our own mock etched at `0x…0807` / `0x…0800`.
 - CoreWriter `0x3333…3333` (`sendRawAction`) exists (orders, transfers, outcome ops). Not needed for v1.
