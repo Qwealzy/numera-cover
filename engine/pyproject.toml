@@ -1,0 +1,37 @@
+[project]
+name = "numera-engine"
+version = "0.1.0"
+description = "Numera actuarial engine: Hyperliquid market data, one-touch pricing, calibration backtest, quote signer, keeper"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "scipy",
+  "requests",
+  "eth-account",
+  "web3",
+  "fastapi",
+  "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff"]
+
+[tool.setuptools]
+packages = ["numera_engine"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = [".venv", ".cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM"]
+ignore = ["N803", "N806", "SIM300"]  # math notation (S, H, T) reads as constants to ruff
+
+[tool.ruff.lint.per-file-ignores]
+# report writer: long markdown string literals are clearer unsplit (code itself is formatted to 110)
+"numera_engine/backtest.py" = ["E501"]
