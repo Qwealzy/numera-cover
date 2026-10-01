@@ -277,4 +277,4 @@ if (OFFLINE) report('OK', 'network', 'skipped (--offline)');
 else await network();
 
 console.log(`doctor: ${counts.OK} ok, ${counts.WARN} warn, ${counts.FAIL} fail`);
-process.exit(counts.FAIL ? 1 : 0);
+process.exitCode = counts.FAIL ? 1 : 0; // not process.exit(): see scripts/dev.mjs (Node 24 Windows libuv assert after fetch)
