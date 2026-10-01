@@ -156,7 +156,7 @@ Added 2026-10-01 (D10, engine merge `de5690c`):
 - Extra breakdown fields: `z` (standardized distance, §7), `spotSource` (`pool` | `info_api`), `pool`.
 - `/health` also returns `pools` (the allowlist).
 
-## 7. Pricing model (engine, v1 — final, D11)
+## 7. Pricing model (engine, v4 — final, D13)
 
 Evidence and compared methods: [`engine/reports/calibration.md`](../engine/reports/calibration.md).
 Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D / 1 y`:
@@ -168,16 +168,25 @@ Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D 
 3. **Touch probability**, driftless GBM, down barrier `H < S` (mirror for up):
    `p = N((b + σ²T/2)/(σ√T)) + (S/H)·N((b − σ²T/2)/(σ√T))`, `b = ln(H/S)`.
    Discrete-monitoring correction is negligible at 1 s keeper cadence (documented, not applied).
-4. **Tail tables** (`tail_multipliers.json`, `z-per-horizon-v3`): `z = ln(H/S)/(σ√T)`; one table per
-   horizon h ∈ {1h, 4h, 1d, 7d} (smallest h ≥ D), coins pooled, buckets of |z| per direction. Per bucket
-   `q` = Wilson 95 % upper bound of the realized touch frequency, `k = clamp(q / mean p, 1, 10)`.
-   q is made non-increasing in |z| and interpolated, so the price never rises as the level moves away.
+4. **Tail tables** (`tail_multipliers.json`, `z-per-horizon-v4`): `z = ln(H/S)/(σ√T)`; one table per
+   horizon h ∈ {1h, 4h, 1d, 7d} (smallest h ≥ D), coins pooled, buckets of |z| per direction. The 1h and
+   4h tables are fitted on 1 h candles; the **1d table (like 7d) is fitted on daily candles** (HL-traded
+   history since 2023/2024; one window = one UTC day, touch read from the daily low/high) (D13).
+   **Nearward pooling** (D13): a thin bucket (< 300 windows or 0 touches) is pooled with its
+   nearer-the-money buckets, one at a time, until the pool has ≥ 300 windows and ≥ 1 touch; the touch
+   frequency cannot rise with |z|, so the pooled bound is still an upper bound for that bucket.
+   Data-rich buckets keep their own counts. The rest as D11: per bucket `q` = Wilson 95 % upper bound of
+   the (pooled) touch frequency, `k = clamp(q / mean p, 1, 10)`; q is made non-increasing in |z| and
+   interpolated, so the price never rises as the level moves away.
 5. **Priced probability** `= min(max(p·k_z, q_z), pMax)`; refuse `prob_too_high` if `max(p·k, q) > pMax`
    (0.5), `level_already_breached` if S is already past H.
 6. **Premium** `= ceil(P × priced × (1 + θ)) + fee`, θ = 0.20, fee = 0 (configurable).
 
-Out of sample (fit first half, test second): 17/240 % buckets fail; loss ratio 1h 0.43 / 4h 0.41 /
-1d 0.46 / 7d 0.69. Short horizons are priced conservatively on purpose (D11).
+Out of sample (fit first half, test second): 15 % buckets fail (15/224 counted as D11 did, 15/256
+including HYPE 1d/7d); loss ratio 1h 0.43 / 4h 0.41 / 1d 0.66 / 7d 0.65. In sample: 10/256 fail, each
+named in calibration.md. Example: BTC 6 %/1d cover costs 3.24 % of payout vs a 2.46 % empirical touch
+frequency (loss ratio ≈ 0.76). Short horizons are priced conservatively on purpose (D11). The live
+engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/64, loss ratio 0.49.
 
 ## 8. Trigger semantics and demo
 
