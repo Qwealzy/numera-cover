@@ -1,8 +1,9 @@
 // Minimal .env handling without dependencies. Values are never printed by callers; only names and a status.
 import { existsSync, readFileSync } from 'node:fs';
 
-// KEY=VALUE per line; '#' comments and blank lines ignored; optional `export ` prefix; surrounding single or
-// double quotes stripped; an unquoted value loses a trailing ` # comment`.
+// KEY=VALUE per line; '#' comments and blank lines ignored; optional `export ` prefix. A value in single or
+// double quotes is taken up to the matching quote (a `#` inside quotes is kept), and a trailing ` # comment`
+// after it or after an unquoted value is dropped.
 export function parseDotenv(text) {
   const out = {};
   for (const raw of text.split(/\r?\n/)) {
@@ -12,8 +13,13 @@ export function parseDotenv(text) {
     if (!m) continue;
     let v = m[2].trim();
     const q = v[0];
-    if ((q === '"' || q === "'") && v.length >= 2 && v.endsWith(q)) v = v.slice(1, -1);
-    else v = v.replace(/\s+#.*$/, '').trim();
+    if (q === '"' || q === "'") {
+      // Quoted: value runs to the matching closing quote; only whitespace or a ` # comment` may follow.
+      const end = v.indexOf(q, 1);
+      const rest = end > 0 ? v.slice(end + 1) : null;
+      if (rest !== null && /^(\s+#.*|\s*)$/.test(rest)) v = v.slice(1, end);
+      else v = v.replace(/\s+#.*$/, '').trim(); // unbalanced quote: keep it literally
+    } else v = v.replace(/\s+#.*$/, '').trim();
     out[m[1]] = v;
   }
   return out;

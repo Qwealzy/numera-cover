@@ -89,6 +89,7 @@ export function makeClient(urls, { retries = 3, baseDelayMs = 500, timeoutMs = 8
 
 // Single raw probe without retry (rate-limit probe). -> { ok, limited, ms, error }
 export async function probe(url, method = 'eth_blockNumber', { timeoutMs = 8000, fetchImpl = fetch } = {}) {
+  if (!READ_METHODS.has(method)) throw new Error(`refusing non-read RPC method ${method}`);
   try {
     const { status, body, ms } = await post(url, { jsonrpc: '2.0', id: 1, method, params: [] }, timeoutMs, fetchImpl);
     if (isRateLimit(status, body)) return { ok: false, limited: true, ms };

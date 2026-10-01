@@ -194,14 +194,14 @@ async function network() {
     try {
       const { result } = await makeClient([url], { retries: 3 }).call('eth_chainId');
       const id = parseInt(result, 16);
-      if (id === MAINNET_CHAIN_ID) report('FAIL', `chainId ${label}`, `MAINNET 999 at ${url}. Testnet only; fix the URL.`);
-      else if (id !== TESTNET_CHAIN_ID) report('FAIL', `chainId ${label}`, `${id} (${result}) at ${url}, expected 998`);
+      if (id === MAINNET_CHAIN_ID) report('FAIL', `chainId ${label}`, `MAINNET 999 at ${host(url)}. Testnet only; fix the URL.`);
+      else if (id !== TESTNET_CHAIN_ID) report('FAIL', `chainId ${label}`, `${id} (${result}) at ${host(url)}, expected 998`);
       else {
-        report('OK', `chainId ${label}`, `998 (0x3e6) at ${url}`);
+        report('OK', `chainId ${label}`, `998 (0x3e6) at ${host(url)}`);
         good.push(url);
       }
     } catch (e) {
-      report(onlyFallback ? 'WARN' : 'FAIL', `chainId ${label}`, `${url}: ${e.message}`);
+      report(onlyFallback ? 'WARN' : 'FAIL', `chainId ${label}`, `${host(url)}: ${e.message}`);
     }
   }
   if (!good.length) {
