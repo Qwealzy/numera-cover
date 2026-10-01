@@ -15,6 +15,9 @@ export function Covers() {
   const { covers, events } = useCovers();
   const [all, setAll] = useState(false);
   const list = (covers.data ?? []).filter((c) => all || (subject && c.buyer.toLowerCase() === subject.toLowerCase()));
+  // Auto-locate purchase txs only once the recent-events scan has answered (data or error): a cover in that
+  // window takes its tx hash from the event and needs no lookup of its own.
+  const eventsSettled = events.data !== undefined || events.error !== undefined;
 
   return (
     <>
@@ -73,7 +76,7 @@ export function Covers() {
                     c={c}
                     ev={events.data?.get(c.id.toString())}
                     oraclePx={oracle.data?.get(c.perpIndex)}
-                    findTx={!all || i < AUTO_LOCATE_ALL}
+                    findTx={eventsSettled && (!all || i < AUTO_LOCATE_ALL)}
                   />
                 ))}
               </tbody>
