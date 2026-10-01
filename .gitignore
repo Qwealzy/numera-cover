@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+secrets/
+
+# contracts
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+
+# engine
+engine/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# app
+node_modules/
+app/dist/
+
+# misc
+.claude/worktrees/
+.claude/settings.local.json
+*.log
