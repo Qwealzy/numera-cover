@@ -8,12 +8,16 @@ import { expireCover, triggerCover } from '../lib/tx';
 import { Addr, MockTag, Notice, TxLink, TxStatus, useTx } from '../components/ui';
 import { SubjectBar } from '../components/SubjectBar';
 import { useCovers, usePurchaseTx } from '../components/useCovers';
+import { AUTO_LOCATE_ALL } from '../lib/covers';
 
 export function Covers() {
   const { poolKind, subject, oracle, pool } = useApp();
   const { covers, events } = useCovers();
   const [all, setAll] = useState(false);
   const list = (covers.data ?? []).filter((c) => all || (subject && c.buyer.toLowerCase() === subject.toLowerCase()));
+  // Auto-locate purchase txs only once the recent-events scan has answered (data or error): a cover in that
+  // window takes its tx hash from the event and needs no lookup of its own.
+  const eventsSettled = events.data !== undefined || events.error !== undefined;
 
   return (
     <>
@@ -66,8 +70,14 @@ export function Covers() {
                 </tr>
               </thead>
               <tbody>
-                {list.map((c) => (
-                  <CoverRow key={c.id.toString()} c={c} ev={events.data?.get(c.id.toString())} oraclePx={oracle.data?.get(c.perpIndex)} findTx={!all} />
+                {list.map((c, i) => (
+                  <CoverRow
+                    key={c.id.toString()}
+                    c={c}
+                    ev={events.data?.get(c.id.toString())}
+                    oraclePx={oracle.data?.get(c.perpIndex)}
+                    findTx={eventsSettled && (!all || i < AUTO_LOCATE_ALL)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -168,10 +178,19 @@ function CoverRow({
                 retry
               </button>
             </span>
-          ) : (
-            <span className="faint" title={purchase.pending ? 'Looking up the purchase tx…' : undefined}>
-              buy
+          ) : purchase.pending ? (
+            <span className="faint" title="Looking up the purchase tx (stored hash, else CoverPurchased logs near the cover's start time)">
+              locating…
             </span>
+          ) : purchase.idle && !ev?.purchased ? (
+            <span className="ref">
+              <span className="faint">buy</span>
+              <button type="button" className="linkish" title="Look up this cover's purchase tx (CoverPurchased logs near its start time)" onClick={purchase.retry}>
+                locate
+              </button>
+            </span>
+          ) : (
+            <span className="faint">buy</span>
           )}
           {ev?.triggered && (
             <>

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePoll } from '../hooks';
 import type { Cover, CoverEvents } from '../lib/pool';
-import { loadCovers, loadEvents, lookupPurchase, purchaseLookupState, type PurchaseLookup } from '../lib/covers';
+import { hasStoredPurchase, loadCovers, loadEvents, lookupPurchase, purchaseLookupState, type PurchaseLookup } from '../lib/covers';
 import { useApp } from '../state';
 
 /**
@@ -37,16 +37,27 @@ export interface PurchaseTx {
   tx: CoverEvents['purchased'];
   /** Lookup gave up (non-rate-limit error, or the attempt cap): the reason, for the Tx cell tooltip. */
   error?: string;
+  /** A lookup is running (stored-hash receipt read, or the log scan with its rate-limit retries). */
   pending: boolean;
+  /** Not looked up and not started automatically (All-in-pool rows past AUTO_LOCATE_ALL): offer "locate". */
+  idle: boolean;
+  /** Start (or, after a failure, restart) the lookup. */
   retry: () => void;
 }
 
-/** Purchase tx for covers older than the recent-events window, located from `start` (once per page). */
-export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean): PurchaseTx {
+/**
+ * Purchase tx for covers older than the recent-events window. `auto` starts the lookup on mount (once per
+ * page and cover, shared by every row showing it); otherwise it starts on retry(). A hash this browser
+ * remembered from its own buyCover is always looked up (one receipt read).
+ */
+export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, auto: boolean): PurchaseTx {
   const [st, setSt] = useState<PurchaseLookup | undefined>(() => purchaseLookupState(pool, c.id));
   const [force, setForce] = useState(0);
+  // read once per row (the row re-renders every second for its countdown)
+  const stored = useMemo(() => hasStoredPurchase(pool, c.id), [pool, c.id]);
+  const start = auto || force > 0 || stored;
   useEffect(() => {
-    if (known || !enabled) return;
+    if (known || !start) return;
     let alive = true;
     const entry = lookupPurchase(pool, c, { force: force > 0 });
     setSt(entry);
@@ -58,14 +69,14 @@ export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents[
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pool, c.id, c.start, known, enabled, force]);
+  }, [pool, c.id, c.start, known, start, force]);
   const retry = useCallback(() => setForce((n) => n + 1), []);
-  if (known) return { tx: known, pending: false, retry };
+  if (known) return { tx: known, pending: false, idle: false, retry };
   return {
     tx: st?.state === 'done' ? st.tx : undefined,
     error: st?.state === 'failed' ? st.error : undefined,
     pending: st?.state === 'pending',
+    idle: st === undefined,
     retry,
   };
 }
-

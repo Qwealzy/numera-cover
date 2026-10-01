@@ -1,9 +1,21 @@
 import { defineChain, getAddress, type Address } from 'viem';
 import { testnet } from './generated/deployments';
+import { fallbackUrls } from './lib/transport';
 
 const env = (import.meta.env ?? {}) as Record<string, string | undefined>;
 
 export const RPC_URL = env.VITE_RPC_URL || testnet.rpc;
+/**
+ * Read-only fallback RPCs, tried in order when the official RPC answers -32005/429, 5xx or a network error
+ * (the official testnet RPC rate-limits per IP). Chainlink's public HyperEVM testnet RPC allows browser CORS
+ * (OPTIONS 204, access-control-allow-origin *) and the engine already falls back to it (engine/numera_engine/rpc.py).
+ * Override with VITE_RPC_FALLBACK_URLS (comma-separated; empty disables). Every fallback must answer chain
+ * id 998 before its first use (lib/transport.ts), or it is never read from.
+ */
+export const DEFAULT_RPC_FALLBACKS = ['https://rpcs.chain.link/hyperevm/testnet'] as const;
+export const RPC_FALLBACK_URLS = fallbackUrls(RPC_URL, testnet.rpc, env.VITE_RPC_FALLBACK_URLS, DEFAULT_RPC_FALLBACKS);
+/** Primary first, then the fallbacks: the read transport's URL list. */
+export const READ_RPC_URLS: readonly string[] = [RPC_URL, ...RPC_FALLBACK_URLS];
 export const INFO_URL = env.VITE_INFO_URL || 'https://api.hyperliquid-testnet.xyz/info';
 /**
  * Block explorer base URL. Empty by default: no working chain-998 explorer exists as of 2026-10-02 (the
