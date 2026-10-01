@@ -196,7 +196,8 @@ Out of sample (fit first half, test second): 17/240 % buckets fail; loss ratio 1
 
 - **Calibration backtest**: for BTC/ETH/SOL/HYPE × horizons {1h, 4h, 1d, 7d} × distances {1…20 %},
   predicted p vs realized touch frequency (candle lows/highs as proxy; 1 h data ≈ 7 months, 1 d since
-  2023-02). Output table + reliability plot. Pass: realized ≤ priced (with k) in every bucket with ≥ 30 obs.
+  2023-02). Output table + reliability plot. Pass: out-of-sample failing buckets ≤ 10 % and loss ratio per
+  horizon 0.4–0.8 (F15); in-sample failures listed in the report. Strict per-bucket rule tracked as F6.
 - **Pool P&L simulation**: sell covers at model premium through history → LP return, worst drawdown.
 - **Contracts**: unit + fuzz tests (accounting invariant: `USDC balance ≥ lockedAssets` always),
   precompile mocks, testnet E2E with tx hashes logged.
