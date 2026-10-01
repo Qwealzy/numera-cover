@@ -88,6 +88,22 @@ describe('max payout (cap) read', () => {
     expect(v.title).toMatch(/rate-limited/);
   });
 
+  it('viem allowFailure turns a rate-limited eth_call into per-entry failures: those are retried too', async () => {
+    // Shape seen in the browser 2026-10-02: multicall resolved, every entry failure "Request exceeds defined limit."
+    const perEntryLimited = () => [{ status: 'failure', error: new Error('Request exceeds defined limit.', { cause: { code: -32005 } }) }];
+    const c = client([perEntryLimited, () => [okResult]]);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0, 0] });
+    expect(c.multicall).toHaveBeenCalledTimes(2);
+    expect(rows[0].cap).toBe(9952605n);
+
+    const c2 = client([perEntryLimited]);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const rows2 = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c2, fetchAccount, retryDelaysMs: [0, 0] });
+    expect(c2.multicall).toHaveBeenCalledTimes(3);
+    expect(rows2[0].capError).toBe('RPC rate-limited (-32005/429) after retries');
+  });
+
   it('a non-rate-limit failure is not retried and its message is the tooltip', async () => {
     const c = client([() => new Error('fetch failed: ECONNRESET')]);
     vi.spyOn(console, 'error').mockImplementation(() => {});

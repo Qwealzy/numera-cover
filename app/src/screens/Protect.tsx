@@ -116,7 +116,7 @@ function CapValue({ row, onRetry }: { row: PositionRow; onRetry?: () => void }) 
   const v = capView(row, fmtUsdc);
   if (!v.unavailable) return <span title={v.title}>{v.text}</span>;
   return onRetry ? (
-    <button type="button" className="linkish cap-unavailable" title={`${v.title}. Click to read again.`} onClick={onRetry}>
+    <button type="button" className="linkish cap-unavailable" title={`${v.title?.replace(/\.+$/, '')}. Click to read again.`} onClick={onRetry}>
       {v.text}
     </button>
   ) : (
