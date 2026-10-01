@@ -142,6 +142,18 @@ npm run build      # or: npm run dev
 Configuration: `app/.env.example` (engine URL, RPC, explorer). Without an engine the app can run with
 `VITE_USE_QUOTE_FIXTURE=1` for UI work only (fixture quotes do not verify on-chain).
 
+**Run locally (engine API + app in one command).** Same command in PowerShell, cmd and bash; needs
+`engine/.venv`, `app/node_modules` and a `.env` copied from `.env.example` with `QUOTE_SIGNER_KEY` set:
+
+```sh
+node scripts/doctor.mjs      # read-only check: chain 998, contract code, pool quoteSigner, .env names, toolchain
+node scripts/dev.mjs         # engine on http://localhost:8000, app on http://localhost:5173; Ctrl-C stops both
+```
+
+`dev.mjs` loads `.env`, refuses chain id 999, starts the Quote API (uvicorn) and the Vite dev server with
+`VITE_ENGINE_URL` pointing at the local engine, and waits until both answer. Options: `--env <file>`,
+`--engine-only`, `--app-only`, `--port <engine port>`, `--app-port <app port>`.
+
 ## Limitations
 
 - **Testnet only.** USDC is a mock token; mainnet is out of scope and deploy scripts refuse chain 999.
