@@ -7,9 +7,12 @@ POST /quote  {buyer, perpIndex, isLong, level, payout, durationSec}
   -> 4xx/5xx {error: <code>, reason: <human text>}
 GET /health -> {ok, env, signer, chainId, pool}
 
-Live data: oracle price from the network's Info API asset ctxs (testnet by default), converted to px6
-(§3); sigma from recent 1h candles (mainnet Info API by default, read-only: testnet books are thin and
-their trade candles are not representative); tail multiplier k from reports/tail_multipliers.json.
+Live data (decision D10): the spot price S and spotRef come from the target pool's own price source
+(`priceSource().oraclePx6(perpIndex)` via eth_call), i.e. exactly what buyCover checks: the HyperCore
+precompile oracle for the real pool, the mock price for the MOCK pool. If that read fails, the Info API
+oracle price is used (`breakdown.spotSource` says which). sigma comes from recent mainnet 1h candles
+(read-only; testnet books are thin). k and q come from reports/tail_multipliers.json.
+The request may name a `pool`; it must be in the allowlist (configured pool + deployments/<env>.json).
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from typing import Any, Protocol
 import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -40,21 +44,28 @@ from .data import (
     InfoClient,
     px6_from_decimal_str,
 )
+from .deployments import Deployment, default_path
+from .deployments import load as load_deployment
 from .pricing import (
     P_MAX,
     SECONDS_PER_YEAR,
     THETA,
+    HorizonZTable,
     QuoteRefusedError,
     TailTable,
+    ZTailTable,
+    load_tail_table,
     premium,
     priced_prob,
     touch_prob,
+    z_score,
 )
 from .quote import MAINNET_CHAIN_ID, ChainNotAllowedError, Quote, sign_quote
 from .vol import sigma_estimate
 
 DEFAULT_TAIL_PATH = Path(__file__).resolve().parent.parent / "reports" / "tail_multipliers.json"
 JS_SAFE_INT = 2**53 - 1
+DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # Vite dev server (app/)
 
 
 # -- configuration ---------------------------------------------------------------------------------
@@ -76,6 +87,9 @@ class Settings:
     min_duration_s: int = 600
     max_duration_s: int = 7 * 86400
     max_payout: int = 100_000 * 10**6  # engine-side sanity cap; real capacity is enforced on-chain
+    cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
+    rpc_url: str | None = None  # EVM RPC for pool price reads (default: deployments file `rpc`)
+    deployments_path: Path | None = None  # pool allowlist + price sources
 
     @staticmethod
     def from_env() -> Settings:
@@ -93,6 +107,15 @@ class Settings:
             fee=int(e.get("NUMERA_FEE", "0")),
             quote_ttl_s=int(e.get("NUMERA_QUOTE_TTL_S", "60")),
             max_payout=int(e.get("NUMERA_MAX_PAYOUT", str(100_000 * 10**6))),
+            cors_origins=tuple(
+                x.strip()
+                for x in e.get("NUMERA_CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS)).split(",")
+                if x.strip()
+            ),
+            rpc_url=e.get("NUMERA_RPC_URL") or None,
+            deployments_path=Path(e["NUMERA_DEPLOYMENTS"])
+            if e.get("NUMERA_DEPLOYMENTS")
+            else default_path(e.get("NUMERA_ENV", "local")),
         )
 
 
@@ -154,6 +177,51 @@ class LiveMarketData:
         return s
 
 
+class SpotReader(Protocol):
+    def px6(self, pool: str, perp_index: int) -> int:
+        """Oracle price px6 as the pool's own price source reports it (raises on failure)."""
+
+
+PRICE_SOURCE_ABI = [
+    {"type": "function", "name": "oraclePx6", "stateMutability": "view",
+     "inputs": [{"name": "perpIndex", "type": "uint32"}], "outputs": [{"name": "", "type": "uint64"}]},
+]  # fmt: skip
+POOL_PRICE_SOURCE_ABI = [
+    {"type": "function", "name": "priceSource", "stateMutability": "view", "inputs": [],
+     "outputs": [{"name": "", "type": "address"}]},
+]  # fmt: skip
+
+
+class PoolSpotReader:
+    """eth_call reads of pool.priceSource().oraclePx6(perp); the price source address is taken from the
+    deployments file when listed there, else from the pool's `priceSource()` getter, and cached."""
+
+    def __init__(self, rpc_url: str, deployment: Deployment | None = None, timeout_s: float = 5.0) -> None:
+        from web3 import Web3
+
+        self.w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": timeout_s}))
+        self.deployment = deployment
+        self._sources: dict[str, Any] = {}
+
+    def _source(self, pool: str):
+        from web3 import Web3
+
+        key = pool.lower()
+        if key not in self._sources:
+            info = self.deployment.find(key) if self.deployment else None
+            addr = info.price_source if info and info.price_source else None
+            if addr is None:
+                c = self.w3.eth.contract(address=Web3.to_checksum_address(pool), abi=POOL_PRICE_SOURCE_ABI)
+                addr = c.functions.priceSource().call()
+            self._sources[key] = self.w3.eth.contract(
+                address=Web3.to_checksum_address(addr), abi=PRICE_SOURCE_ABI
+            )
+        return self._sources[key]
+
+    def px6(self, pool: str, perp_index: int) -> int:
+        return int(self._source(pool).functions.oraclePx6(perp_index).call())
+
+
 # -- API -------------------------------------------------------------------------------------------
 
 
@@ -166,6 +234,7 @@ class QuoteRequest(BaseModel):
     level: int = Field(gt=0, lt=2**64)
     payout: int = Field(gt=0, le=JS_SAFE_INT)
     durationSec: int = Field(gt=0)  # noqa: N815
+    pool: str | None = Field(default=None, pattern=r"^0x[0-9a-fA-F]{40}$")  # default: configured pool
 
 
 class ApiError(Exception):
@@ -181,9 +250,11 @@ def _err(status: int, code: str, reason: str) -> JSONResponse:
 def create_app(
     settings: Settings | None = None,
     market: MarketData | None = None,
-    tail: TailTable | None = None,
+    tail: TailTable | ZTailTable | HorizonZTable | None = None,
     clock: Callable[[], float] = time.time,
     nonce_fn: Callable[[], int] | None = None,
+    spot_reader: SpotReader | None = None,
+    deployment: Deployment | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     if market is None:
@@ -191,8 +262,14 @@ def create_app(
             InfoClient(settings.info_url, cache_dir=None), InfoClient(settings.history_info_url)
         )
     if tail is None:
-        tail = TailTable.load(settings.tail_path) if settings.tail_path.exists() else TailTable(coins={})
+        tail = load_tail_table(settings.tail_path) if settings.tail_path.exists() else TailTable(coins={})
     nonce_fn = nonce_fn or (lambda: secrets.randbelow(JS_SAFE_INT) + 1)  # JSON-number safe for JS clients
+    if deployment is None and settings.deployments_path is not None:
+        deployment = load_deployment(settings.deployments_path)
+    allowlist = {settings.pool.lower()} | {p.pool for p in (deployment.pools if deployment else ())}
+    if spot_reader is None:
+        rpc = settings.rpc_url or (deployment.rpc if deployment else None)
+        spot_reader = PoolSpotReader(rpc, deployment) if rpc else None
     signer_addr = None
     if settings.signer_key:
         from eth_account import Account
@@ -200,6 +277,12 @@ def create_app(
         signer_addr = Account.from_key(settings.signer_key).address
 
     app = FastAPI(title="Numera Quote API", version="1")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
@@ -224,6 +307,7 @@ def create_app(
             "signer": signer_addr,
             "chainId": settings.chain_id,
             "pool": settings.pool,
+            "pools": sorted(allowlist),
         }
 
     @app.post("/quote")
@@ -240,12 +324,32 @@ def create_app(
             )
         if req.payout > settings.max_payout:
             raise ApiError(422, "capacity", f"payout exceeds engine cap {settings.max_payout}")
+        pool = req.pool or settings.pool
+        if pool.lower() not in allowlist:
+            raise ApiError(400, "unknown_pool", f"pool {pool} is not in the allowlist")
+        spot6, spot_source = None, "info_api"
+        if spot_reader is not None:
+            try:
+                px = int(spot_reader.px6(pool, req.perpIndex))
+                if 0 < px < 2**64:
+                    spot6, spot_source = px, "pool"
+            except Exception:  # noqa: BLE001 - any RPC/revert failure falls back to the Info API
+                spot6 = None
         try:
-            coin, spot6 = market.oracle(req.perpIndex)
+            coin, info_px6 = market.oracle(req.perpIndex)
         except (UnknownPerpError, KeyError, IndexError):
-            raise ApiError(400, "unknown_perp", f"perpIndex {req.perpIndex} not listed") from None
+            coin = deployment.coin_of(req.perpIndex) if (deployment and spot6 is not None) else None
+            if coin is None:
+                raise ApiError(400, "unknown_perp", f"perpIndex {req.perpIndex} not listed") from None
+            info_px6 = None
         except (InfoApiError, ValueError) as exc:
-            raise ApiError(503, "market_data_unavailable", str(exc)) from None
+            coin = deployment.coin_of(req.perpIndex) if (deployment and spot6 is not None) else None
+            if coin is None:
+                raise ApiError(503, "market_data_unavailable", str(exc)) from None
+            info_px6 = None
+        if spot6 is None:
+            spot6 = info_px6
+        assert spot6 is not None
         if (req.isLong and spot6 <= req.level) or (not req.isLong and spot6 >= req.level):
             raise ApiError(
                 422,
@@ -262,7 +366,7 @@ def create_app(
         S, H = spot6 / 1e6, req.level / 1e6
         T = req.durationSec / SECONDS_PER_YEAR
         p = touch_prob(S, H, sigma, T)
-        adj = tail.lookup(coin, req.isLong, req.durationSec, abs(H / S - 1))
+        adj = tail.adjust(coin, req.isLong, req.durationSec, S, H, sigma)
         try:
             prem = premium(req.payout, p, adj.k, settings.theta, settings.p_max, settings.fee, adj.q)
         except QuoteRefusedError as exc:
@@ -281,7 +385,7 @@ def create_app(
             nonce=nonce_fn(),
         )
         try:
-            sig = sign_quote(q, settings.chain_id, settings.pool, settings.signer_key)
+            sig = sign_quote(q, settings.chain_id, pool, settings.signer_key)
         except ChainNotAllowedError as exc:
             raise ApiError(403, "chain_not_allowed", str(exc)) from None
         return {
@@ -299,6 +403,9 @@ def create_app(
                 "pricedProb": priced_prob(p, adj.k, adj.q),
                 "fee": settings.fee,
                 "coin": coin,
+                "z": z_score(S, H, sigma, T),
+                "spotSource": spot_source,
+                "pool": pool,
             },
         }
 
