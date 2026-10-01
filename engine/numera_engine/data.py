@@ -1,6 +1,6 @@
 """Hyperliquid Info API client (read-only): candles with pagination + on-disk cache, asset contexts.
 
-Facts used (docs/research/hyperliquid.md §Info API):
+Facts used (Hyperliquid Info API):
 - POST JSON to /info. ``candleSnapshot`` returns trade-price candles ``t,T,s,i,o,c,h,l,v,n`` (strings for
   prices). Only the ~5000 most recent candles per interval exist; a time-range response may be capped,
   so we paginate from the last returned open time until ``end_ms`` or no progress.
@@ -202,7 +202,7 @@ def px6_from_decimal_str(px: str) -> int:
 
 
 def px6_from_precompile(raw: int, sz_decimals: int) -> int:
-    """Precompile oraclePx raw value -> px6. ARCHITECTURE §3: px6 = raw * 10^szDecimals."""
+    """Precompile oraclePx raw value -> px6. docs/how-it-works.md §3: px6 = raw * 10^szDecimals."""
     if not 0 <= sz_decimals <= 6:
         raise ValueError("szDecimals out of range")
     return int(raw) * 10**sz_decimals

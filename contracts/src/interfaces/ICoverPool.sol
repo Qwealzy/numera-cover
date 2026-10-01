@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @notice Cover book interface of CoverPool. Types, function names and event signatures are the frozen
-///         contract of ARCHITECTURE §4–5; do not change them without changing the doc first.
+///         contract of docs/how-it-works.md §4–5; do not change them without changing the doc first.
 interface ICoverPool {
     // ---------------------------------------------------------------- types (§4, §5)
 

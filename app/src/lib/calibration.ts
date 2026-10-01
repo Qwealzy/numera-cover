@@ -31,7 +31,7 @@ export function modelText(md: string): ModelText {
   const lookupLine = /(?:^|\n)Lookup:[ \t]*([^\n]*)/.exec(formulaSec)?.[1] ?? '';
   const lookup = lookupLine.split(/\s(?=Quote API:)/)[0].trim();
   const method = mdSection(md, 'Method');
-  // v3 report: an "Adopted" bullet plus a "Per bucket:" sentence; v4 (D13): one "Tail tables" bullet holds both.
+  // v3 report: an "Adopted" bullet plus a "Per bucket:" sentence; v4: one "Tail tables" bullet holds both.
   const bullet = (method.split(/\n(?=- )/).find((b) => /^- \*\*(Adopted|Tail tables)/i.test(b.trim())) ?? '').replace(/^- /, '').trim();
   const perBucket = /Per bucket[: ][^\n]*/.exec(method)?.[0].trim() ?? '';
   const adopted = (perBucket && bullet.includes(perBucket) ? bullet.replace(perBucket, '') : bullet).trim();

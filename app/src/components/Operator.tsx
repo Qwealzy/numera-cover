@@ -10,7 +10,7 @@ import { useApp } from '../state';
 import { MockTag, Notice, TxStatus, useTx } from './ui';
 
 /**
- * MOCK pool operator controls (Demo B, ARCHITECTURE §8): shown only when the connected account owns the
+ * MOCK pool operator controls (Demo B, docs/how-it-works.md §8): shown only when the connected account owns the
  * mock sources. Moves the mock oracle and sets mock positions; every value is shown in raw units first.
  */
 export function Operator() {

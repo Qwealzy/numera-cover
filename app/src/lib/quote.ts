@@ -1,4 +1,4 @@
-// Quote API client (ARCHITECTURE §6) + a fixture with the same shape for UI work without the engine.
+// Quote API client (docs/how-it-works.md §6) + a fixture with the same shape for UI work without the engine.
 import { getAddress, hashTypedData, recoverTypedDataAddress, type Address, type Hex } from 'viem';
 import { parseDecimal, PX_DECIMALS, USDC_DECIMALS } from './format';
 
@@ -10,7 +10,7 @@ export interface QuoteRequest {
   level: number;
   payout: number;
   durationSec: number;
-  /** Pool the quote is signed for (EIP-712 verifyingContract). Optional engine extension (D10). */
+  /** Pool the quote is signed for (EIP-712 verifyingContract). Optional engine extension. */
   pool?: Address;
 }
 
@@ -40,9 +40,9 @@ export interface Breakdown {
   pricedProb?: number;
   fee?: number;
   coin?: string;
-  /** Standardized distance ln(L/S)/(σ√T) — "distance in σ" (D9). */
+  /** Standardized distance ln(L/S)/(σ√T) — "distance in σ". */
   z?: number;
-  /** Where S / spotRef came from: the pool's own price source, or the Info API fallback (D10). */
+  /** Where S / spotRef came from: the pool's own price source, or the Info API fallback. */
   spotSource?: 'pool' | 'info_api';
   pool?: string;
 }
@@ -113,7 +113,7 @@ export async function recoverQuoteSigner(q: QuoteJson, sig: Hex, chainId: number
 export const quoteDigest = (q: QuoteJson, chainId: number, pool: Address): Hex =>
   hashTypedData({ domain: quoteDomain(chainId, pool), types: QUOTE_TYPES, primaryType: 'Quote', message: toContractQuote(q) });
 
-/** Premium the §7.4 formula gives for this breakdown: ceil(payout × pricedProb × (1+θ)) + fee. */
+/** Premium the §7 step 6 formula gives for this breakdown: ceil(payout × pricedProb × (1+θ)) + fee. */
 export function expectedPremium(payout: number, b: Breakdown): number {
   const priced = b.pricedProb ?? Math.max(b.touchProb * (b.tailMultiplier ?? 1), b.tailFloor ?? 0);
   return Math.ceil(payout * priced * (1 + b.loading)) + (b.fee ?? 0);
@@ -233,7 +233,7 @@ export interface EngineHealth {
   signer: string | null;
   chainId: number;
   pool: string;
-  /** Pools the engine will sign for (D10); absent on older engines. */
+  /** Pools the engine will sign for; absent on older engines. */
   pools?: string[];
 }
 
@@ -257,7 +257,7 @@ export function ndtr(x: number): number {
   return x >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y);
 }
 
-/** Driftless-GBM one-touch probability, ARCHITECTURE §7.2 (mirror of engine pricing.touch_prob). */
+/** Driftless-GBM one-touch probability, docs/how-it-works.md §7 step 3 (mirror of engine pricing.touch_prob). */
 export function touchProb(S: number, H: number, sigma: number, T: number): number {
   if (H === S) return 1;
   if (sigma <= 0 || T <= 0) return 0;

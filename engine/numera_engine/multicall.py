@@ -1,4 +1,4 @@
-"""Multicall3 batching for the keeper's state reads (decision D18): one ``eth_call`` per poll.
+"""Multicall3 batching for the keeper's state reads: one ``eth_call`` per poll.
 
 Multicall3 is the canonical deployment at ``0xcA11bde05977b3631167028862bE2a173976CA11`` (present on
 HyperEVM testnet, chain 998). Every sub-call uses ``allowFailure = true``: a reverting read (e.g. an unset

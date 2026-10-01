@@ -1,4 +1,4 @@
-"""Quote API (ARCHITECTURE §6) with a stubbed market data layer: no network."""
+"""Quote API (docs/how-it-works.md §6) with a stubbed market data layer: no network."""
 
 import pytest
 from fastapi.testclient import TestClient

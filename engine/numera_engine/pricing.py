@@ -1,4 +1,4 @@
-"""One-touch (barrier-hit) probability and premium (ARCHITECTURE §7).
+"""One-touch (barrier-hit) probability and premium (docs/how-it-works.md §7).
 
 Model: driftless GBM in price, i.e. dS = sigma S dW, so X_t = ln(S_t/S_0) is Brownian motion with drift
 nu = -sigma^2/2 and volatility sigma. For a barrier H and b = ln(H/S):
@@ -7,7 +7,7 @@ Down barrier (H < S, b < 0), first-passage of a drifted Brownian motion below b 
 Girsanov):
     P(min_{t<=T} X_t <= b) = N((b - nu T)/(s)) + exp(2 nu b / sigma^2) N((b + nu T)/(s)),   s = sigma sqrt(T)
 With nu = -sigma^2/2: exp(2 nu b/sigma^2) = exp(-b) = S/H, hence
-    p_down = N((b + sigma^2 T/2)/s) + (S/H) N((b - sigma^2 T/2)/s)          (ARCHITECTURE §7.2)
+    p_down = N((b + sigma^2 T/2)/s) + (S/H) N((b - sigma^2 T/2)/s)          (how-it-works §7 step 3)
 
 Up barrier (H > S, b > 0): apply the same result to -X (drift -nu, barrier -b):
     P(max X_t >= b) = N((-b + nu T)/s) + exp(2 nu b / sigma^2) N((-b - nu T)/s)
@@ -15,7 +15,7 @@ Up barrier (H > S, b > 0): apply the same result to -X (drift -nu, barrier -b):
 Note the mirror is NOT symmetric in distance: with nu < 0 the log-price drifts down, so an up barrier at
 +x% is slightly less likely than a down barrier at -x% (in log terms); and a +x% move is a smaller log
 move than -x%. Both effects are captured exactly by the formula. Verified against Monte Carlo in
-tests/test_pricing.py (F5).
+tests/test_pricing.py.
 """
 
 from __future__ import annotations
@@ -89,9 +89,9 @@ def premium(
     fee: int = 0,
     q_floor: float = 0.0,
 ) -> int:
-    """Premium in USDC base units (6 dec), rounded up. §7.4 with the empirical floor q (see TailTable):
+    """Premium in USDC base units (6 dec), rounded up. §7 step 6 with the empirical floor q (see TailTable):
     premium = payout * min(max(p*k, q), pMax) * (1 + theta) + fee; refuse when max(p*k, q) > pMax.
-    With q = 0 this is exactly the ARCHITECTURE §7.4 formula.
+    With q = 0 this is exactly the docs/how-it-works.md §7 step 6 formula.
     """
     if payout <= 0:
         raise ValueError("payout must be positive")
@@ -188,7 +188,7 @@ def _dkey(d: float) -> str:
     return f"{d:.3f}"
 
 
-# -- v2: pooled standardized-distance table (decision D9) ------------------------------------------
+# -- v2: pooled standardized-distance table -------------------------------------------------------
 
 Z_EDGES: tuple[float, ...] = tuple(i * 0.25 for i in range(17)) + (5.0, 7.0, math.inf)
 
@@ -303,7 +303,7 @@ def _bisect_right(xs, x: float) -> int:
 
 @dataclass
 class HorizonZTable:
-    """v3 (decision D11): one ZTailTable per calibrated horizon, each pooled over coins only.
+    """v3: one ZTailTable per calibrated horizon, each pooled over coins only.
 
     A quote uses the table of the smallest calibrated horizon >= its duration (the longest beyond the grid).
     """
@@ -331,7 +331,7 @@ class HorizonZTable:
 
 
 def load_tail_table(path: str | Path) -> TailTable | ZTailTable | HorizonZTable:
-    """Load tail_multipliers.json: per-horizon z tables (v3 D11 / v4 D13: same shape, v4 differs only in
+    """Load tail_multipliers.json: per-horizon z tables (v3 / v4: same shape, v4 differs only in
     how thin buckets are fitted), v2 pooled z table, or v1 per-bucket table."""
     blob: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
     if blob.get("schema") in ("z-per-horizon-v3", "z-per-horizon-v4"):

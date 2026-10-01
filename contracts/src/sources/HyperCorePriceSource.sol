@@ -5,7 +5,7 @@ import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
 /// @title HyperCorePriceSource — oracle price of a Hyperliquid perp, read from HyperCore precompiles
 /// @notice Reads `oraclePx(uint32)` at 0x…0807 and `perpAssetInfo(uint32)` at 0x…080a
-///         (docs/research/hyperliquid.md §Read precompiles) and normalizes to px6 = raw x 10^szDecimals.
+///         (HyperEVM read precompile) and normalizes to px6 = raw x 10^szDecimals.
 /// @dev Precompiles take raw `abi.encode(args)` (no selector). An invalid perp index makes the precompile
 ///      fail and burn ALL forwarded gas, so every call is gas-capped and failures revert with a named error.
 ///      `szDecimals` is validated once and cached by the permissionless `cachePerp`; uncached perps are

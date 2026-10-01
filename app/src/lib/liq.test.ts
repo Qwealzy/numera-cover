@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultLevel, liqPrice, maintenanceLeverage, mockPositionLiq, positionLiq, type ApiAccount, type ApiPosition } from './liq';
 
-// Real testnet snapshot, 2026-10-01 (docs/research/hyperliquid.md; Info API clearinghouseState for
+// Real testnet snapshot, 2026-10-01 (Info API clearinghouseState for
 // 0x66DD…d5e7): BTC long 0.00117 @ 85065, 10× cross, liquidationPx null, maxLeverage 40.
 const account: ApiAccount = {
   marginSummary: { accountValue: '9.775935', totalNtlPos: '99.33885', totalRawUsd: '-89.562915', totalMarginUsed: '9.933885' },

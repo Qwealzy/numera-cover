@@ -1,4 +1,4 @@
-"""One-touch closed form vs Monte Carlo (F5), premium and tail-table tests.
+"""One-touch closed form vs Monte Carlo, premium and tail-table tests.
 
 Monte Carlo design: simulate X = ln(S_t/S_0) exactly on a grid (Brownian motion with drift
 nu = -sigma^2/2, N steps). A grid-only check misses barrier crossings *between* grid points, so a naive
@@ -110,7 +110,7 @@ def test_matches_general_drift_formula(H):
 
 
 def test_architecture_down_formula_literal():
-    """ARCHITECTURE §7.2 exactly as written."""
+    """docs/how-it-works.md §7 step 3 exactly as written."""
     S, H, sigma, T = 84_000.0, 80_000.0, 0.55, 3 * DAY
     b = math.log(H / S)
     s = sigma * math.sqrt(T)

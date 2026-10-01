@@ -1,4 +1,4 @@
-"""Quote API (ARCHITECTURE §6): FastAPI service that prices and signs §4 Quotes.
+"""Quote API (docs/how-it-works.md §6): FastAPI service that prices and signs §4 Quotes.
 
     uvicorn numera_engine.quote_api:app --port 8000      (configuration from environment, see Settings)
 
@@ -7,7 +7,7 @@ POST /quote  {buyer, perpIndex, isLong, level, payout, durationSec}
   -> 4xx/5xx {error: <code>, reason: <human text>}
 GET /health -> {ok, env, signer, chainId, pool}
 
-Live data (decision D10): the spot price S and spotRef come from the target pool's own price source
+Live data: the spot price S and spotRef come from the target pool's own price source
 (`priceSource().oraclePx6(perpIndex)` via eth_call), i.e. exactly what buyCover checks: the HyperCore
 precompile oracle for the real pool, the mock price for the MOCK pool. If that read fails, the Info API
 oracle price is used (`breakdown.spotSource` says which). sigma comes from recent mainnet 1h candles
@@ -145,7 +145,7 @@ class MarketData(Protocol):
         """(coin name, oracle price px6) for a perp index on the quoting network."""
 
     def sigma(self, coin: str) -> float:
-        """Annualized sigma for the coin (EWMA 0.94 with 30-day floor, §7.1)."""
+        """Annualized sigma for the coin (EWMA 0.94 with 30-day floor, §7 step 2)."""
 
 
 class UnknownPerpError(KeyError):

@@ -26,7 +26,7 @@ def test_px6_from_info_api_string():
 
 
 def test_px6_from_precompile_matches_research_example():
-    # docs/research/hyperliquid.md: testnet BTC (szDecimals 5) oraclePx raw 842456 -> 84245.6 USD
+    # Info API snapshot: testnet BTC (szDecimals 5) oraclePx raw 842456 -> 84245.6 USD
     assert px6_from_precompile(842456, 5) == 84_245_600_000 == px6_from_decimal_str("84245.6")
     assert px6_from_precompile(909_260, 2) == px6_from_decimal_str("90.926")  # HYPE-like, szDecimals 2
     with pytest.raises(ValueError):

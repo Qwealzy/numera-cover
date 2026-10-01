@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.24;
 
-/// @notice Perp position of a user, used by CoverPool to check insurable interest (ARCHITECTURE §5, D3).
+/// @notice Perp position of a user, used by CoverPool to check insurable interest (docs/how-it-works.md §5).
 interface IPositionSource {
     /// @return szi Signed position size (> 0 long, < 0 short, 0 none), HyperCore raw units.
     /// @return entryNtl Entry notional. Assumed USD x 1e6 (UNVERIFIED, see research §Read precompiles).

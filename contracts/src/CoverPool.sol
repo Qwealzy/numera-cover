@@ -18,7 +18,7 @@ import {IPositionSource} from "./interfaces/IPositionSource.sol";
 
 /// @title CoverPool — Numera liquidation cover for Hyperliquid perps
 /// @notice ERC-4626 USDC underwriter vault plus a book of parametric covers sold against EIP-712 quotes
-///         signed by the off-chain actuarial engine (ARCHITECTURE §4–5, D6, D7).
+///         signed by the off-chain actuarial engine (docs/how-it-works.md §4–5).
 ///         Solvency: every cover's payout is locked at sale (`lockedAssets`), and LP withdrawals are limited
 ///         to `totalAssets - lockedAssets`, so `USDC balance >= lockedAssets` always holds.
 /// @dev Pause stops new covers and new deposits only. Trigger, expire and withdrawals of free assets keep
@@ -150,7 +150,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable, Pausable, Reentrancy
 
     // ---------------------------------------------------------------- EIP-712 helpers
 
-    /// @notice EIP-712 struct hash of a quote (ARCHITECTURE §4).
+    /// @notice EIP-712 struct hash of a quote (docs/how-it-works.md §4).
     function quoteStructHash(Quote calldata q) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -260,7 +260,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable, Pausable, Reentrancy
         if (_breached(q.isLong, px, q.level)) revert LevelAlreadyBreached(px, q.level);
     }
 
-    /// @dev Check 4 (D3): buyer holds a same-direction position; payout <= initial-margin estimate.
+    /// @dev Check 4: buyer holds a same-direction position; payout <= initial-margin estimate.
     function _checkPosition(Quote calldata q) private view {
         (int64 szi, uint64 entryNtl, uint32 leverage) = positionSource.position(msg.sender, q.perpIndex);
         if (szi == 0) revert NoPosition(msg.sender, q.perpIndex);
@@ -269,7 +269,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable, Pausable, Reentrancy
         if (q.payout > cap) revert PayoutExceedsMarginCap(q.payout, cap);
     }
 
-    /// @dev Check 5 (D6): pool and per-perp utilization, against totalAssets before this premium arrives.
+    /// @dev Check 5: pool and per-perp utilization, against totalAssets before this premium arrives.
     function _checkCapacity(Quote calldata q) private view {
         uint256 assets = totalAssets();
         uint256 lockedAfter = lockedAssets + q.payout;
@@ -282,7 +282,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable, Pausable, Reentrancy
 
     // ---------------------------------------------------------------- internal
 
-    /// @dev Long cover pays when oracle <= level, short cover when oracle >= level (ARCHITECTURE §3).
+    /// @dev Long cover pays when oracle <= level, short cover when oracle >= level (docs/how-it-works.md §3).
     function _breached(bool isLong, uint64 px, uint64 level) internal pure returns (bool) {
         return isLong ? px <= level : px >= level;
     }

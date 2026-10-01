@@ -1,13 +1,13 @@
-"""Calibration backtest of the one-touch model on real Hyperliquid history (ARCHITECTURE §9, D9, D11, D13).
+"""Calibration backtest of the one-touch model on real Hyperliquid history (docs/how-it-works.md §7, §9).
 
     python -m numera_engine.backtest --coins BTC ETH SOL HYPE
 
 For each coin, horizon and distance, compare the model's predicted touch probability (sigma estimated
 strictly from data before the start) with whether the price actually touched the level within the
 window (candle low/high). The tail adjustment (k, q) is fitted per horizon on the standardized distance
-z = ln(H/S) / (sigma sqrt(T)), pooled over coins. v4 (D13, published): the 1d table is fitted on daily
+z = ln(H/S) / (sigma sqrt(T)), pooled over coins. v4 (published): the 1d table is fitted on daily
 candles (2023-2026) and thin |z| buckets are pooled with their nearer neighbours before the Wilson bound.
-v3 (D11, the previous tables, 1d on 1h candles) and rejected thin-bucket alternatives are evaluated side
+v3 (the previous tables, 1d on 1h candles) and rejected thin-bucket alternatives are evaluated side
 by side, in sample and out of sample, and run through a pool P&L simulation.
 
 Writes engine/reports/: calibration.md, calibration.csv (per % bucket), calibration_z.csv (z buckets),
@@ -38,7 +38,7 @@ HL_DAILY_START_MS = int(dt.datetime(2023, 2, 26, tzinfo=dt.UTC).timestamp() * 10
 MIN_OBS = 30
 K_MAX = 10.0
 Z_ONE_SIDED_95 = 1.6448536269514722
-TARGET_LOSS_RATIO = (0.4, 0.8)  # D13 (D9 had 0.5-0.8)
+TARGET_LOSS_RATIO = (0.4, 0.8)  # v4 target (v2 had 0.5-0.8)
 
 
 @dataclass(frozen=True)
@@ -49,13 +49,13 @@ class Horizon:
     bars: int  # candles per window (= step between starts, non-overlapping)
 
 
-HORIZONS = (  # published tables (D13: 1d on daily candles = exact intraday touch for a 00:00 UTC window)
+HORIZONS = (  # published tables (v4: 1d on daily candles = exact intraday touch for a 00:00 UTC window)
     Horizon("1h", 3600, "1h", 1),
     Horizon("4h", 4 * 3600, "1h", 4),
     Horizon("1d", 86400, "1d", 1),
     Horizon("7d", 7 * 86400, "1d", 7),
 )
-# D11 data set for the 1d table (24 one-hour candles, ~7 months, sigma from 1h candles like the live engine).
+# v3 data set for the 1d table (24 one-hour candles, ~7 months, sigma from 1h candles like the live engine).
 # Not published; kept to compare old vs new and to check the 1d table under the live engine's sigma.
 LEGACY_1D = Horizon("1d-1h", 86400, "1h", 24)
 DATASETS = (*HORIZONS, LEGACY_1D)
@@ -172,7 +172,7 @@ def fit_tail(hits: int, n: int, mean_p: float) -> tuple[float, float] | None:
 
 @dataclass
 class Bucket:
-    """Per (coin, horizon, direction, % distance): the calibration view of ARCHITECTURE §9."""
+    """Per (coin, horizon, direction, % distance): the calibration view of docs/how-it-works.md §9."""
 
     coin: str
     horizon: str
@@ -248,9 +248,9 @@ def v1_priced(obs: Obs, fit: dict[tuple[str, float], tuple[float, float]]) -> np
     return out
 
 
-# -- z buckets per horizon (v3 = D11, v4 = D13) ----------------------------------------------------
+# -- z buckets per horizon (v3, v4) ----------------------------------------------------------------
 
-N_POOL = 300  # D13: a |z| bucket's floor rests on >= N_POOL windows with >= 1 touch (nearward pooling)
+N_POOL = 300  # v4: a |z| bucket's floor rests on >= N_POOL windows with >= 1 touch (nearward pooling)
 
 
 @dataclass
@@ -282,7 +282,7 @@ def _zlabel(lo: float, hi: float) -> str:
 
 
 def nearward_pool(counts: list[tuple[int, int]], n_pool: int = N_POOL, min_hits: int = 1) -> list[tuple[int, int]]:
-    """D13 (adopted). Per |z| bucket (ordered near -> far), the (hits, n) its floor q is fitted on: its own
+    """v4 (adopted). Per |z| bucket (ordered near -> far), the (hits, n) its floor q is fitted on: its own
     counts if it has >= ``n_pool`` windows and >= ``min_hits`` touches, else its counts pooled with its
     nearer-the-money neighbours, one at a time, until the pool qualifies (or nothing nearer is left).
     Empty buckets stay (0, 0).
@@ -308,7 +308,7 @@ def nearward_pool(counts: list[tuple[int, int]], n_pool: int = N_POOL, min_hits:
 
 
 def merge_tail_inward(counts: list[tuple[int, int]], n_pool: int = N_POOL, min_hits: int = 1) -> list[tuple[int, int]]:
-    """Rejected alternative (D13). Partition the buckets, from the far tail inwards, into adjacent blocks with
+    """Rejected alternative (v4 study). Partition the buckets, from the far tail inwards, into adjacent blocks with
     >= ``n_pool`` windows and >= ``min_hits`` touches (a short near-money remainder joins its neighbouring
     block); each bucket uses its block's counts. Flaw: the nearest member of a block is averaged with safer,
     further buckets, so the block bound is not an upper bound for it (under-prices the block's inner edge)."""
@@ -356,7 +356,7 @@ def pava_nonincreasing(counts: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """Pool-adjacent-violators: merge neighbouring (hits, n) buckets until the touch frequency is
     non-increasing in |z|; returns, per input bucket, the (hits, n) of the block it ends up in.
 
-    The maximum-likelihood monotone fit (D11 compared alternative, rejected). Empty buckets (n = 0) are
+    The maximum-likelihood monotone fit (v3 compared alternative, rejected). Empty buckets (n = 0) are
     skipped and inherit the counts of the block before them.
     """
     blocks: list[list[int]] = []  # [hits, n, first index, last index]
@@ -387,7 +387,7 @@ def fit_z(parts: list[tuple[Obs, np.ndarray]], edges=Z_EDGES, method: str = "non
     """Pool rows (obs, mask) into |z| buckets per direction and fit (k, q).
 
     q = Wilson one-sided 95 % upper bound of the touch frequency on the counts chosen by ``method``:
-    "none" = the bucket's own counts (v3, D11); "nearward" = ``nearward_pool`` (v4, D13); "merge" =
+    "none" = the bucket's own counts (v3); "nearward" = ``nearward_pool`` (v4); "merge" =
     ``merge_tail_inward``; "pava" = ``pava_nonincreasing``; "isotonic" = own Wilson bounds, then a
     non-increasing isotonic fit weighted by n. k = clamp(q / bucket mean p, 1, K_MAX), 1 if those counts
     have no touch. A cell needs >= MIN_OBS windows behind q and >= 1 window of its own.
@@ -733,13 +733,14 @@ CURVE_Z = (2.0, 2.5, 3.0, 3.25, 3.5, 3.75, 4.0, 4.5, 5.0, 6.0)
 
 def _fails(d: dict | None, d11: bool = False) -> tuple[int, int]:
     """(failing, evaluated) % buckets. ``d11``: only buckets that also have >= 30 first-half windows of that
-    coin (D11's criterion, from per-coin fitting); it drops HYPE at 1d/7d, which starts after the split."""
+    coin (the v3 criterion, from per-coin fitting; the report's "OOS fails (D11)" column); it drops HYPE
+    at 1d/7d, which starts after the split."""
     rows = [v for v in (d or {}).values() if v.get("train_ok", True) or not d11]
     return sum(1 for v in rows if not v["pass"]), len(rows)
 
 
 def headline(ctx: dict, row: tuple) -> dict:
-    """Per horizon and total: in-sample fails, OOS fails (all buckets with >= 30 test windows, and D11's
+    """Per horizon and total: in-sample fails, OOS fails (all buckets with >= 30 test windows, and the v3
     criterion), OOS loss ratio, OOS price multiple vs raw."""
     _, _, spec = row
     out: dict = {"is": [0, 0], "oos": [0, 0], "oos_d11": [0, 0]}

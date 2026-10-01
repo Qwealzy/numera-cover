@@ -1,4 +1,4 @@
-"""FailoverRpc (D18): -32005 backoff 2 -> 60 s with jitter, rotation, return to primary (fake transport)."""
+"""FailoverRpc: -32005 backoff 2 -> 60 s with jitter, rotation, return to primary (fake transport)."""
 
 import pytest
 

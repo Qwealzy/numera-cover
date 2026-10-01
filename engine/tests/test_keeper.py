@@ -1,4 +1,4 @@
-"""Keeper pure logic: decisions, getCover decoding, active-set bookkeeping (D18), resend guard."""
+"""Keeper pure logic: decisions, getCover decoding, active-set bookkeeping, resend guard."""
 
 from numera_engine.keeper import Action, Cover, PoolBook, Status, cover_from_tuple, decide, due, is_breached
 

@@ -1,4 +1,4 @@
-"""Keeper poll loop against a fake chain behind Multicall3 (D18): state discovery, one request per poll."""
+"""Keeper poll loop against a fake chain behind Multicall3: state discovery, one request per poll."""
 
 import pytest
 from eth_abi import decode, encode

@@ -1,4 +1,4 @@
-"""EIP-712 Quote signing (ARCHITECTURE §4) and the shared test vector for the contracts worker (F7)."""
+"""EIP-712 Quote signing (docs/how-it-works.md §4) and the EIP-712 test vector shared with the contracts."""
 
 import json
 from pathlib import Path

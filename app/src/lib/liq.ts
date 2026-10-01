@@ -101,7 +101,7 @@ export function mockPositionLiq(sizeAbs: number, side: Side, entryPx: number, le
 
 /**
  * Default trigger level: `buffer` (fraction of liq price) beyond the liq price toward spot — the oracle
- * triggers the cover while mark liquidates, so the level sits a little before liquidation (§8).
+ * triggers the cover while mark liquidates, so the level sits a little before liquidation (docs/how-it-works.md §8).
  * If spot is closer than that, use the midpoint. Rounded to 5 significant digits.
  */
 export function defaultLevel(liq: number, spot: number, side: Side, buffer: number): number | null {

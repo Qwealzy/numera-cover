@@ -1,4 +1,4 @@
-"""Multicall3 encoding/decoding (D18): one eth_call per poll, failed sub-calls become None."""
+"""Multicall3 encoding/decoding: one eth_call per poll, failed sub-calls become None."""
 
 import pytest
 from eth_abi import decode, encode

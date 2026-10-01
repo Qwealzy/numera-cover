@@ -1,4 +1,4 @@
-"""Quote API additions: pooled z table (D9), Vite CORS, pool price source and pool allowlist (D10)."""
+"""Quote API additions: pooled z table, Vite CORS, pool price source and pool allowlist."""
 
 import math
 

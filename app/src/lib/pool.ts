@@ -1,4 +1,4 @@
-// On-chain reads for one CoverPool (ARCHITECTURE §5). All reads go through the public RPC.
+// On-chain reads for one CoverPool (docs/how-it-works.md §5). All reads go through the public RPC.
 import { parseAbi, parseAbiItem, zeroAddress, type Address, type Hex } from 'viem';
 import { publicClient } from './chain';
 import { coverPoolAbi, iPriceSourceAbi, mockPositionSourceAbi, mockUSDCAbi, mockPriceSourceAbi } from '../generated/abi';

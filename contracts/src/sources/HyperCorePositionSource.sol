@@ -5,7 +5,7 @@ import {IPositionSource} from "../interfaces/IPositionSource.sol";
 
 /// @title HyperCorePositionSource — a user's perp position, read from the HyperCore 0x…0800 precompile
 /// @notice `position(address user, uint16 perp)` → `(int64 szi, uint64 entryNtl, int64 isolatedRawUsd,
-///         uint32 leverage, bool isIsolated)` (docs/research/hyperliquid.md §Read precompiles).
+///         uint32 leverage, bool isIsolated)` (HyperEVM read precompile).
 /// @dev The precompile takes the perp index as uint16; larger indices are rejected with a named error.
 ///      Scaling of `entryNtl` is UNVERIFIED (assumed USD x 1e6); it is passed through unchanged and
 ///      interpreted only in CoverPool._marginCap.

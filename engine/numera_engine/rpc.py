@@ -1,4 +1,4 @@
-"""JSON-RPC client with an endpoint list, rate-limit backoff and failover (decision D18).
+"""JSON-RPC client with an endpoint list, rate-limit backoff and failover.
 
 Endpoints are tried in priority order. When one answers ``-32005`` (or HTTP 429) it cools down for an
 exponential, jittered 2 -> 60 s and the request moves to the next endpoint that is not cooling; once the

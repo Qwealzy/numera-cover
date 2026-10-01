@@ -10,7 +10,7 @@ import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {MockPositionSource} from "../src/mocks/MockPositionSource.sol";
 
-/// @notice Shared EIP-712 test vector (ARCHITECTURE §4). The engine computes the same values independently.
+/// @notice Shared EIP-712 test vector (docs/how-it-works.md §4). The engine computes the same values independently.
 ///         The committed file test/vectors/quote_vector.json is checked here; regenerate it from this code
 ///         with `WRITE_VECTORS=true forge test --match-contract QuoteVectorTest`.
 contract QuoteVectorTest is Test {

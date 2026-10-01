@@ -1,10 +1,10 @@
-"""Keeper: watch CoverPool covers; trigger(id) on breach, expire(id) after expiry (ARCHITECTURE §5, §8).
+"""Keeper: watch CoverPool covers; trigger(id) on breach, expire(id) after expiry (how-it-works §5, §8).
 
     KEEPER_KEY=0x... python -m numera_engine.keeper                        # all pools in deployments file
     KEEPER_KEY=0x... python -m numera_engine.keeper --pool 0xA --pool 0xB  # chosen pools
     python -m numera_engine.keeper --dry-run --duration 300                # read-only: log, never send
 
-Design (decision D18): covers are discovered by **state, not logs**. Each poll is one ``eth_call`` to
+Design: covers are discovered by **state, not logs**. Each poll is one ``eth_call`` to
 Multicall3 that reads, for every pool, ``coverCount()`` and ``getCover(id)`` for the ids still active plus
 a few ids past the last one seen, the pools' price sources ``oraclePx6(perp)`` (what ``trigger`` itself
 checks, so a decision cannot disagree with the contract) and the block timestamp. Final covers

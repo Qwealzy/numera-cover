@@ -9,7 +9,7 @@ import { modelText } from '../lib/calibration';
  */
 export function Model() {
   const html = useMemo(() => (calibrationMd.trim() ? (marked.parse(calibrationMd, { async: false }) as string) : ''), []);
-  // Formula and method text come from the synced calibration report, so they follow the engine (D11, D13…).
+  // Formula and method text come from the synced calibration report, so they follow the engine.
   const m = useMemo(() => {
     const t = modelText(calibrationMd);
     const md = (x: string) => (x ? (marked.parseInline(x, { async: false }) as string) : '');
@@ -43,7 +43,7 @@ export function Model() {
         </section>
         <section className="panel">
           <div className="panel__head">
-            <h2>Formula (ARCHITECTURE §7)</h2>
+            <h2>Formula</h2>
             <span className="meta">{m.title ? `engine/reports/calibration.md · ${m.title}` : 'engine/reports/calibration.md'}</span>
           </div>
           {m.formula ? (

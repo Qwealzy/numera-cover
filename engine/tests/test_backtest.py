@@ -161,7 +161,7 @@ def test_pava_merges_violators_and_keeps_monotone_input():
 
 def test_one_day_horizon_uses_daily_candles_and_exact_daily_touch():
     hz = next(h for h in HORIZONS if h.name == "1d")
-    assert (hz.interval, hz.bars) == ("1d", 1)  # D13; the D11 set (24 x 1h) is kept only for comparison
+    assert (hz.interval, hz.bars) == ("1d", 1)  # v4; the v3 set (24 x 1h) is kept only for comparison
     assert (LEGACY_1D.interval, LEGACY_1D.bars, LEGACY_1D.seconds) == ("1h", 24, 86400)
     s = synthetic(n=200, sigma_h=0.03, seed=4, step=D)
     ob = observations(s, hz)
@@ -212,7 +212,7 @@ def _rows(spec, direction="down"):
 
 
 def test_thin_far_bucket_no_longer_lifts_nearer_data_rich_buckets():
-    """The D11 failure: a far bucket with 1 touch in 110 set the floor for every nearer bucket."""
+    """The v3 failure: a far bucket with 1 touch in 110 set the floor for every nearer bucket."""
     ob = _rows([(2.1, 2000, 60, 0.03), (3.1, 1500, 3, 1e-3), (3.3, 1500, 2, 5e-4), (3.9, 110, 1, 1e-4),
                 (4.5, 3000, 2, 1e-5)])  # fmt: skip
     parts = [(ob, np.ones(len(ob), dtype=bool))]

@@ -1,4 +1,4 @@
-"""EIP-712 Quote (ARCHITECTURE §4): build, hash, sign, recover.
+"""EIP-712 Quote (docs/how-it-works.md §4): build, hash, sign, recover.
 
 The hashes are computed twice: by hand (typeHash / structHash / domainSeparator / digest, as Solidity
 does) and by eth_account's ``encode_typed_data``; tests assert they agree, and the shared test vector in
@@ -18,7 +18,7 @@ from eth_utils import keccak, to_checksum_address
 
 DOMAIN_NAME = "Numera"
 DOMAIN_VERSION = "1"
-MAINNET_CHAIN_ID = 999  # never signed for (CLAUDE.md, ARCHITECTURE §6)
+MAINNET_CHAIN_ID = 999  # never signed for (testnet only)
 
 QUOTE_TYPE_STRING = (
     "Quote(address buyer,uint32 perpIndex,bool isLong,uint64 level,uint256 payout,uint256 premium,"

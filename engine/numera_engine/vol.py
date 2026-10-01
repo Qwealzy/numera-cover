@@ -1,4 +1,4 @@
-"""Volatility estimators (ARCHITECTURE §7.1). Pure functions on numpy arrays.
+"""Volatility estimators (docs/how-it-works.md §7 step 2). Pure functions on numpy arrays.
 
 sigma = max(EWMA sigma (lambda = 0.94, zero-mean RiskMetrics), 30-day realized sigma), annualized.
 Returns are close-to-close log returns. Annualization: sqrt(periods per year), 24*365 for 1 h bars.

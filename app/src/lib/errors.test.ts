@@ -60,7 +60,7 @@ describe('contract error mapping', () => {
   });
 });
 
-describe('API error mapping (§6)', () => {
+describe('API error mapping (how-it-works §6)', () => {
   it('maps known codes', () => {
     expect(apiErrorMessage('level_already_breached')).toMatch(/already past this level/);
     expect(apiErrorMessage('prob_too_high')).toMatch(/more likely than not/);

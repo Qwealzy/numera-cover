@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.24;
 
-/// @notice Oracle price feed used by CoverPool. Prices are px6 (USD x 1e6), ARCHITECTURE §3.
+/// @notice Oracle price feed used by CoverPool. Prices are px6 (USD x 1e6), docs/how-it-works.md §3.
 interface IPriceSource {
     /// @return px6 Current oracle price of `perpIndex` in USD x 1e6. MUST revert (never return 0) when
     ///         the price is unavailable, so a missing price can never look like a breach.

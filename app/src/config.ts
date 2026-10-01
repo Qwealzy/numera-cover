@@ -59,7 +59,7 @@ export const POOLS: Record<PoolKind, PoolConfig> = { hypercore: pool('hypercore'
 export const USDC: Address = getAddress(testnet.usdc.address);
 export const DEPLOYER: Address = getAddress(testnet.deployer);
 export const QUOTE_SIGNER: Address = getAddress(testnet.quoteSigner);
-/** Testnet perp indices from deployments/testnet.json — never hardcoded (CLAUDE.md). */
+/** Testnet perp indices from deployments/testnet.json — never hardcoded (indices differ per network). */
 export const PERPS: { coin: string; index: number }[] = Object.entries(testnet.perps).map(([coin, index]) => ({
   coin,
   index: index as number,
@@ -75,7 +75,7 @@ export const DURATIONS: { label: string; sec: number }[] = [
   { label: '7d', sec: 7 * 86400 },
 ];
 
-/** Default trigger level sits this fraction of the liq price above it (toward spot) — basis buffer, §8. */
+/** Default trigger level sits this fraction of the liq price above it (toward spot) — basis buffer, docs/how-it-works.md §8. */
 export const LEVEL_BUFFER = 0.01;
 export const FAUCET_AMOUNT = 1_000n * 10n ** 6n;
 

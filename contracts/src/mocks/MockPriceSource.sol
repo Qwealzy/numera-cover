@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
-/// @title MockPriceSource — operator-set prices for tests and the MOCK-labelled demo pool (ARCHITECTURE §8)
+/// @title MockPriceSource — operator-set prices for tests and the MOCK-labelled demo pool (docs/how-it-works.md §8)
 /// @notice Never back a real pool with this. Prices are px6 (USD x 1e6).
 contract MockPriceSource is IPriceSource, Ownable {
     mapping(uint32 perpIndex => uint64) public px6Of;

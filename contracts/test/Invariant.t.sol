@@ -157,7 +157,7 @@ contract PoolHandler is Test {
     }
 }
 
-/// @notice F4: the pool is always solvent: USDC balance >= lockedAssets, under random action sequences.
+/// @notice The pool is always solvent: USDC balance >= lockedAssets, under random action sequences.
 contract InvariantTest is Test {
     CoverPool internal pool;
     MockUSDC internal usdc;

@@ -16,7 +16,7 @@ import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 /// @title Deploy — CoverPool + sources on local (31337) or testnet (998) ONLY
 /// @notice Env:
 ///   QUOTE_SIGNER  (required) engine signer address
-///   MODE          `hypercore` (default; HyperCore precompile sources) | `mock` (MOCK demo pool, ARCHITECTURE §8)
+///   MODE          `hypercore` (default; HyperCore precompile sources) | `mock` (MOCK demo pool, docs/how-it-works.md §8)
 ///   USDC          (optional) existing USDC token; unset -> deploys MockUSDC
 ///   OWNER         (optional) pool/mock owner; default the broadcasting sender
 /// @dev Example (local): anvil & then
@@ -50,7 +50,7 @@ contract Deploy is Script {
     }
 
     function deploy(Config memory c) public returns (Deployment memory d) {
-        // Mainnet lock (CLAUDE.md, ARCHITECTURE §5): never 999.
+        // Mainnet lock: never 999.
         require(block.chainid == 998 || block.chainid == 31337, "Deploy: only testnet (998) or local (31337)");
 
         address signer = c.quoteSigner;

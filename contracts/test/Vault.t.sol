@@ -9,7 +9,7 @@ import {CoverPool} from "../src/CoverPool.sol";
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {BaseTest} from "./Base.t.sol";
 
-/// @notice F1: ERC-4626 deposit/withdraw; withdrawals limited to free assets (totalAssets - lockedAssets).
+/// @notice ERC-4626 deposit/withdraw; withdrawals limited to free assets (totalAssets - lockedAssets).
 contract VaultTest is BaseTest {
     /// @dev Lock 50k (the per-perp cap) so half the pool is reserved.
     function _lockHalf() internal returns (uint256 id) {

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {BaseTest} from "./Base.t.sol";
 
-/// @notice F3: trigger pays exactly once on breach before expiry; expire releases after expiry.
+/// @notice trigger pays exactly once on breach before expiry; expire releases after expiry.
 contract TriggerExpireTest is BaseTest {
     address internal keeper = makeAddr("keeper");
 

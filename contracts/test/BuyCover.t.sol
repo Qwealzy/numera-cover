@@ -5,7 +5,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {BaseTest} from "./Base.t.sol";
 
-/// @notice F2: buyCover enforces every ARCHITECTURE §5 check, in order, with a named error.
+/// @notice buyCover enforces every docs/how-it-works.md §5 check, in order, with a named error.
 contract BuyCoverTest is BaseTest {
     // ================================================================ happy path (check 6)
 

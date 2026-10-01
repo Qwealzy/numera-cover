@@ -10,7 +10,7 @@ evm_version = "shanghai"
 optimizer = true
 optimizer_runs = 200
 # via-IR shrinks CoverPool runtime 13.2 KB -> 11.2 KB. Without it, deployment costs ~3.11M gas, above the
-# HyperEVM small-block gas limit (3M; docs/research/hyperliquid.md §Networks).
+# HyperEVM small-block gas limit (3M).
 via_ir = true
 remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
@@ -28,7 +28,7 @@ fail_on_revert = false
 runs = 256
 
 [lint]
-# Covers are time-bounded by design; a validator's few-second timestamp skew is accepted (ARCHITECTURE §8).
+# Covers are time-bounded by design; a validator's few-second timestamp skew is accepted (docs/how-it-works.md §8).
 exclude_lints = ["block-timestamp"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

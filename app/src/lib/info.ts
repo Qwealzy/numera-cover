@@ -1,4 +1,4 @@
-// Hyperliquid testnet Info API (read-only). docs/research/hyperliquid.md §Info API.
+// Hyperliquid testnet Info API (read-only): POST /info, clearinghouseState and meta.
 import { INFO_URL } from '../config';
 import type { ApiAccount } from './liq';
 

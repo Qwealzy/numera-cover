@@ -1,4 +1,4 @@
-// Human messages for contract custom errors (ICoverPool, sources, OZ) and Quote API error codes (§6).
+// Human messages for contract custom errors (ICoverPool, sources, OZ) and Quote API error codes (docs/how-it-works.md §6).
 import {
   BaseError,
   ContractFunctionRevertedError,

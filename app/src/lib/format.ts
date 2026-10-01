@@ -1,4 +1,4 @@
-// Units (ARCHITECTURE §3): px6 = USD × 1e6, USDC = 6 decimals, pool shares = 12 decimals.
+// Units (docs/how-it-works.md §3): px6 = USD × 1e6, USDC = 6 decimals, pool shares = 12 decimals.
 // Formatting is exact bigint arithmetic (no float rounding on money).
 
 export const PX_DECIMALS = 6;

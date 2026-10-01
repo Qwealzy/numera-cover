@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fmtBps, fmtDuration, fmtFixed, fmtPx6, fmtRatio, fmtShares, fmtUsdc, parseDecimal, pxDigits, usdToPx6 } from './format';
 
-describe('px6 / USDC / share formatting (ARCHITECTURE §3)', () => {
+describe('px6 / USDC / share formatting (how-it-works §3)', () => {
   it('px6 = USD × 1e6', () => {
     expect(fmtPx6(84_847_000_000n)).toBe('$84,847.00');
     expect(fmtPx6(80_000_000_000n)).toBe('$80,000.00');

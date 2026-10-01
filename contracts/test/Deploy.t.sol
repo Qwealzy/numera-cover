@@ -7,7 +7,7 @@ import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {HyperCorePriceSource} from "../src/sources/HyperCorePriceSource.sol";
 import {Deploy} from "../script/Deploy.s.sol";
 
-/// @notice F8 (contract side): deploy script refuses mainnet and wires the right sources per MODE.
+/// @notice Deploy script refuses mainnet and wires the right sources per MODE.
 /// @dev Calls `deploy(Config)` directly: env vars are process-global and tests run in parallel.
 contract DeployTest is Test {
     Deploy internal script;
