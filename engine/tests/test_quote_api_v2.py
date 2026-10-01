@@ -5,10 +5,11 @@ import math
 import pytest
 from fastapi.testclient import TestClient
 
-from numera_engine.deployments import parse
+from numera_engine.deployments import default_path, parse
+from numera_engine.deployments import load as load_deployment
 from numera_engine.pricing import SECONDS_PER_YEAR, ZTailTable, premium, touch_prob, z_score
 from numera_engine.quote import Quote, recover_signer
-from numera_engine.quote_api import Settings, create_app
+from numera_engine.quote_api import Settings, create_app, resolve_default_pool
 
 KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"  # public anvil key #0
 SIGNER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -163,3 +164,40 @@ def test_breach_is_checked_against_the_pool_price():
 def test_health_lists_allowlisted_pools():
     j = client().get("/health").json()
     assert j["pools"] == sorted([POOL_A, POOL_B]) and j["chainId"] == 998
+
+
+@pytest.mark.parametrize("env_pool", [None, "", "   "])
+def test_empty_pool_env_falls_back_to_the_hypercore_pool(monkeypatch, env_pool):
+    """`.env` ships `POOL_ADDRESS=` empty: default pool = the deployment's HyperCore pool, never ""."""
+    for var in ("NUMERA_POOL", "POOL_ADDRESS"):
+        monkeypatch.delenv(var, raising=False)
+        if env_pool is not None:
+            monkeypatch.setenv(var, env_pool)
+    monkeypatch.setenv("NUMERA_ENV", "testnet")
+    monkeypatch.setenv("NUMERA_CHAIN_ID", "998")
+    s = Settings.from_env()
+    s.signer_key = KEY
+    deployment = load_deployment(default_path("testnet"))  # the real deployments/testnet.json
+    hypercore = next(p.pool for p in deployment.pools if p.name == "hypercore")
+    assert resolve_default_pool(s.pool, deployment) == hypercore
+    reader = StubReader({p.pool: 84_500_000_000 for p in deployment.pools})
+    tail = ZTailTable((0.0, math.inf), {"down": [None], "up": [None]})
+    kw = {"clock": lambda: NOW, "nonce_fn": lambda: 7, "spot_reader": reader, "deployment": deployment}
+    app = create_app(s, StubMarket(), tail, **kw)
+    c = TestClient(app)
+    h = c.get("/health").json()
+    assert h["pool"] == hypercore and "" not in h["pools"] and all(len(p) == 42 for p in h["pools"])
+    r = c.post("/quote", json=body())  # no `pool` in the request
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["breakdown"]["pool"] == hypercore and reader.calls == [(hypercore, 3)]
+    assert recover_signer(Quote(**j["quote"]), 998, hypercore, j["signature"]) == SIGNER
+
+
+def test_configured_pool_env_wins_and_bad_values_are_ignored(monkeypatch):
+    monkeypatch.setenv("NUMERA_POOL", "")
+    monkeypatch.setenv("POOL_ADDRESS", POOL_B)
+    assert Settings.from_env().pool == POOL_B
+    assert resolve_default_pool(POOL_B, DEPLOYMENT) == POOL_B
+    assert resolve_default_pool("not-an-address", DEPLOYMENT) == POOL_A
+    assert resolve_default_pool("", None) == "0x" + "00" * 20  # local dev without a deployments file

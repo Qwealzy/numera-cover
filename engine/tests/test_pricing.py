@@ -267,6 +267,16 @@ def test_ztable_k_step_and_q_monotone_interpolated():
     assert t.kq(False, 1.0) == TailAdj(2.0, 0.05)  # no data for that direction: default
 
 
+def test_ztable_vectorized_lookup_matches_scalar():
+    t = _ztable()
+    zs = np.concatenate([np.linspace(0, 8, 161), [0.5, 1.5, 2.0, 2.5, 50.0]])
+    for is_long in (True, False):
+        k, q = t.kq_many(is_long, zs)
+        for z, kk, qq in zip(zs, k, q, strict=True):
+            a = t.kq(is_long, float(z))
+            assert kk == a.k and qq == pytest.approx(a.q, rel=1e-12)
+
+
 def test_ztable_adjust_uses_z_of_the_quote():
     t = _ztable()
     S, H, sigma, dur = 100.0, 97.0, 0.6, 3600

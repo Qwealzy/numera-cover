@@ -6,33 +6,45 @@ import numpy as np
 import pytest
 
 from numera_engine.backtest import (
+    DATASETS,
     HORIZONS,
     K_MAX,
+    LEGACY_1D,
+    ROWS,
+    Obs,
     Series,
     aggregate,
+    evaluate,
     fit_tail,
     fit_z,
+    isotonic_nonincreasing,
+    merge_tail_inward,
+    nearward_pool,
     observations,
     pava_nonincreasing,
     simulate_pool,
     v1_priced,
     v2_priced,
     wilson,
+    write_markdown,
+    write_tail_json,
     z_table,
 )
-from numera_engine.pricing import touch_prob
+from numera_engine.pricing import HorizonZTable, load_tail_table, touch_prob
+from numera_engine.vol import sigma_series
 
 H = 3_600_000
+D = 24 * H
 
 
-def synthetic(n=2000, sigma_h=0.01, seed=0, start_t=0):
+def synthetic(n=2000, sigma_h=0.01, seed=0, start_t=0, step=H):
     rng = np.random.default_rng(seed)
     r = rng.normal(0, sigma_h, n)
     c = 100 * np.exp(np.cumsum(r))
     o = np.concatenate([[100.0], c[:-1]])
     wig = np.abs(rng.normal(0, sigma_h / 2, n))
     return Series(
-        t=start_t + np.arange(n, dtype=np.int64) * H,
+        t=start_t + np.arange(n, dtype=np.int64) * step,
         o=o,
         h=np.maximum(o, c) * np.exp(wig),
         low=np.minimum(o, c) * np.exp(-wig),
@@ -145,6 +157,99 @@ def test_pava_merges_violators_and_keeps_monotone_input():
     assert pava_nonincreasing([(10, 100), (0, 0), (2, 100)]) == [(10, 100), (10, 100), (2, 100)]
     rates = [h / n for h, n in pava_nonincreasing([(5, 50), (9, 60), (1, 40), (3, 30), (0, 80)])]
     assert all(a >= b for a, b in zip(rates, rates[1:], strict=False))
+
+
+def test_one_day_horizon_uses_daily_candles_and_exact_daily_touch():
+    hz = next(h for h in HORIZONS if h.name == "1d")
+    assert (hz.interval, hz.bars) == ("1d", 1)  # D13; the D11 set (24 x 1h) is kept only for comparison
+    assert (LEGACY_1D.interval, LEGACY_1D.bars, LEGACY_1D.seconds) == ("1h", 24, 86400)
+    s = synthetic(n=200, sigma_h=0.03, seed=4, step=D)
+    ob = observations(s, hz)
+    starts = np.unique(ob.start_ms)
+    assert (starts % D == 0).all() and starts[0] >= 30 * D  # 30-day warm-up on daily bars
+    i = int(starts[3] // D)
+    m = (ob.start_ms == starts[3]) & (ob.direction == "down") & np.isclose(ob.distance, 0.02)
+    assert ob.hit[m][0] == (s.low[i] <= s.o[i] * 0.98)  # the day's own low
+    sig = sigma_series(s.c, 365, 30)[i - 1]  # daily sigma from closes before the window only
+    assert ob.sigma[m][0] == pytest.approx(sig)
+    assert ob.p[m][0] == pytest.approx(touch_prob(s.o[i], s.o[i] * 0.98, sig, 1 / 365))
+
+
+def test_nearward_pool_borrows_only_nearer_buckets():
+    counts = [(50, 1000), (5, 1000), (0, 150), (0, 150), (1, 110), (0, 400), (0, 0)]
+    pooled = nearward_pool(counts, n_pool=300)
+    assert pooled[:2] == counts[:2]  # data-rich buckets keep their own counts
+    assert pooled[2] == (5, 1150)  # 0/150 borrows its nearer neighbour
+    assert pooled[3] == (5, 1300)  # 0/300 with the next one has no touch yet: keep going
+    assert pooled[4] == (1, 410)  # the thin far 1/110 is pooled with nearer 0-touch buckets
+    assert pooled[5] == (1, 510) and pooled[6] == (0, 0)
+    for i, (h, n) in enumerate(pooled):  # each pool is a contiguous run ending at the bucket itself
+        if n:
+            j = next(j for j in range(i, -1, -1) if sum(c[1] for c in counts[j : i + 1]) == n)
+            assert sum(c[0] for c in counts[j : i + 1]) == h
+
+
+def test_merge_and_isotonic_alternatives():
+    counts = [(50, 1000), (5, 1000), (0, 150), (0, 150), (1, 110), (0, 400)]
+    assert merge_tail_inward(counts, n_pool=300) == [(50, 1000)] + [(5, 1300)] * 3 + [(1, 510)] * 2
+    assert merge_tail_inward([(1, 10), (0, 10)], n_pool=300) == [(1, 20), (1, 20)]  # one short block
+    v = [0.5, 0.2, 0.3, 0.1]
+    assert isotonic_nonincreasing(v, [1, 1, 1, 1]) == pytest.approx([0.5, 0.25, 0.25, 0.1])
+    assert isotonic_nonincreasing(v, [1, 3, 1, 1]) == pytest.approx([0.5, 0.225, 0.225, 0.1])  # weighted
+
+
+def _rows(spec, direction="down"):
+    """Synthetic Obs with given (|z|, n, hits, p) per bucket."""
+    z, p, hit = [], [], []
+    for zabs, n, hits, pp in spec:
+        z += [zabs] * n
+        p += [pp] * n
+        hit += [True] * hits + [False] * (n - hits)
+    sgn = -1 if direction == "down" else 1
+    n = len(z)
+    return Obs(np.zeros(n, dtype=np.int64), np.array([direction] * n, dtype=object), np.full(n, 0.05),
+               np.full(n, 0.5), np.array(p), np.array(hit), sgn * np.array(z))  # fmt: skip
+
+
+def test_thin_far_bucket_no_longer_lifts_nearer_data_rich_buckets():
+    """The D11 failure: a far bucket with 1 touch in 110 set the floor for every nearer bucket."""
+    ob = _rows([(2.1, 2000, 60, 0.03), (3.1, 1500, 3, 1e-3), (3.3, 1500, 2, 5e-4), (3.9, 110, 1, 1e-4),
+                (4.5, 3000, 2, 1e-5)])  # fmt: skip
+    parts = [(ob, np.ones(len(ob), dtype=bool))]
+    old, new = z_table(fit_z(parts, method="none")), z_table(fit_z(parts, method="nearward"))
+    thin_bound = wilson(1, 110)[1]
+    assert old.kq(True, 3.2).q == pytest.approx(thin_bound)  # lifted by the thin bucket (v3)
+    assert new.kq(True, 3.2).q < 0.5 * thin_bound  # v4: set by its own 1500 windows and neighbours
+    b39 = next(b for b in fit_z(parts, method="nearward") if b.direction == "down" and b.lo == 3.75)
+    assert (b39.block_hits, b39.block_n) == (3, 1610)  # pooled with the nearer 3.25-3.5 bucket only
+    assert new.kq(True, 3.875).q == pytest.approx(wilson(3, 1610)[1], rel=1e-6)  # at the bucket mid-point
+    with pytest.raises(ValueError):
+        fit_z(parts, method="nope")
+
+
+def test_evaluate_and_reports_run_on_synthetic_data(tmp_path):
+    coins = ["AAA", "BBB"]
+    obs_all = {d.name: {} for d in DATASETS}
+    ranges, windows = {}, {}
+    for k, coin in enumerate(coins):
+        hs = synthetic(n=24 * 120, seed=20 + k)
+        ds_ = synthetic(n=400, sigma_h=0.03, seed=30 + k, step=D)
+        for d in DATASETS:
+            obs_all[d.name][coin] = observations(hs if d.interval == "1h" else ds_, d)
+        ranges[coin] = {iv: {"first": "x", "last": "y", "count": 1} for iv in ("1h", "1d")}
+        windows[coin] = {d.name: len(np.unique(obs_all[d.name][coin].start_ms)) for d in DATASETS}
+    ctx = evaluate(obs_all, coins)
+    ctx["meta"] = {"generated_at": "t", "coins": coins, "ranges": ranges, "windows": windows}
+    for key, _, spec in ROWS:
+        for d, pk in spec.values():
+            assert (d, "raw") in ctx["sims"] and (d, pk) in ctx["sims"], key
+    assert ctx["tables_tr"][("1d-1h", "v4@1d")] is ctx["tables_tr"][("1d", "v4")]
+    write_markdown(tmp_path / "c.md", ctx)
+    assert "old (v3, main) vs new (v4)" in (tmp_path / "c.md").read_text(encoding="utf-8")
+    published = {h.name: ctx["zfull"][(h.name, "v4")] for h in HORIZONS}
+    write_tail_json(tmp_path / "t.json", published, ctx["meta"])
+    t = load_tail_table(tmp_path / "t.json")
+    assert isinstance(t, HorizonZTable) and t.horizons_s == (3600, 4 * 3600, 86400, 7 * 86400)
 
 
 def test_fit_z_pools_and_table_prices_like_lookup():

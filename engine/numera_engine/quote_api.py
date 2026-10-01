@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import secrets
 import threading
 import time
@@ -65,6 +66,9 @@ from .vol import sigma_estimate
 
 DEFAULT_TAIL_PATH = Path(__file__).resolve().parent.parent / "reports" / "tail_multipliers.json"
 JS_SAFE_INT = 2**53 - 1
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+DEFAULT_POOL_NAME = "hypercore"  # deployments/<env>.json pool used when no pool is configured
+_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # Vite dev server (app/)
 
 
@@ -75,7 +79,7 @@ DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # Vit
 class Settings:
     env: str = "local"
     chain_id: int = 31337
-    pool: str = "0x0000000000000000000000000000000000000000"
+    pool: str = ZERO_ADDRESS  # "" = not configured: deployment's HyperCore pool (resolve_default_pool)
     signer_key: str | None = None
     info_url: str = TESTNET_INFO_URL  # live oracle prices
     history_info_url: str = MAINNET_INFO_URL  # candles for sigma (read-only)
@@ -97,7 +101,7 @@ class Settings:
         return Settings(
             env=e.get("NUMERA_ENV", "local"),
             chain_id=int(e.get("NUMERA_CHAIN_ID", "31337")),
-            pool=e.get("NUMERA_POOL", "0x0000000000000000000000000000000000000000"),
+            pool=(e.get("NUMERA_POOL") or "").strip() or (e.get("POOL_ADDRESS") or "").strip(),
             signer_key=(e.get("QUOTE_SIGNER_KEY") or "").strip() or None,
             info_url=e.get("NUMERA_INFO_URL", TESTNET_INFO_URL),
             history_info_url=e.get("NUMERA_HISTORY_INFO_URL", MAINNET_INFO_URL),
@@ -117,6 +121,20 @@ class Settings:
             if e.get("NUMERA_DEPLOYMENTS")
             else default_path(e.get("NUMERA_ENV", "local")),
         )
+
+
+def resolve_default_pool(configured: str | None, deployment: Deployment | None) -> str:
+    """Pool a request without `pool` is signed for. A configured address (NUMERA_POOL, else POOL_ADDRESS)
+    wins; if it is empty/unset or not an address, the deployment's HyperCore pool (`pools.hypercore`, else the
+    first listed pool); the zero address only when there is no deployment file at all (local dev).
+    Never ""."""
+    c = (configured or "").strip()
+    if _ADDRESS_RE.match(c):
+        return c
+    if deployment and deployment.pools:
+        named = next((p for p in deployment.pools if p.name == DEFAULT_POOL_NAME), deployment.pools[0])
+        return named.pool
+    return ZERO_ADDRESS
 
 
 # -- market data -----------------------------------------------------------------------------------
@@ -266,7 +284,12 @@ def create_app(
     nonce_fn = nonce_fn or (lambda: secrets.randbelow(JS_SAFE_INT) + 1)  # JSON-number safe for JS clients
     if deployment is None and settings.deployments_path is not None:
         deployment = load_deployment(settings.deployments_path)
-    allowlist = {settings.pool.lower()} | {p.pool for p in (deployment.pools if deployment else ())}
+    default_pool = resolve_default_pool(settings.pool, deployment)
+    allowlist = {
+        a.lower()
+        for a in (default_pool, *(p.pool for p in (deployment.pools if deployment else ())))
+        if _ADDRESS_RE.match(a or "")
+    }
     if spot_reader is None:
         rpc = settings.rpc_url or (deployment.rpc if deployment else None)
         spot_reader = PoolSpotReader(rpc, deployment) if rpc else None
@@ -306,7 +329,7 @@ def create_app(
             "env": settings.env,
             "signer": signer_addr,
             "chainId": settings.chain_id,
-            "pool": settings.pool,
+            "pool": default_pool,
             "pools": sorted(allowlist),
         }
 
@@ -324,7 +347,7 @@ def create_app(
             )
         if req.payout > settings.max_payout:
             raise ApiError(422, "capacity", f"payout exceeds engine cap {settings.max_payout}")
-        pool = req.pool or settings.pool
+        pool = req.pool or default_pool
         if pool.lower() not in allowlist:
             raise ApiError(400, "unknown_pool", f"pool {pool} is not in the allowlist")
         spot6, spot_source = None, "info_api"

@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from scipy.special import ndtr
 
 SECONDS_PER_YEAR = 365 * 24 * 3600
@@ -263,6 +264,16 @@ class ZTailTable:
             logq = (1 - w) * lq[j] + w * lq[j + 1]
         return TailAdj(self._k[direction][i], math.exp(logq))
 
+    def kq_many(self, is_long: bool, zabs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Vectorized ``kq`` (same lookup) for the backtest: arrays (k, q) for an array of |z|."""
+        zabs = np.asarray(zabs, dtype=float)
+        direction = "down" if is_long else "up"
+        if direction not in self._k:
+            return np.full(zabs.shape, self.default.k), np.full(zabs.shape, self.default.q)
+        i = np.clip(np.searchsorted(np.array(self.edges), zabs, side="right") - 1, 0, len(self._mids) - 1)
+        q = np.exp(np.interp(zabs, np.array(self._mids), np.array(self._logq[direction])))
+        return np.array(self._k[direction])[i], q
+
     def adjust(
         self, coin: str, is_long: bool, duration_s: float, S: float, H: float, sigma: float
     ) -> TailAdj:
@@ -320,9 +331,10 @@ class HorizonZTable:
 
 
 def load_tail_table(path: str | Path) -> TailTable | ZTailTable | HorizonZTable:
-    """Load tail_multipliers.json: v3 per-horizon z tables, v2 pooled z table, or v1 per-bucket table."""
+    """Load tail_multipliers.json: per-horizon z tables (v3 D11 / v4 D13: same shape, v4 differs only in
+    how thin buckets are fitted), v2 pooled z table, or v1 per-bucket table."""
     blob: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
-    if blob.get("schema") == "z-per-horizon-v3":
+    if blob.get("schema") in ("z-per-horizon-v3", "z-per-horizon-v4"):
         return HorizonZTable.from_blob(blob)
     if blob.get("schema") == "z-pooled-v2":
         return ZTailTable.from_blob(blob)
