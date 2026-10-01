@@ -2,7 +2,7 @@
   "env": "testnet",
   "chainId": 998,
   "rpc": "https://rpc.hyperliquid-testnet.xyz/evm",
-  "deployedAt": "2026-10-02",
+  "deployedAt": "2026-10-01",
   "commit": "7fda9d0",
   "deployer": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
   "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
@@ -47,7 +47,7 @@
     "HYPE": 135
   },
   "seed": {
-    "note": "2026-10-02 deployer minted 20k mUSDC, deposited 10k into each pool; trader 0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7 minted 1k mUSDC",
+    "note": "2026-10-01 deployer minted 20k mUSDC, deposited 10k into each pool; trader 0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7 minted 1k mUSDC",
     "txs": {
       "mintDeployer": "0x99907d2257c6b43755655e91ae343e6a00466bc1a710ed1bf4fb343d0104e501",
       "mintTrader": "0x3fe4a8b30b1f253c8f2f564d2dac43b80bf0175c1cfa861a5a67054abcd8d198",
@@ -58,7 +58,7 @@
     }
   },
   "e2e": {
-    "F7_F9_mockPool_2026-10-02": {
+    "F7_F9_mockPool_2026-10-01": {
       "note": "New MOCK pool (D16). Engine /quote API (chain 998, pool=mock pool, verifyingContract=mock pool, spotSource pool) signed; deployer bought cover 1; keeper (deployments file, --pool mock, --rpc https://rpcs.chain.link/hyperevm/testnet because the official RPC rate-limited eth_getLogs from this IP) triggered after staged price drop",
       "setup": {
         "mintDeployer100": "0xe05df80a65406be56da294f32224ca72ad31be496546b16d60927ad04edae905",

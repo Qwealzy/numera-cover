@@ -81,7 +81,7 @@ daily candles since 2023):
   the open on 2.46 % of days (Oct 2024 – Sep 2026).
 - Failing buckets and limitations are listed in the report.
 
-**End-to-end on testnet** (MOCK pool, 2026-10-02; engine quote → buy → staged price drop → keeper
+**End-to-end on testnet** (MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
 trigger → payout, 5 s from price drop to trigger). Explorer: `https://explore-testnet.hyperpc.app/tx/<hash>`.
 
 | Step | Transaction |

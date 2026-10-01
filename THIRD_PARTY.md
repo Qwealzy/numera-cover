@@ -1,7 +1,7 @@
 # Third-party code and licenses
 
 Numera's own code is licensed under **AGPL-3.0-only** (see [`LICENSE`](LICENSE), decision D14).
-This file lists every direct dependency, the license read from the installed copy (2026-10-02), and
+This file lists every direct dependency, the license read from the installed copy (2026-10-01), and
 whether it can be combined with AGPL-3.0. Transitive dependencies are not listed; lockfiles
 (`app/package-lock.json`) and the installed metadata are the source of truth for those.
 
