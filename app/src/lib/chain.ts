@@ -2,22 +2,23 @@ import {
   createPublicClient,
   createWalletClient,
   custom,
-  http,
   type Address,
   type EIP1193Provider,
   type WalletClient,
 } from 'viem';
-import { EXPLORER_URL, hyperEvmTestnet } from '../config';
+import { EXPLORER_URL, READ_RPC_URLS, hyperEvmTestnet } from '../config';
+import { readTransport } from './transport';
 
 /**
  * Reads for the polling UI. No transport-level retries: viem would retry a -32005 after 150–600 ms and
  * spend more of the per-IP budget; usePoll backs off instead (4 s … 60 s). No JSON-RPC batching: the
  * testnet RPC accepts batches but counts every call inside one against the limit (measured 2026-10-01),
  * so Multicall3 (one eth_call for many reads) is the lever; readContract calls are folded into it.
+ * A call the official RPC rate-limits moves to the fallback RPC(s) of READ_RPC_URLS (lib/transport.ts).
  */
 export const publicClient = createPublicClient({
   chain: hyperEvmTestnet,
-  transport: http(undefined, { batch: false, retryCount: 0 }),
+  transport: readTransport(READ_RPC_URLS, { chainId: hyperEvmTestnet.id, retryCount: 0 }),
   // viem splits a multicall into 1 kB-calldata chunks (one eth_call each) by default; keep it to one call
   batch: { multicall: { batchSize: 16_384 } },
 });
@@ -25,7 +26,7 @@ export const publicClient = createPublicClient({
 /** Reads on the user's own transaction path (simulate, receipt wait): a few spaced retries. */
 export const txPublicClient = createPublicClient({
   chain: hyperEvmTestnet,
-  transport: http(undefined, { batch: false, retryCount: 3, retryDelay: 1500 }),
+  transport: readTransport(READ_RPC_URLS, { chainId: hyperEvmTestnet.id, retryCount: 3, retryDelay: 1500 }),
   pollingInterval: 2000,
 });
 
