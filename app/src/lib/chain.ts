@@ -7,7 +7,7 @@ import {
   type EIP1193Provider,
   type WalletClient,
 } from 'viem';
-import { hyperEvmTestnet } from '../config';
+import { EXPLORER_URL, hyperEvmTestnet } from '../config';
 
 /**
  * Reads for the polling UI. No transport-level retries: viem would retry a -32005 after 150–600 ms and
@@ -72,7 +72,8 @@ export async function ensureTestnet(): Promise<void> {
           chainName: hyperEvmTestnet.name,
           nativeCurrency: hyperEvmTestnet.nativeCurrency,
           rpcUrls: [...hyperEvmTestnet.rpcUrls.default.http],
-          blockExplorerUrls: [hyperEvmTestnet.blockExplorers.default.url],
+          // only when an explorer is configured (VITE_EXPLORER_URL); wallets accept the field omitted
+          ...(EXPLORER_URL ? { blockExplorerUrls: [EXPLORER_URL] } : {}),
         },
       ],
     });

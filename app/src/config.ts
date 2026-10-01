@@ -5,7 +5,16 @@ const env = (import.meta.env ?? {}) as Record<string, string | undefined>;
 
 export const RPC_URL = env.VITE_RPC_URL || testnet.rpc;
 export const INFO_URL = env.VITE_INFO_URL || 'https://api.hyperliquid-testnet.xyz/info';
-export const EXPLORER_URL = (env.VITE_EXPLORER_URL || 'https://explore-testnet.hyperpc.app').replace(/\/$/, '');
+/**
+ * Block explorer base URL. Empty by default: no working chain-998 explorer exists as of 2026-10-02 (the
+ * hyperpc Blockscout indexer stopped at block 60,609,357 on 2026-08-03; hypurrscan's EVM view does not find
+ * our txs). Empty means the app renders no external tx/address links; tx hashes open the in-app receipt view
+ * (eth_getTransactionReceipt over the RPC) instead.
+ */
+export const EXPLORER_URL = explorerBase(env.VITE_EXPLORER_URL);
+export function explorerBase(raw: string | undefined): string {
+  return (raw ?? '').trim().replace(/\/+$/, '');
+}
 export const USE_QUOTE_FIXTURE = env.VITE_USE_QUOTE_FIXTURE === '1' || env.VITE_USE_QUOTE_FIXTURE === 'true';
 /** Founder-supplied waitlist form; the CTA is hidden when unset. */
 export const WAITLIST_URL = env.VITE_WAITLIST_URL || '';
@@ -21,7 +30,8 @@ export const hyperEvmTestnet = defineChain({
   name: 'Hyperliquid EVM Testnet',
   nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
   rpcUrls: { default: { http: [RPC_URL] } },
-  blockExplorers: { default: { name: 'HyperEVM testnet explorer', url: EXPLORER_URL } },
+  // Omitted when no explorer is configured, so viem/wallets never build a link to a dead explorer.
+  ...(EXPLORER_URL ? { blockExplorers: { default: { name: 'HyperEVM testnet explorer', url: EXPLORER_URL } } } : {}),
   // Multicall3 is deployed on 998 (eth_getCode checked 2026-10-01); all polled reads go through it.
   contracts: { multicall3: { address: MULTICALL3 } },
   testnet: true,
@@ -79,5 +89,6 @@ export const DURATIONS: { label: string; sec: number }[] = [
 export const LEVEL_BUFFER = 0.01;
 export const FAUCET_AMOUNT = 1_000n * 10n ** 6n;
 
-export const txUrl = (hash: string) => `${EXPLORER_URL}/tx/${hash}`;
-export const addrUrl = (a: string) => `${EXPLORER_URL}/address/${a}`;
+/** External explorer links, or undefined when VITE_EXPLORER_URL is empty (then render no link). */
+export const txUrl = (hash: string, base = EXPLORER_URL): string | undefined => (base ? `${base}/tx/${hash}` : undefined);
+export const addrUrl = (a: string, base = EXPLORER_URL): string | undefined => (base ? `${base}/address/${a}` : undefined);

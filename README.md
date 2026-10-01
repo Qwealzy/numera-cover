@@ -82,14 +82,17 @@ daily candles since 2023):
 - Failing buckets and limitations are listed in the report.
 
 **End-to-end on testnet** (MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
-trigger → payout, 5 s from price drop to trigger). Explorer: `https://explore-testnet.hyperpc.app/tx/<hash>`.
+trigger → payout, 5 s from price drop to trigger). No working HyperEVM testnet explorer exists as of
+2026-10-02 (the hyperpc indexer is stale), so the hashes below are not links. Verify any of them with
+`cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet`. Inside the app, the transactions it
+lists (My covers, Pool) open an in-app receipt view read from the RPC when you click their hash.
 
 | Step | Transaction |
 |---|---|
-| Approve premium | [`0x581d08d4…a7def1`](https://explore-testnet.hyperpc.app/tx/0x581d08d4b84bd30584bb1405346f1222958cb8ebd6df6d6dd42916ecc734accf) |
-| `buyCover` (cover 1: BTC long, payout 20 mUSDC, premium 6.845262 mUSDC, 1 day) | [`0xe94df21d…fddf60`](https://explore-testnet.hyperpc.app/tx/0xe94df21d42af54d1f25913a7692b860a5e9df26c7133046adfd53d608fcddf60) |
-| MOCK price set below the level (staged) | [`0xbb2dd023…e6bc88`](https://explore-testnet.hyperpc.app/tx/0xbb2dd023c05bcd2930b6b004d8382021df8a4424c1f3018243c05643f8e6bc88) |
-| `trigger` by the keeper, 20 mUSDC paid to the buyer | [`0x0791fb7d…bf8465`](https://explore-testnet.hyperpc.app/tx/0x0791fb7d627b5218e6e786ba81a9484b2018fad48ddd9b38e57c8148f6bf8465) |
+| Approve premium | `0x581d08d4b84bd30584bb1405346f1222958cb8ebd6df6d6dd42916ecc734accf` |
+| `buyCover` (cover 1: BTC long, payout 20 mUSDC, premium 6.845262 mUSDC, 1 day) | `0xe94df21d42af54d1f25913a7692b860a5e9df26c7133046adfd53d608fcddf60` |
+| MOCK price set below the level (staged) | `0xbb2dd023c05bcd2930b6b004d8382021df8a4424c1f3018243c05643f8e6bc88` |
+| `trigger` by the keeper, 20 mUSDC paid to the buyer | `0x0791fb7d627b5218e6e786ba81a9484b2018fad48ddd9b38e57c8148f6bf8465` |
 
 The full record (quote fields, events, balances after) is in `deployments/testnet.json` under `e2e`.
 

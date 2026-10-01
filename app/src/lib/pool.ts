@@ -4,6 +4,7 @@ import { publicClient } from './chain';
 import { coverPoolAbi, iPriceSourceAbi, mockPositionSourceAbi, mockUSDCAbi, mockPriceSourceAbi } from '../generated/abi';
 import { MULTICALL3, USDC, type PoolConfig } from '../config';
 import { decodeRevert, contractErrorMessage } from './errors';
+import { isRateLimited, retryRateLimited } from './rpc';
 
 // viem's bundled multicall3Abi has no getBlockNumber; Multicall3 does (selector 0x42cbb15c, checked on 998).
 const multicall3BlockAbi = parseAbi(['function getBlockNumber() view returns (uint256 blockNumber)']);
@@ -122,10 +123,16 @@ export async function readSnapshot(p: PoolConfig, user: Address | undefined, per
 
 export type PxResult = { ok: true; px6: bigint } | { ok: false; error: string };
 
-function revertText(e: unknown): string {
+function revertText(e: unknown, fallback = 'price unavailable'): string {
   const data = findData(e);
   const d = decodeRevert(data);
-  return d ? contractErrorMessage(d.name, d.args) : 'price unavailable';
+  return d ? contractErrorMessage(d.name, d.args) : fallback;
+}
+/** viem's shortMessage, else the first line of the message. */
+export function firstLine(e: unknown): string {
+  const x = e as { shortMessage?: unknown; message?: unknown } | undefined;
+  const s = typeof x?.shortMessage === 'string' ? x.shortMessage : typeof x?.message === 'string' ? x.message : String(e);
+  return s.split('\n')[0] || 'unknown error';
 }
 function findData(e: unknown): Hex | undefined {
   let cur = e as { data?: unknown; raw?: unknown; cause?: unknown } | undefined;
@@ -146,14 +153,34 @@ export interface OnchainPosition {
 }
 
 /** Positions the pool's position source reports for `user` (what buyCover check 4 sees). */
-export async function readPositions(positionSource: Address, user: Address, perps: number[]): Promise<Map<number, OnchainPosition | { error: string }>> {
-  const res = await publicClient.multicall({
-    allowFailure: true,
-    contracts: perps.map((i) => ({ address: positionSource, abi: mockPositionSourceAbi, functionName: 'position', args: [user, i] }) as const),
-  });
+export async function readPositions(
+  positionSource: Address,
+  user: Address,
+  perps: number[],
+  client: Pick<ReadClient, 'multicall'> = publicClient,
+  retryDelaysMs?: number[],
+  signal?: AbortSignal,
+):Promise<Map<number, OnchainPosition | { error: string }>> {
+  // One eth_call; a rate-limited answer is retried with spaced delays (the public RPC limits per IP).
+  // With allowFailure, viem does NOT throw when the whole eth_call fails: it marks every entry
+  // `failure` with the RPC error (seen in the browser 2026-10-02: -32005 "Request exceeds defined limit"
+  // arrived as per-entry errors, which is how "Max payout" became a bare dash). A rate-limit error is
+  // never a contract revert, so rethrow it here and let retryRateLimited back off.
+  const res = await retryRateLimited(
+    async () => {
+      const r = await client.multicall({
+        allowFailure: true,
+        contracts: perps.map((i) => ({ address: positionSource, abi: mockPositionSourceAbi, functionName: 'position', args: [user, i] }) as const),
+      });
+      const limited = r.find((x) => x.status !== 'success' && isRateLimited(x.error));
+      if (limited && limited.status !== 'success') throw limited.error;
+      return r;
+    },
+    { delaysMs: retryDelaysMs, signal, onRetry: (n, e) => console.warn(`[numera] position read rate-limited, retry ${n}`, e) },
+  );
   const m = new Map<number, OnchainPosition | { error: string }>();
   res.forEach((r, k) => {
-    if (r.status !== 'success') return m.set(perps[k], { error: revertText(r.error) });
+    if (r.status !== 'success') return m.set(perps[k], { error: revertText(r.error, `position read failed: ${firstLine(r.error)}`) });
     const [szi, entryNtl, leverage] = r.result as readonly [bigint, bigint, number];
     const lev = Number(leverage);
     m.set(perps[k], { perpIndex: perps[k], szi, entryNtl, leverage: lev, cap: lev > 0 ? entryNtl / BigInt(lev) : 0n });

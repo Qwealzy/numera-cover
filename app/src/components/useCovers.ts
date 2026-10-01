@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePoll } from '../hooks';
-import { findPurchaseQueued, type Cover, type CoverEvents } from '../lib/pool';
-import { loadCovers, loadEvents } from '../lib/covers';
+import type { Cover, CoverEvents } from '../lib/pool';
+import { loadCovers, loadEvents, lookupPurchase, purchaseLookupState, type PurchaseLookup } from '../lib/covers';
 import { useApp } from '../state';
 
 /**
@@ -33,22 +33,39 @@ export function useCovers(withEvents: boolean | ((covers: Cover[]) => boolean) =
   return { covers, events };
 }
 
-/** Purchase tx for covers older than the recent-events window, located from `start` (cached). */
-const purchaseCache = new Map<string, CoverEvents['purchased'] | null>();
-
-export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean) {
-  const key = `${pool}:${c.id}`;
-  const [tx, setTx] = useState(known ?? purchaseCache.get(key) ?? undefined);
-  useEffect(() => {
-    if (known) return setTx(known);
-    if (!enabled || purchaseCache.has(key)) return setTx(purchaseCache.get(key) ?? undefined);
-    purchaseCache.set(key, null);
-    findPurchaseQueued(pool, c.id, c.start)
-      .then((r) => {
-        purchaseCache.set(key, r ?? null);
-        setTx(r);
-      })
-      .catch(() => purchaseCache.delete(key));
-  }, [key, known, enabled, pool, c.id, c.start]);
-  return tx;
+export interface PurchaseTx {
+  tx: CoverEvents['purchased'];
+  /** Lookup gave up (non-rate-limit error, or the attempt cap): the reason, for the Tx cell tooltip. */
+  error?: string;
+  pending: boolean;
+  retry: () => void;
 }
+
+/** Purchase tx for covers older than the recent-events window, located from `start` (once per page). */
+export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean): PurchaseTx {
+  const [st, setSt] = useState<PurchaseLookup | undefined>(() => purchaseLookupState(pool, c.id));
+  const [force, setForce] = useState(0);
+  useEffect(() => {
+    if (known || !enabled) return;
+    let alive = true;
+    const entry = lookupPurchase(pool, c, { force: force > 0 });
+    setSt(entry);
+    if (entry.state === 'pending')
+      entry.done.then(() => {
+        if (alive) setSt(purchaseLookupState(pool, c.id));
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, c.id, c.start, known, enabled, force]);
+  const retry = useCallback(() => setForce((n) => n + 1), []);
+  if (known) return { tx: known, pending: false, retry };
+  return {
+    tx: st?.state === 'done' ? st.tx : undefined,
+    error: st?.state === 'failed' ? st.error : undefined,
+    pending: st?.state === 'pending',
+    retry,
+  };
+}
+

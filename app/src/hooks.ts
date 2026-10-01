@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
-import { backoffMs, busyUntil, isRateLimited, setBusy, subscribeBusy } from './lib/rpc';
+import { PartialData, backoffMs, busyUntil, isRateLimited, setBusy, subscribeBusy } from './lib/rpc';
 
 export interface Polled<T> {
   data: T | undefined;
@@ -80,7 +80,10 @@ export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknow
         const delay = backoffMs(fails, ms);
         setBusy(id, limited ? Date.now() + delay : undefined);
         const msg = limited ? 'The public testnet RPC is rate-limiting requests; retrying.' : ((e as Error).message ?? String(e));
-        setSt((s) => ({ ...(s.key === key ? s : { key }), error: msg, busy: limited }));
+        if (e instanceof PartialData) {
+          // usable data with a rate-limited part: show it, but keep the failure's backoff and busy hint
+          setSt({ key, data: e.partial as T, updatedAt: Date.now(), error: msg, busy: limited });
+        } else setSt((s) => ({ ...(s.key === key ? s : { key }), error: msg, busy: limited }));
         schedule(delay);
       } finally {
         if (alive && my === seq) setInflight(false);

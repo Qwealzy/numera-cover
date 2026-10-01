@@ -850,3 +850,99 @@ footer .wrap {
     padding: 0 14px;
   }
 }
+
+/* --- inline text buttons (cap retry, tx receipt, copy) ---------------------------------------------- */
+.linkish {
+  font: inherit;
+  color: var(--paper);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--navy);
+  text-underline-offset: 0.2em;
+}
+.linkish:hover {
+  text-decoration-color: var(--green);
+}
+.cap-unavailable {
+  color: var(--text-soft);
+  font-style: italic;
+}
+.ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.copy-btn {
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.copy-btn:hover {
+  color: var(--paper);
+  border-color: var(--rule-strong);
+}
+
+/* --- in-app transaction receipt (no working chain-998 explorer) ------------------------------------- */
+.receipt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(10, 18, 28, 0.66);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  overflow-y: auto;
+}
+.receipt {
+  width: min(640px, 100%);
+  background: var(--navy-deep);
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  padding: 16px;
+  white-space: normal;
+  text-align: left;
+}
+.receipt__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.receipt__hash {
+  word-break: break-all;
+}
+.receipt__events {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.receipt__events li {
+  border-top: 1px solid var(--rule);
+  padding: 8px 0;
+}
+.receipt__args {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+}
+.receipt__args dt {
+  color: var(--text-soft);
+}
+.receipt__args dd {
+  margin: 0;
+  word-break: break-all;
+}

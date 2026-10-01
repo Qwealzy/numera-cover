@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DURATIONS, LEVEL_BUFFER, POLL_MS, USE_QUOTE_FIXTURE, hyperEvmTestnet } from '../config';
-import { cached } from '../lib/rpc';
+import { cached, invalidate } from '../lib/rpc';
 import { useApp } from '../state';
 import { useNow, usePoll } from '../hooks';
-import { loadPositions, type PositionRow } from '../lib/positions';
+import { capView, loadPositions, type PositionRow } from '../lib/positions';
 import { defaultLevel } from '../lib/liq';
 import { fmtDuration, fmtFixed, fmtPct, fmtProb, fmtPx6, fmtTime, fmtUsdc, px6ToNumber, shortAddr } from '../lib/format';
 import {
@@ -27,8 +27,10 @@ const fmtUsd = (x: number | undefined, dp = 2) =>
 
 export function Protect() {
   const { pool, poolKind, subject, market, oracle } = useApp();
+  // Aborted only when the user clicks "retry" (a fresh read replaces the pending one).
+  const capCtrl = useRef(new AbortController());
   const positions = usePoll(
-    () => (subject ? cached(`positions:${pool.pool}:${subject}:${!!market.data}`, 5_000, () => loadPositions(pool, subject, market.data)) : Promise.resolve([])),
+    () => (subject ? cached(`positions:${pool.pool}:${subject}:${!!market.data}`, 5_000, () => loadPositions(pool, subject, market.data, capCtrl.current.signal)) : Promise.resolve([])),
     [pool.pool, subject, !!market.data],
     POLL_MS,
     !!subject,
@@ -76,7 +78,19 @@ export function Protect() {
                   : 'No open perp positions on Hyperliquid testnet for this address.'}
               </p>
             ) : (
-              <PositionsTable rows={rows} selected={selected} onSelect={setSelected} oracle={oracle.data} />
+              <PositionsTable
+                rows={rows}
+                selected={selected}
+                onSelect={setSelected}
+                oracle={oracle.data}
+                onRetry={() => {
+                  if (positions.loading) return; // in-flight guard: never two read chains at once
+                  capCtrl.current.abort(); // stop a chain still waiting on a rate-limit retry
+                  capCtrl.current = new AbortController();
+                  invalidate('positions:');
+                  positions.reload();
+                }}
+              />
             )}
           </section>
           <div className="grid grid--2">
@@ -102,6 +116,21 @@ function EmptyProtect() {
   );
 }
 
+/** "Max payout" value: the cap, or "unavailable (retry)" with the read error in the tooltip (never a bare dash). */
+function CapValue({ row, onRetry }: { row: PositionRow; onRetry?: () => void }) {
+  const v = capView(row, fmtUsdc);
+  if (!v.unavailable) return <span title={v.title}>{v.text}</span>;
+  return onRetry ? (
+    <button type="button" className="linkish cap-unavailable" title={`${v.title?.replace(/\.+$/, '')}. Click to read again.`} onClick={onRetry}>
+      {v.text}
+    </button>
+  ) : (
+    <span className="cap-unavailable" title={v.title}>
+      {v.text}
+    </span>
+  );
+}
+
 function oraclePxOf(row: PositionRow, oracle: ReturnType<typeof useApp>['oracle']['data']) {
   if (row.perpIndex === undefined) return undefined;
   return oracle?.get(row.perpIndex);
@@ -112,11 +141,13 @@ function PositionsTable({
   selected,
   onSelect,
   oracle,
+  onRetry,
 }: {
   rows: PositionRow[];
   selected: string | undefined;
   onSelect: (c: string) => void;
   oracle: ReturnType<typeof useApp>['oracle']['data'];
+  onRetry: () => void;
 }) {
   return (
     <div className="table-wrap">
@@ -158,7 +189,9 @@ function PositionsTable({
                 <td className="r">
                   {r.leverage}×<span className="faint small"> {r.levType}</span>
                 </td>
-                <td className="r">{r.cap !== undefined ? fmtUsdc(r.cap) : '—'}</td>
+                <td className="r">
+                  <CapValue row={r} onRetry={onRetry} />
+                </td>
                 <td className="r">
                   <button className={`btn btn--small${selected === r.coin ? ' btn--primary' : ''}`} disabled={!can} onClick={() => onSelect(r.coin)} title={can ? '' : 'This perp is not configured for Numera'}>
                     {can ? 'Protect' : 'n/a'}
@@ -273,6 +306,10 @@ function ProtectPanel({ row }: { row: PositionRow }) {
 
   const [durationSec, setDurationSec] = useState(86400);
   const [payout, setPayout] = useState(row.cap !== undefined ? fmtFixed(row.cap, 6, 2, false) : '');
+  // The cap can arrive on a later poll (first read rate-limited): prefill then, unless the user typed.
+  useEffect(() => {
+    if (row.cap !== undefined) setPayout((p) => (p === '' ? fmtFixed(row.cap!, 6, 2, false) : p));
+  }, [row.cap]);
   const [quote, setQuote] = useState<QuoteOk>();
   const [quoteErr, setQuoteErr] = useState<string>();
   const [quoting, setQuoting] = useState(false);
@@ -416,7 +453,9 @@ function ProtectPanel({ row }: { row: PositionRow }) {
               </button>
             )}
           </div>
-          <span className="hint">Cap {row.cap !== undefined ? fmtUsdc(row.cap) : '—'} = entry notional ÷ leverage (the margin you would lose).</span>
+          <span className="hint">
+            Cap <CapValue row={row} /> = entry notional ÷ leverage (the margin you would lose).
+          </span>
         </div>
 
         {!built.ok && buyer && <p className="small soft">{built.error}</p>}

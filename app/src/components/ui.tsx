@@ -1,8 +1,11 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Hex } from 'viem';
 import { addrUrl, txUrl } from '../config';
 import { describeError } from '../lib/errors';
 import { shortAddr } from '../lib/format';
+import { fetchReceipt, type ReceiptView } from '../lib/receipt';
+import { isRateLimited } from '../lib/rpc';
 
 export function Stat({ label, value, sub, children }: { label: ReactNode; value: ReactNode; sub?: ReactNode; children?: ReactNode }) {
   return (
@@ -15,19 +18,190 @@ export function Stat({ label, value, sub, children }: { label: ReactNode; value:
   );
 }
 
-export function Addr({ a, full = false }: { a: string; full?: boolean }) {
+/** Copy `text` to the clipboard; the button says "copied" for a moment. */
+export function CopyButton({ text, what = 'value' }: { text: string; what?: string }) {
+  const [done, setDone] = useState<'ok' | 'fail'>();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setDone('ok');
+    } catch (e) {
+      console.error('[numera] clipboard write failed', e);
+      setDone('fail');
+    }
+    setTimeout(() => setDone(undefined), 1200);
+  };
   return (
-    <a className="mono" href={addrUrl(a)} target="_blank" rel="noreferrer" title={a}>
-      {full ? a : shortAddr(a)}
-    </a>
+    <button type="button" className="copy-btn" onClick={copy} title={`Copy ${what}: ${text}`} aria-label={`Copy ${what}`}>
+      {done === 'ok' ? 'copied' : done === 'fail' ? 'failed' : 'copy'}
+    </button>
   );
 }
 
-export function TxLink({ hash, label }: { hash: string; label?: string }) {
+/** Address: short form + copy; an explorer link only when VITE_EXPLORER_URL is set. */
+export function Addr({ a, full = false }: { a: string; full?: boolean }) {
+  const href = addrUrl(a);
+  const text = full ? a : shortAddr(a);
   return (
-    <a className="mono" href={txUrl(hash)} target="_blank" rel="noreferrer" title={hash}>
-      {label ?? shortAddr(hash)}
-    </a>
+    <span className="ref">
+      {href ? (
+        <a className="mono" href={href} target="_blank" rel="noreferrer" title={a}>
+          {text}
+        </a>
+      ) : (
+        <span className="mono" title={a}>
+          {text}
+        </span>
+      )}
+      <CopyButton text={a} what="address" />
+    </span>
+  );
+}
+
+/**
+ * Transaction reference: optional label, the short hash (opens the in-app receipt read over the RPC) and
+ * a copy button. An external explorer link is added only when VITE_EXPLORER_URL is set (no working chain-998
+ * explorer as of 2026-10-02).
+ */
+export function TxLink({ hash, label }: { hash: string; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const href = txUrl(hash);
+  return (
+    <span className="ref">
+      {label && <span>{label}</span>}
+      <button type="button" className="linkish mono" title={`Show the receipt of ${hash} (read from the RPC)`} onClick={() => setOpen(true)}>
+        {shortAddr(hash)}
+      </button>
+      <CopyButton text={hash} what="tx hash" />
+      {href && (
+        <a className="small" href={href} target="_blank" rel="noreferrer" title={`Open ${hash} in the explorer`}>
+          explorer
+        </a>
+      )}
+      {open && <ReceiptDialog hash={hash as Hex} onClose={() => setOpen(false)} />}
+    </span>
+  );
+}
+
+/** Modal with the decoded receipt, read when opened. */
+export function ReceiptDialog({ hash, onClose }: { hash: Hex; onClose: () => void }) {
+  const [st, setSt] = useState<{ data?: ReceiptView; error?: string }>({});
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setSt({});
+    fetchReceipt(hash).then(
+      (data) => {
+        if (alive) setSt({ data });
+      },
+      (e) => {
+        console.error('[numera] receipt read failed', hash, e);
+        if (alive)
+          setSt({ error: isRateLimited(e) ? 'The public testnet RPC is rate-limiting requests (-32005); try again in a minute.' : describeError(e) });
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [hash, tick]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const r = st.data;
+  return createPortal(
+    <div className="receipt-backdrop" onClick={onClose}>
+      <div className="receipt" role="dialog" aria-modal="true" aria-label="Transaction receipt" onClick={(e) => e.stopPropagation()}>
+        <div className="receipt__head">
+          <h2>Transaction receipt</h2>
+          <button type="button" className="btn btn--small" onClick={onClose} autoFocus>
+            Close
+          </button>
+        </div>
+        <p className="mono small receipt__hash">
+          {hash} <CopyButton text={hash} what="tx hash" />
+        </p>
+        <p className="faint small">Read with eth_getTransactionReceipt from the testnet RPC (chain 998); events decoded with the app's contract ABIs.</p>
+        {st.error ? (
+          <Notice kind="error">
+            Could not read the receipt: {st.error}{' '}
+            <button type="button" className="linkish" onClick={() => setTick((x) => x + 1)}>
+              retry
+            </button>
+          </Notice>
+        ) : !r ? (
+          <p className="empty">Reading receipt…</p>
+        ) : (
+          <>
+            <dl className="kv">
+              <div>
+                <dt>Status</dt>
+                <dd>{r.status === 'success' ? 'success (1)' : 'reverted (0)'}</dd>
+              </div>
+              <div>
+                <dt>Block</dt>
+                <dd className="mono">{r.blockNumber.toString()}</dd>
+              </div>
+              <div>
+                <dt>From</dt>
+                <dd>
+                  <Addr a={r.from} full />
+                </dd>
+              </div>
+              <div>
+                <dt>To</dt>
+                <dd>
+                  {r.to ? (
+                    <Addr a={r.to} full />
+                  ) : r.contractAddress ? (
+                    <>
+                      contract creation <Addr a={r.contractAddress} full />
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Gas used</dt>
+                <dd className="mono">{r.gasUsed.toString()}</dd>
+              </div>
+            </dl>
+            <h3 style={{ marginTop: 14 }}>Events ({r.events.length})</h3>
+            <ol className="receipt__events">
+              {r.events.map((ev) => (
+                <li key={ev.logIndex}>
+                  <strong>{ev.name}</strong>{' '}
+                  <span className="faint small">
+                    · {ev.contract} · log {ev.logIndex}
+                  </span>
+                  <dl className="receipt__args">
+                    {ev.args.map((a) => (
+                      <Fragment key={a.name}>
+                        <dt>{a.name}</dt>
+                        <dd className="mono">
+                          {a.pretty ? (
+                            <>
+                              {a.pretty} <span className="faint">[{a.raw}]</span>
+                            </>
+                          ) : (
+                            a.raw
+                          )}
+                        </dd>
+                      </Fragment>
+                    ))}
+                  </dl>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -85,7 +259,7 @@ export function TxStatus({ st }: { st: TxState }) {
     return (
       <Notice kind="ok">
         <span className="mark" aria-hidden />
-        {st.label}: confirmed. {st.hash && <TxLink hash={st.hash} label="View transaction" />}
+        {st.label}: confirmed. {st.hash && <TxLink hash={st.hash} label="Transaction" />}
       </Notice>
     );
   return (
