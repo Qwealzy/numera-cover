@@ -13,6 +13,7 @@ from numera_engine.backtest import (
     fit_tail,
     fit_z,
     observations,
+    pava_nonincreasing,
     simulate_pool,
     v1_priced,
     v2_priced,
@@ -133,6 +134,17 @@ def test_z_column_matches_definition():
         expected = math.log(1 + sign * ob.distance[i]) / (ob.sigma[i] * math.sqrt(T))
         assert ob.z[i] == pytest.approx(expected)
         assert (ob.z[i] < 0) == (ob.direction[i] == "down")
+
+
+def test_pava_merges_violators_and_keeps_monotone_input():
+    mono = [(50, 100), (20, 100), (5, 100), (0, 100)]
+    assert pava_nonincreasing(mono) == mono
+    # far bucket (1/100) more frequent than its nearer neighbour (0/100): pooled into one block
+    assert pava_nonincreasing([(30, 100), (0, 100), (1, 100)]) == [(30, 100), (1, 200), (1, 200)]
+    # empty bucket inherits the block before it
+    assert pava_nonincreasing([(10, 100), (0, 0), (2, 100)]) == [(10, 100), (10, 100), (2, 100)]
+    rates = [h / n for h, n in pava_nonincreasing([(5, 50), (9, 60), (1, 40), (3, 30), (0, 80)])]
+    assert all(a >= b for a, b in zip(rates, rates[1:], strict=False))
 
 
 def test_fit_z_pools_and_table_prices_like_lookup():

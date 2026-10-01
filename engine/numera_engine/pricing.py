@@ -290,9 +290,40 @@ def _bisect_right(xs, x: float) -> int:
     return lo
 
 
-def load_tail_table(path: str | Path) -> TailTable | ZTailTable:
-    """Load tail_multipliers.json in either schema (v2 z-buckets, or v1 per coin/horizon/distance)."""
+@dataclass
+class HorizonZTable:
+    """v3 (decision D11): one ZTailTable per calibrated horizon, each pooled over coins only.
+
+    A quote uses the table of the smallest calibrated horizon >= its duration (the longest beyond the grid).
+    """
+
+    horizons_s: tuple[int, ...]
+    tables: dict[int, ZTailTable]
+
+    def table_for(self, duration_s: float) -> ZTailTable:
+        h = next((x for x in self.horizons_s if x >= duration_s), self.horizons_s[-1])
+        return self.tables[h]
+
+    def adjust(
+        self, coin: str, is_long: bool, duration_s: float, S: float, H: float, sigma: float
+    ) -> TailAdj:
+        return self.table_for(duration_s).adjust(coin, is_long, duration_s, S, H, sigma)
+
+    @staticmethod
+    def from_blob(blob: dict[str, Any]) -> HorizonZTable:
+        tables = {}
+        for h, t in blob["tables"].items():
+            default = t.get("default") or {"k": 1, "q": 0}
+            sub = {"z_edges": blob["z_edges"], "cells": t["cells"], "default": default}
+            tables[int(h)] = ZTailTable.from_blob(sub)
+        return HorizonZTable(tuple(sorted(tables)), tables)
+
+
+def load_tail_table(path: str | Path) -> TailTable | ZTailTable | HorizonZTable:
+    """Load tail_multipliers.json: v3 per-horizon z tables, v2 pooled z table, or v1 per-bucket table."""
     blob: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    if blob.get("schema") == "z-per-horizon-v3":
+        return HorizonZTable.from_blob(blob)
     if blob.get("schema") == "z-pooled-v2":
         return ZTailTable.from_blob(blob)
     return TailTable.load(path)

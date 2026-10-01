@@ -50,6 +50,7 @@ from .pricing import (
     P_MAX,
     SECONDS_PER_YEAR,
     THETA,
+    HorizonZTable,
     QuoteRefusedError,
     TailTable,
     ZTailTable,
@@ -249,7 +250,7 @@ def _err(status: int, code: str, reason: str) -> JSONResponse:
 def create_app(
     settings: Settings | None = None,
     market: MarketData | None = None,
-    tail: TailTable | ZTailTable | None = None,
+    tail: TailTable | ZTailTable | HorizonZTable | None = None,
     clock: Callable[[], float] = time.time,
     nonce_fn: Callable[[], int] | None = None,
     spot_reader: SpotReader | None = None,

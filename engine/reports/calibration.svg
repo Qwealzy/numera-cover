@@ -269,7 +269,7 @@
 <circle cx="76" cy="96" r="4" fill="#2ca02c"/><text x="86" y="100">4h</text>
 <circle cx="76" cy="112" r="4" fill="#ff7f0e"/><text x="86" y="116">1d</text>
 <circle cx="76" cy="128" r="4" fill="#d62728"/><text x="86" y="132">7d</text>
-<circle cx="76" cy="144" r="4" fill="#000000"/><text x="86" y="148">pooled z bucket</text>
+<circle cx="76" cy="144" r="4" fill="#000000"/><text x="86" y="148">z bucket, all pooled</text>
 <text x="76" y="176">circle = down (long cover), square = up (short cover)</text>
 <text x="76" y="192">dashed = perfect calibration; above it = model under-predicts</text>
 <text x="76" y="208">buckets with 0 touches not drawn</text>

@@ -1,4 +1,4 @@
-"""Calibration backtest of the one-touch model on real Hyperliquid history (ARCHITECTURE §9, decision D9).
+"""Calibration backtest of the one-touch model on real Hyperliquid history (ARCHITECTURE §9, D9, D11).
 
     python -m numera_engine.backtest --coins BTC ETH SOL HYPE
 
@@ -256,6 +256,8 @@ class ZBucket:
     mean_p: float
     k: float | None
     q: float | None
+    block_n: int = 0  # counts of the monotone (PAVA) block this bucket was pooled into
+    block_hits: int = 0
 
     @property
     def realized(self) -> float:
@@ -265,27 +267,67 @@ class ZBucket:
         if self.k is None:
             return None
         return {"k": round(self.k, 4), "q": round(self.q, 8), "n": self.n, "hits": self.hits,
-                "mean_p": round(self.mean_p, 8)}  # fmt: skip
+                "block_n": self.block_n, "block_hits": self.block_hits, "mean_p": round(self.mean_p, 8)}  # fmt: skip
 
 
 def _zlabel(lo: float, hi: float) -> str:
     return f">= {lo:g}" if math.isinf(hi) else f"{lo:g}-{hi:g}"
 
 
-def fit_z(parts: list[tuple[Obs, np.ndarray]], edges=Z_EDGES) -> list[ZBucket]:
-    """Pool rows (obs, mask) of all coins and horizons into |z| buckets per direction and fit (k, q)."""
+def pava_nonincreasing(counts: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Pool-adjacent-violators: merge neighbouring (hits, n) buckets until the touch frequency is
+    non-increasing in |z|; returns, per input bucket, the (hits, n) of the block it ends up in.
+
+    The true touch frequency cannot rise as the level moves further away, so a far bucket that shows more
+    touches than a nearer one is sampling noise; pooling the two is the maximum-likelihood monotone fit.
+    Empty buckets (n = 0) are skipped and inherit the counts of the block before them.
+    """
+    blocks: list[list[int]] = []  # [hits, n, first index, last index]
+    for i, (h, n) in enumerate(counts):
+        if n == 0:
+            continue
+        blocks.append([h, n, i, i])
+        while len(blocks) > 1 and blocks[-2][0] / blocks[-2][1] < blocks[-1][0] / blocks[-1][1]:
+            h2, n2, _, j2 = blocks.pop()
+            blocks[-1][0] += h2
+            blocks[-1][1] += n2
+            blocks[-1][3] = j2
+    out: list[tuple[int, int]] = [(0, 0)] * len(counts)
+    for h, n, a, b in blocks:
+        for i in range(a, b + 1):
+            out[i] = (h, n)
+    for i in range(1, len(out)):  # empty buckets inside / after a block
+        if out[i] == (0, 0) and counts[i][1] == 0:
+            out[i] = out[i - 1]
+    return out
+
+
+def fit_z(parts: list[tuple[Obs, np.ndarray]], edges=Z_EDGES, monotone: bool = False) -> list[ZBucket]:
+    """Pool rows (obs, mask) into |z| buckets per direction and fit (k, q).
+
+    q = Wilson upper bound of the bucket's touch frequency, k = clamp(q / bucket mean p, 1, K_MAX) (1 if no
+    touch). With ``monotone`` (compared alternative, not adopted) counts are first pooled by PAVA so the
+    frequency is non-increasing in |z|, and q / k use the counts of the bucket's block.
+    """
     zz = np.concatenate([np.abs(o.z[m]) for o, m in parts])
     pp = np.concatenate([o.p[m] for o, m in parts])
     hh = np.concatenate([o.hit[m] for o, m in parts])
     dd = np.concatenate([o.direction[m] for o, m in parts])
     out = []
     for direction in ("down", "up"):
+        raw = []
         for lo, hi in zip(edges[:-1], edges[1:], strict=True):
             m = (dd == direction) & (zz >= lo) & (zz < hi)
             n, hits = int(m.sum()), int(hh[m].sum())
-            mp = float(pp[m].mean()) if n else 0.0
-            kq = fit_tail(hits, n, mp)
-            out.append(ZBucket(direction, lo, hi, n, hits, mp, kq[0] if kq else None, kq[1] if kq else None))
+            raw.append((lo, hi, n, hits, float(pp[m].mean()) if n else 0.0))
+        counts = [(h, n) for _, _, n, h, _ in raw]
+        blocks = pava_nonincreasing(counts) if monotone else counts
+        for (lo, hi, n, hits, mp), (bh, bn) in zip(raw, blocks, strict=True):
+            k = q = None
+            if n > 0 and bn >= MIN_OBS:
+                q = wilson(bh, bn)[1]
+                k = 1.0 if bh == 0 or mp <= 0 else min(K_MAX, max(1.0, q / mp))
+            out.append(ZBucket(direction, lo, hi, n, hits, mp, k, q, bn, bh))
     return out
 
 
@@ -411,17 +453,24 @@ def _b(v: bool | None) -> str:
     return "" if v is None else str(v)
 
 
+METHODS = (
+    ("v1", "v1 per coin x horizon x % distance"),
+    ("v2", "v2 z pooled over coins and horizons"),
+    ("v3", "v3 z per horizon, pooled over coins (adopted, D11)"),
+    ("v3p", "v3 + monotone pooling of thin z buckets (PAVA; not adopted)"),
+)
+
 CSV_COLUMNS = [
     "coin", "horizon", "direction", "distance", "n", "hits", "realized", "predicted_mean",
     "realized_over_predicted", "wilson_lo95", "wilson_hi95", "underpriced_significant", "mean_sigma",
     "v1_k", "v1_q", "v1_priced_in_sample",
-    "oos_n_test", "oos_realized_test", "oos_v1_priced_test", "oos_v1_pass", "oos_v2_priced_test", "oos_v2_pass", "oos_v2b_priced_test", "oos_v2b_pass",
-    "v2_priced_in_sample", "v2_pass_in_sample",
+    "oos_n_test", "oos_realized_test", "oos_v1_priced_test", "oos_v1_pass", "oos_v2_priced_test", "oos_v2_pass",
+    "oos_v3_priced_test", "oos_v3_pass", "v3_priced_in_sample", "v3_pass_in_sample",
 ]  # fmt: skip
 
 
 def write_csv(
-    path: Path, buckets: list[Bucket], oos: dict[tuple, dict], v2_full: dict[tuple, Bucket]
+    path: Path, buckets: list[Bucket], oos: dict[tuple, dict], v3_full: dict[tuple, Bucket]
 ) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
@@ -429,51 +478,63 @@ def write_csv(
         for b in buckets:
             key = (b.coin, b.horizon, b.direction, b.distance)
             o = oos.get(key, {})
-            v2 = v2_full.get(key)
+            v3 = v3_full.get(key)
             ratio = b.realized / b.mean_p if b.mean_p > 0 else float("nan")
             w.writerow([
                 b.coin, b.horizon, b.direction, f"{b.distance:.3f}", b.n, b.hits, _f(b.realized),
                 _f(b.mean_p, 8), f"{ratio:.3f}", _f(b.wilson_lo), _f(b.wilson_hi),
                 str(b.underpriced_significant), _f(b.mean_sigma, 4), _f(b.k, 3), _f(b.q), _f(b.priced),
-                o.get("n_test", ""), _f(o.get("realized_test")), _f(o.get("v1_priced")), _b(o.get("v1_pass")),
-                _f(o.get("v2_priced")), _b(o.get("v2_pass")),
-                _f(o.get("v2b_priced")), _b(o.get("v2b_pass")),
-                _f(v2.priced if v2 else None), _b(v2.passes if v2 else None),
+                o.get("n_test", ""), _f(o.get("realized_test")),
+                _f(o.get("v1_priced")), _b(o.get("v1_pass")), _f(o.get("v2_priced")), _b(o.get("v2_pass")),
+                _f(o.get("v3_priced")), _b(o.get("v3_pass")),
+                _f(v3.priced if v3 else None), _b(v3.passes if v3 else None),
             ])  # fmt: skip
 
 
-def write_z_csv(path: Path, full: list[ZBucket], train: list[ZBucket], test_eval: dict) -> None:
+def write_z_csv(path: Path, tables: list[tuple[str, list[ZBucket], list[ZBucket], dict]]) -> None:
+    """tables: (scope, full-sample buckets, first-half buckets, OOS eval by (direction, lo)); scope is a
+    horizon name (v3, published) or 'all' (v2, comparison)."""
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["direction", "abs_z_lo", "abs_z_hi", "n", "hits", "realized", "mean_p", "wilson_lo95",
-                    "k", "q", "train_k", "train_q", "oos_n_test", "oos_realized_test", "oos_priced_test",
-                    "oos_pass"])  # fmt: skip
-        for b, t in zip(full, train, strict=True):
-            e = test_eval.get((b.direction, b.lo), {})
-            w.writerow([b.direction, f"{b.lo:g}", "inf" if math.isinf(b.hi) else f"{b.hi:g}", b.n, b.hits,
-                        _f(b.realized), _f(b.mean_p, 8), _f(wilson(b.hits, b.n)[0]), _f(b.k, 4), _f(b.q, 8),
-                        _f(t.k, 4), _f(t.q, 8), e.get("n", ""), _f(e.get("realized")), _f(e.get("priced")),
-                        _b(e.get("pass"))])  # fmt: skip
+        w.writerow(["scope", "direction", "abs_z_lo", "abs_z_hi", "n", "hits", "realized", "mean_p",
+                    "wilson_lo95", "k", "q", "train_k", "train_q", "oos_n_test", "oos_realized_test",
+                    "oos_priced_test", "oos_pass"])  # fmt: skip
+        for scope, full, train, ev in tables:
+            for b, t in zip(full, train, strict=True):
+                e = ev.get((b.direction, b.lo), {})
+                w.writerow([scope, b.direction, f"{b.lo:g}", "inf" if math.isinf(b.hi) else f"{b.hi:g}", b.n,
+                            b.hits, _f(b.realized), _f(b.mean_p, 8), _f(wilson(b.hits, b.n)[0]), _f(b.k, 4),
+                            _f(b.q, 8), _f(t.k, 4), _f(t.q, 8), e.get("n", ""), _f(e.get("realized")),
+                            _f(e.get("priced")), _b(e.get("pass"))])  # fmt: skip
 
 
-def write_tail_json(path: Path, zbs: list[ZBucket], meta: dict) -> dict:
-    fitted = [b for b in zbs if b.k is not None]
+def write_tail_json(path: Path, zfull_h: dict[str, list[ZBucket]], meta: dict) -> dict:
+    tables = {}
+    for hz in HORIZONS:
+        zbs = zfull_h[hz.name]
+        fitted = [b for b in zbs if b.k is not None]
+        tables[str(hz.seconds)] = {
+            "horizon": hz.name,
+            "cells": {d: [b.cell() for b in zbs if b.direction == d] for d in ("down", "up")},
+            "default": {"k": round(max(b.k for b in fitted), 4), "q": round(max(b.q for b in fitted), 8)},
+        }
     blob = {
-        "schema": "z-pooled-v2",
+        "schema": "z-per-horizon-v3",
         "model": MODEL_NAME,
         "generated_at": meta["generated_at"],
-        "formula": "priced = max(p * k(dir, |z|), q(dir, |z|)); refuse if priced > pMax; "
-        "premium = ceil(payout * priced * (1 + theta)) + fee; z = ln(level/spot) / (sigma * sqrt(T))",
+        "formula": "priced = max(p * k(h, dir, |z|), q(h, dir, |z|)); refuse if priced > pMax; "
+        "premium = ceil(payout * priced * (1 + theta)) + fee; z = ln(level/spot) / (sigma * sqrt(T)); "
+        "h = smallest calibrated horizon >= duration",
         "method": (
-            f"Windows of all coins and horizons pooled into |z| buckets per direction. Per bucket with >= "
-            f"{MIN_OBS} windows: q = Wilson one-sided 95% upper bound of realized touch frequency; "
-            f"k = clamp(q / mean model p, 1, {K_MAX:g}), 1 with 0 touches. Lookup: k from the bucket holding "
-            "|z|; q made non-increasing in |z| then log-linearly interpolated between bucket mid-points. "
+            f"Per calibrated horizon, windows of all coins pooled into |z| buckets per direction (decision D11). "
+            f"Per bucket with >= {MIN_OBS} windows: q = Wilson one-sided 95% upper bound of realized touch "
+            f"frequency; k = clamp(q / mean model p, 1, {K_MAX:g}), 1 with 0 touches. Lookup: k from the bucket "
+            "holding |z|; q made non-increasing in |z| then log-linearly interpolated between bucket mid-points. "
             "null = < 30 windows (nearest populated bucket is used)."
         ),
         "z_edges": [None if math.isinf(e) else e for e in Z_EDGES],
-        "cells": {d: [b.cell() for b in zbs if b.direction == d] for d in ("down", "up")},
-        "default": {"k": round(max(b.k for b in fitted), 4), "q": round(max(b.q for b in fitted), 8)},
+        "horizons_s": [h.seconds for h in HORIZONS],
+        "tables": tables,
         "data": meta["ranges"],
     }
     path.write_text(json.dumps(blob, indent=1), encoding="utf-8")
@@ -543,13 +604,16 @@ def _ratio(bs) -> tuple[int, float]:
 ZGROUPS = ((0, 1), (1, 2), (2, 3), (3, 4), (4, 7), (7, math.inf))
 
 
+def _fails(oos: dict, method: str, horizon: str | None = None) -> tuple[int, int]:
+    rows = [v for k, v in oos.items() if horizon is None or k[1] == horizon]
+    return sum(1 for v in rows if not v[f"{method}_pass"]), len(rows)
+
+
 def write_markdown(path: Path, ctx: dict) -> None:
     buckets: list[Bucket] = ctx["buckets"]
-    zfull: list[ZBucket] = ctx["zfull"]
     oos: dict = ctx["oos"]
     sims: dict = ctx["sims"]
     meta: dict = ctx["meta"]
-    diag: list[dict] = ctx["diag"]
     fitted = [b for b in buckets if b.k is not None]
     n_coins = len(meta["coins"])
     L: list[str] = []
@@ -557,11 +621,11 @@ def write_markdown(path: Path, ctx: dict) -> None:
     add("# Calibration backtest: one-touch model on Hyperliquid history\n")
     add(
         f"Generated {meta['generated_at']} by `python -m numera_engine.backtest --coins {' '.join(meta['coins'])}` "
-        f"(model `{MODEL_NAME}`, tail table `z-pooled-v2`, decision D9). Source: Hyperliquid mainnet Info API "
-        "`candleSnapshot`, read-only. Files: `calibration.csv` (per coin/horizon/distance bucket, v1 and v2 "
-        "out-of-sample columns), `calibration_z.csv` (pooled z buckets = the published table), "
-        "`calibration_z_by_horizon.csv` (diagnostic), `calibration.svg` (reliability plot), "
-        "`tail_multipliers.json` (consumed by the quote API).\n"
+        f"(model `{MODEL_NAME}`, tail table `z-per-horizon-v3`, decisions D9 and D11). Source: Hyperliquid "
+        "mainnet Info API `candleSnapshot`, read-only. Files: `calibration.csv` (per coin/horizon/distance "
+        "bucket with out-of-sample columns for every method), `calibration_z.csv` (z buckets: per horizon = "
+        "the published table, `all` = the pooled comparison), `calibration_z_by_horizon.csv` (diagnostic), "
+        "`calibration.svg` (reliability plot), `tail_multipliers.json` (consumed by the quote API).\n"
     )
 
     add("## Pricing formula (engine v1, final)\n")
@@ -585,7 +649,8 @@ def write_markdown(path: Path, ctx: dict) -> None:
     add("p      = N((b + s^2/2)/s) + (S/L) N((b - s^2/2)/s)          if L < S  (long cover, down level)")
     add("p      = N((-b - s^2/2)/s) + (S/L) N((-b + s^2/2)/s)        if L > S  (short cover, up level)")
     add("z      = b / s                                              (standardized distance)")
-    add("k, q   = tail_multipliers.json lookup(direction, |z|)       (pooled z buckets, below)")
+    add("h      = smallest calibrated horizon in {1h, 4h, 1d, 7d} >= D (7d beyond)")
+    add("k, q   = tail_multipliers.json tables[h] lookup(direction, |z|)   (z buckets per horizon, below)")
     add("priced = max(p * k, q)")
     add(f"refuse   prob_too_high           if priced > pMax = {P_MAX:g}")
     add("refuse   level_already_breached  if isLong and S <= L, or !isLong and S >= L")
@@ -595,15 +660,16 @@ def write_markdown(path: Path, ctx: dict) -> None:
         "Lookup: k is the value of the |z| bucket that holds |z| (an empty bucket borrows the nearest populated "
         "one, nearer-the-money first). q is first made non-increasing in |z| (each bucket takes the max of "
         "itself and all further buckets) and then interpolated log-linearly between bucket mid-points, so the "
-        "price is continuous in the level and never rises as the level moves away. Quote API: `breakdown` "
+        "price is continuous in the level and never rises as the level moves away. k >= 1 always: the engine "
+        "never prices below the model, even where the model over-predicts. Quote API: `breakdown` "
         "returns `sigma, touchProb (= p), loading (= theta), premium, model` plus `tailMultiplier (= k), "
         "tailFloor (= q), pricedProb, fee, coin, z, spotSource (pool | info_api), pool`. Request may carry an "
         "optional `pool` (default: configured pool), which must be in the allowlist (configured pool + pools "
         "in deployments/<env>.json); the quote is signed for that pool. Errors `{error, reason}`: 400 "
         "`invalid_request`, `unknown_perp`, `unknown_pool`, `duration_out_of_range`; 422 "
-        "`level_already_breached`, `prob_too_high`, `capacity`; "
-        "403 `chain_not_allowed`; 503 `market_data_unavailable`, `signer_unavailable`. Nonce random in "
-        "[1, 2^53) so JSON numbers stay exact in JavaScript. Never signs for chainId 999.\n"
+        "`level_already_breached`, `prob_too_high`, `capacity`; 403 `chain_not_allowed`; 503 "
+        "`market_data_unavailable`, `signer_unavailable`. Nonce random in [1, 2^53) so JSON numbers stay exact "
+        "in JavaScript. Never signs for chainId 999.\n"
     )
 
     add("## Method\n")
@@ -631,26 +697,28 @@ def write_markdown(path: Path, ctx: dict) -> None:
         "Monte Carlo in `tests/test_pricing.py`)."
     )
     add(
-        "- **Tail adjustment by credibility pooling (v2).** Under the model, p depends on the level only through "
-        "the standardized distance z = ln(L/S)/(sigma sqrt(T)) (plus a drift term of size sigma sqrt(T)/2, small "
-        "at these horizons). A 1h BTC window at z = -3 and a 7d HYPE window at z = -3 are therefore the same "
-        "risk to the model, so we pool every window of every coin and horizon into |z| buckets (0.25 wide up "
-        "to 4, then 4-5, 5-7, >= 7), separately for down and up levels. This is actuarial credibility pooling: "
-        "thin cells (177 one-day windows per coin) borrow strength from the whole book, and the fitted "
-        'adjustment answers "how wrong is the model at this z", which is what we need to correct. Per bucket: '
-        f"q = Wilson one-sided 95 % upper bound of the realized touch frequency, k = clamp(q / mean p, 1, {K_MAX:g}) "
-        "(k = 1 when nothing touched). Whether pooling across horizons is fair is checked, not assumed: see "
-        "the per-horizon diagnostic."
+        "- **Tail adjustment by credibility pooling on standardized distance.** Under the model, p depends on "
+        "the level only through z = ln(L/S)/(sigma sqrt(T)) (plus a drift term of size sigma sqrt(T)/2, small "
+        "here). Windows with the same z are the same risk to the model, so we pool them into |z| buckets (0.25 "
+        "wide up to 4, then 4-5, 5-7, >= 7), separately for down and up levels. This is actuarial credibility "
+        "pooling: thin cells (177 one-day windows per coin) borrow strength from related experience, and the "
+        'fitted adjustment answers "how wrong is the model at this z". Per bucket: q = Wilson one-sided 95 % '
+        f"upper bound of the realized touch frequency, k = clamp(q / mean p, 1, {K_MAX:g}) (k = 1 when nothing "
+        "touched)."
     )
     add(
-        "- **v1 for comparison.** The first version fitted (k, q) separately per coin x horizon x direction x "
-        "% distance (n = 177 windows for 1d). Kept here only as the side-by-side baseline."
+        "- **Adopted (D11): one z table per horizon, pooled over coins only (v3).** Pooling across horizons "
+        "too (v2) was tried first; the per-horizon diagnostic showed the model's error at a given z depends on "
+        "the horizon (7d at |z| 2-4 was under-priced about 4x by the fully pooled table, because short "
+        "horizons dominate the pooled counts). Liquidation covers live in the far tail (a 10x long is ~9 % "
+        "from liquidation; with BTC 1d sigma ~2 % that is |z| ~4-5), exactly where full pooling under-prices, "
+        "so the per-horizon table is the conservative choice. Compared alternatives are kept below."
     )
     add(
-        "- **Out-of-sample protocol.** Each horizon's windows are split at the median start time. The tail "
-        "table is fitted on the first halves only (pooled) and evaluated on the second halves: (a) per "
-        "coin/horizon/direction/% bucket, pass if realized frequency <= mean priced probability; (b) a pool "
-        "P&L simulation trading the second half."
+        "- **Out-of-sample protocol.** Each horizon's windows are split at the median start time. Every method "
+        "is fitted on the first halves only and evaluated on the second halves: (a) per coin/horizon/"
+        "direction/% bucket, pass if realized frequency <= mean priced probability; (b) a pool P&L "
+        "simulation trading the second half."
     )
     add(
         "- **Caveat: candles are trade prices, not the oracle.** Covers trigger on the oracle (validator median "
@@ -671,95 +739,93 @@ def write_markdown(path: Path, ctx: dict) -> None:
             add(f"| {coin} | {iv} | {r['first']} | {r['last']} | {r['count']} | {wins} |")
     add("")
 
-    add("## Headline: v2 (pooled z) against targets, side by side with v1 (per bucket)\n")
+    add("## Headline: compared methods, out of sample\n")
     lo_t, hi_t = TARGET_LOSS_RATIO
     add(
-        f"Target (D9): out-of-sample loss ratio per horizon in {lo_t}-{hi_t}; report how many buckets fail "
-        "realized <= priced. All numbers below are out of sample (fit on first half, trade/test second half). "
-        "Price multiple = average premium per 100 USDC of cover / the raw model's (both with the 20 % loading).\n"
+        "Fit on the first half of each horizon, test and trade the second half. Each horizon cell: loss ratio "
+        "(claims / premiums) / price multiple (average premium per 100 USDC of cover divided by the raw model's, "
+        "both with the 20 % loading) / failing % buckets (realized > priced). Max drawdown is in the "
+        f"simulation table below. D9 target for the loss ratio: {lo_t}-{hi_t}.\n"
     )
-    add(
-        "| horizon | raw: loss ratio | raw: max DD | v1: price x raw | v1: loss ratio | v1: max DD | v1: failing buckets "
-        "| v2: price x raw | v2: loss ratio | v2: max DD | v2: failing buckets | v2 in target? |"
-    )
-    add("|---|---|---|---|---|---|---|---|---|---|---|---|")
-    tot = {"v1": 0, "v2": 0, "n": 0}
+    add("| method | OOS failing buckets | 1h | 4h | 1d | 7d |")
+    add("|---|---|---|---|---|---|")
+    raw_cells = []
     for hz in HORIZONS:
-        raw, s1, s2 = sims[(hz.name, "raw")], sims[(hz.name, "v1")], sims[(hz.name, "v2")]
-        rows = [v for k, v in oos.items() if k[1] == hz.name]
-        f1 = sum(1 for v in rows if not v["v1_pass"])
-        f2 = sum(1 for v in rows if not v["v2_pass"])
-        tot["v1"] += f1
-        tot["v2"] += f2
-        tot["n"] += len(rows)
-        ok = (
-            "yes"
-            if lo_t <= s2.loss_ratio <= hi_t
-            else ("no (below: over-priced)" if s2.loss_ratio < lo_t else "no (above)")
-        )
+        r = sims[(hz.name, "raw")]
+        raw_cells.append(f"{r.loss_ratio:.2f} / 1.00x / -")
+    add(f"| raw model (k = 1, no floor) | - | {' | '.join(raw_cells)} |")
+    for m, label in METHODS:
+        cells = []
+        for hz in HORIZONS:
+            s, raw = sims[(hz.name, m)], sims[(hz.name, "raw")]
+            f, n = _fails(oos, m, hz.name)
+            cells.append(f"{s.loss_ratio:.2f} / {s.price_per_100 / raw.price_per_100:.2f}x / {f}/{n}")
+        f, n = _fails(oos, m)
+        name = f"**{label}**" if m == "v3" else label
         add(
-            f"| {hz.name} | {raw.loss_ratio:.2f} | {raw.max_dd:.1%} | {s1.price_per_100 / raw.price_per_100:.2f} | "
-            f"{s1.loss_ratio:.2f} | {s1.max_dd:.1%} | {f1}/{len(rows)} | {s2.price_per_100 / raw.price_per_100:.2f} | "
-            f"{s2.loss_ratio:.2f} | {s2.max_dd:.1%} | {f2}/{len(rows)} | {ok} |"
+            f"| {name} | {'**' if m == 'v3' else ''}{f}/{n}{'**' if m == 'v3' else ''} | {' | '.join(cells)} |"
         )
     add("")
+    f3, n3 = _fails(oos, "v3")
     add(
-        f"- Out-of-sample failing buckets (realized > priced), all horizons: **v2 {tot['v2']}/{tot['n']}**, "
-        f"v1 {tot['v1']}/{tot['n']}."
+        f"- Adopted v3: {f3}/{n3} % buckets fail out of sample. v1 fails fewer because its per-bucket floors are "
+        "fitted on very thin cells and are therefore very wide (it prices 1h covers at ~4x the raw model); v2 "
+        "is cheapest but under-prices 7d and the far tail."
     )
     add(
-        "- Why 1h and 4h stay below the 0.5 loss-ratio target: at |z| < 2 the raw model over-predicts touches "
-        "(realized / p about 0.6-0.9, table below) and k >= 1 by design cannot discount that, while the "
-        "tail floor adds premium for the far levels the simulated book also sells. Reaching 0.5-0.8 there "
-        "would need k < 1 near the money (a §7 change: 'model never prices below realized' would then hold "
-        "only through q). Not done: reported instead, per D9 ('don't game them')."
+        "- Side effect of thin per-horizon tables: at 1d and 7d a far |z| bucket with ~100 windows and one "
+        "touch gets a wide upper bound (e.g. 1 in 110 -> q ~ 4 %), and the never-cheaper-further-away rule "
+        "lifts every nearer bucket to it. Quotes in that |z| range (about 3-4 for 1d) are therefore expensive. "
+        "`v3p` pools such buckets with their neighbours first (PAVA: the maximum-likelihood fit with touch "
+        "frequency non-increasing in |z|): cheaper there, but it fails more buckets out of sample, so the "
+        "conservative v3 stays adopted (D11). Better data (oracle history) is the real fix."
     )
     add(
-        "- The v2 failures are concentrated where the per-horizon diagnostic shows pooling is unfair: 7d at "
-        "moderate z (2-4) and up-moves at large z for 1h-1d. Short horizons dominate the pooled counts, so the "
-        "pooled table reflects them; v2b (separate table per horizon) halves the failures at a higher price."
+        "- 1h and 4h loss ratios sit below the 0.5 target: at |z| < 2 the raw model over-predicts touches "
+        "(realized / p about 0.6-0.9) and k >= 1 by design does not discount that (D11: no near-money discount "
+        "in v1). The far-tail floor adds premium on top. Covers are priced at the observed tail, which "
+        "protects LPs."
     )
-    n_pass_v2 = sum(1 for b in ctx["v2_full"].values() if b.passes)
+    n_pass = sum(1 for b in ctx["v3_full"].values() if b.passes)
     add(
-        f"- In-sample with the published v2 table: {n_pass_v2}/{len(ctx['v2_full'])} buckets pass (not by construction: "
-        "the table is fitted on pooled z buckets, not on these buckets)."
-    )
-    zf = [b for b in zfull if b.k is not None]
-    add(
-        f"- Pooled table: {len(zf)} of {len(zfull)} z buckets have >= {MIN_OBS} windows; k ranges "
-        f"{min(b.k for b in zf):.2f}-{max(b.k for b in zf):.2f}; q ranges {min(b.q for b in zf):.2e}-{max(b.q for b in zf):.3f}."
+        f"- In-sample with the published v3 tables: {n_pass}/{len(ctx['v3_full'])} % buckets pass (not by "
+        "construction: tables are fitted on z buckets, not on these buckets)."
     )
     add(
         f"- Raw model: realized above predicted in {sum(1 for b in fitted if b.realized > b.mean_p)} of {len(fitted)} "
         f"% buckets, significantly (Wilson 95 % lower bound above p) in {sum(1 for b in fitted if b.underpriced_significant)}.\n"
     )
 
-    add("### Alternative not adopted: v2b = pool coins, separate z table per horizon\n")
+    add("## Published tables: z buckets per horizon (v3)\n")
     add(
-        "Same method, but the z table is fitted per horizon (pooling only across coins). Shown because the "
-        "per-horizon diagnostic below finds that the model's error at a given z differs by horizon.\n"
+        "Fitted on all windows (both halves) of all coins, per horizon. Cell = touches/windows, k, q. "
+        "`realized / p` per bucket is in `calibration_z.csv`.\n"
     )
-    add("| horizon | v2b: price x raw | v2b: loss ratio | v2b: max DD | v2b: failing buckets |")
-    add("|---|---|---|---|---|")
-    tb = 0
-    for hz in HORIZONS:
-        raw, sb = sims[(hz.name, "raw")], sims[(hz.name, "v2b")]
-        rows = [v for k, v in oos.items() if k[1] == hz.name]
-        fb = sum(1 for v in rows if not v["v2b_pass"])
-        tb += fb
-        add(
-            f"| {hz.name} | {sb.price_per_100 / raw.price_per_100:.2f} | {sb.loss_ratio:.2f} | {sb.max_dd:.1%} | "
-            f"{fb}/{len(rows)} |"
-        )
-    add(f"\nv2b failing buckets, all horizons: {tb}/{tot['n']}.\n")
-
-    add("## Pooled z buckets (the published table)\n")
     add(
-        "Fitted on all windows (both halves). `realized / p` > 1 means the raw model under-predicts at that z.\n"
+        "| dir | abs z | "
+        + " | ".join(f"{h.name} touches/windows | {h.name} k | {h.name} q" for h in HORIZONS)
+        + " |"
+    )
+    add("|---|---|" + "---|---|---|" * len(HORIZONS))
+    zfull_h = ctx["zfull_h"]
+    for i, b0 in enumerate(zfull_h[HORIZONS[0].name]):
+        cells = []
+        for hz in HORIZONS:
+            b = zfull_h[hz.name][i]
+            kk = "" if b.k is None else f"{b.k:.2f}"
+            qq = "" if b.q is None else f"{b.q:.2e}"
+            cells.append(f"{b.hits}/{b.n} | {kk} | {qq}")
+        add(f"| {b0.direction} | {_zlabel(b0.lo, b0.hi)} | {' | '.join(cells)} |")
+    add("")
+
+    add("## Compared alternative v2: one z table pooled over coins and horizons\n")
+    add(
+        "`realized / p` > 1 means the raw model under-predicts at that z. This table shows the shape of the "
+        "model error most clearly (most data), but was not adopted (see method).\n"
     )
     add("| dir | abs z | windows | touches | realized | mean model p | realized / p | k | q |")
     add("|---|---|---|---|---|---|---|---|---|")
-    for b in zfull:
+    for b in ctx["zfull_all"]:
         if b.n == 0:
             continue
         r = b.realized / b.mean_p if b.mean_p > 0 else float("inf")
@@ -771,20 +837,23 @@ def write_markdown(path: Path, ctx: dict) -> None:
         )
     add("")
 
-    add("## Per-horizon diagnostic (is pooling across horizons fair?)\n")
+    add("## Per-horizon diagnostic\n")
     add(
-        "Second half, priced with the table fitted on first halves. `actual / model` > 1: the raw model "
-        "under-predicts in this horizon at this z; `pass` compares realized with the mean priced probability.\n"
+        "Second half, priced with tables fitted on the first halves. `actual / model` > 1: the raw model "
+        "under-predicts there. `v2 pass` = fully pooled table, `v3 pass` = per-horizon table (adopted).\n"
     )
-    add("| horizon | dir | abs z | windows | touches | actual / model | realized | mean priced | pass |")
-    add("|---|---|---|---|---|---|---|---|---|")
-    for r in diag:
-        if r["n"] == 0:
+    add(
+        "| horizon | dir | abs z | windows | touches | actual / model | realized | v2 priced | v2 pass | v3 priced | v3 pass |"
+    )
+    add("|---|---|---|---|---|---|---|---|---|---|---|")
+    for r2, r3 in zip(ctx["diag_v2"], ctx["diag_v3"], strict=True):
+        if r3["n"] == 0:
             continue
-        am = r["hits"] / r["expected"] if r["expected"] > 0 else float("inf")
+        am = r3["hits"] / r3["expected"] if r3["expected"] > 0 else float("inf")
         add(
-            f"| {r['horizon']} | {r['direction']} | {_zlabel(r['lo'], r['hi'])} | {r['n']} | {r['hits']} | {am:.2f} | "
-            f"{r['realized']:.2e} | {r['priced']:.2e} | {'pass' if r['pass'] else '**FAIL**'} |"
+            f"| {r3['horizon']} | {r3['direction']} | {_zlabel(r3['lo'], r3['hi'])} | {r3['n']} | {r3['hits']} | "
+            f"{am:.2f} | {r3['realized']:.2e} | {r2['priced']:.2e} | {'pass' if r2['pass'] else '**FAIL**'} | "
+            f"{r3['priced']:.2e} | {'pass' if r3['pass'] else '**FAIL**'} |"
         )
     add("")
 
@@ -798,9 +867,8 @@ def write_markdown(path: Path, ctx: dict) -> None:
         f"{{{', '.join(f'{d:.1%}' for d in SIM_DISTANCES)}}}, each paying {SIM_PAYOUT_FRACTION:.2%} of the "
         f"initial LP capital (at most {SIM_PAYOUT_FRACTION * 2 * len(SIM_DISTANCES) * n_coins:.0%} locked; no "
         f"compounding), premium = payout x priced x (1 + {THETA:g}), refused when priced > {P_MAX:g}. Covers "
-        "settle before the next window; no fees, no idle yield. `raw` = model p with the loading only, "
-        "`v1` = per-bucket table, `v2` = pooled z table; OOS rows trade only the second half with tables "
-        "fitted on the first half; `v2 in-sample` trades everything with the published table.\n"
+        "settle before the next window; no fees, no idle yield. OOS rows trade only the second half with "
+        "tables fitted on the first half; `v3 in-sample` trades everything with the published tables.\n"
     )
     add(
         "**How to read it.** Price and claims per 100 USDC of cover, the loss ratio (claims / premiums; the "
@@ -836,61 +904,66 @@ def write_markdown(path: Path, ctx: dict) -> None:
 
     add("## Calibration table per coin / horizon / distance\n")
     add(
-        "`ratio` = realized / raw predicted (`sig` = significantly under-predicted). `v2 priced` = mean priced "
-        "probability with the published pooled table. `OOS v1/v2` = out-of-sample result (second half).\n"
+        "`ratio` = realized / raw predicted (`sig` = significantly under-predicted). `v3 priced` = mean priced "
+        "probability with the published tables. `OOS v1/v2/v3` = out-of-sample result (second half).\n"
     )
     add(
-        "| coin | hz | dir | dist | windows | touches | realized | predicted | ratio | v2 priced | OOS v1 | OOS v2 |"
+        "| coin | hz | dir | dist | windows | touches | realized | predicted | ratio | v3 priced | OOS v1 | OOS v2 | OOS v3 |"
     )
-    add("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    add("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for b in fitted:
         key = (b.coin, b.horizon, b.direction, b.distance)
         o = oos.get(key)
-        v2 = ctx["v2_full"][key]
+        v3 = ctx["v3_full"][key]
         ratio = b.realized / b.mean_p if b.mean_p > 0 else float("inf")
-        o1 = "" if o is None else ("pass" if o["v1_pass"] else "**FAIL**")
-        o2 = "" if o is None else ("pass" if o["v2_pass"] else "**FAIL**")
+        res = ["" if o is None else ("pass" if o[f"{m}_pass"] else "**FAIL**") for m, _ in METHODS]
         add(
             f"| {b.coin} | {b.horizon} | {b.direction} | {b.distance:.1%} | {b.n} | {b.hits} | {b.realized:.4f} | "
-            f"{b.mean_p:.2e} | {ratio:.2f}{' sig' if b.underpriced_significant else ''} | {v2.priced:.4f} | {o1} | {o2} |"
+            f"{b.mean_p:.2e} | {ratio:.2f}{' sig' if b.underpriced_significant else ''} | {v3.priced:.4f} | "
+            f"{' | '.join(res)} |"
         )
     add("")
-    add("## Limitations\n")
+    add("## Limitations (read before trusting the numbers)\n")
     add(
-        "- Trade-price candles approximate the oracle (see method). Oracle minute history exists only in a "
-        "requester-pays S3 archive and was not used."
+        "The evidence is real but thinner than the tables make it look. The Wilson bounds treat every window as "
+        "an independent draw, and they are not: the same window is counted at eight distances, BTC, ETH, SOL "
+        "and HYPE move together (a market-wide crash is one event, counted up to four times when we pool "
+        "coins), and volatility clusters in time. The effective sample is therefore much smaller than the "
+        "window counts, and the true uncertainty around every k and q is wider than the bounds state. The "
+        "second half of the sample also looks like a different regime from the first (more large up-moves "
+        "at 1h-1d, larger moves at 7d), which is exactly why the out-of-sample check fails some buckets: the "
+        "past half did not fully anticipate the next. The 1h/4h/1d evidence comes from only ~7 months of "
+        "1-hour candles, essentially one market regime; the 7d evidence spans 2023-2026 but has fewer than "
+        "200 windows per coin. Finally, the touches are measured on Hyperliquid trade-price candles, not on "
+        "the oracle the covers trigger on (oracle minute history exists only in a requester-pays S3 archive "
+        "and was not used).\n"
     )
-    add("- 1h history is ~7 months for every coin: essentially one market regime. 7d windows span 2023-2026.")
     add(
-        "- Windows are not independent (the same window at 8 distances; correlated coins; volatility "
-        "clustering). Wilson bounds treat them as independent, so true uncertainty is larger, and the pooled "
-        "buckets look more certain than they are."
+        "- What would make it stronger: oracle history from the S3 archive (years, and the actual trigger "
+        "price); block-bootstrap or cluster-robust intervals instead of Wilson; a scheduled refit with the "
+        "out-of-sample pass rate tracked over time."
     )
     add(
-        "- Pooling assumes the model's error depends on z, not on the horizon or coin. The per-horizon "
-        "diagnostic shows where that is not true; such cells need a horizon-specific adjustment or more data."
-    )
-    add(
-        "- The table is point-in-time; it must be refitted on a schedule and the out-of-sample pass rate tracked."
+        "- The tables are point-in-time. A failing bucket after refit is a signal to widen the margin, not noise."
     )
     path.write_text("\n".join(L) + "\n", encoding="utf-8")
 
 
 def _findings(ctx: dict) -> str:
     buckets: list[Bucket] = ctx["buckets"]
-    zfull: list[ZBucket] = ctx["zfull"]
+    zall: list[ZBucket] = ctx["zfull_all"]
     out = []
-    near = [b for b in zfull if b.k is not None and b.hi <= 2]
+    near = [b for b in zall if b.k is not None and b.hi <= 2]
     a, e = _ratio(near)
     out.append(
         f"- **Near the money (|z| < 2) the model over-predicts:** {a} touches where it expected {e:.0f} "
         f"({a / e:.2f}x). Likely reasons (not tested separately): the 30-day realized floor keeps sigma "
         "high after volatile spells, and short-horizon returns mean-revert a little."
     )
-    mid = [b for b in zfull if b.k is not None and 2 <= b.lo and b.hi <= 4]
+    mid = [b for b in zall if b.k is not None and 2 <= b.lo and b.hi <= 4]
     a, e = _ratio(mid)
     out.append(f"- **2 <= |z| < 4:** {a} touches vs {e:.1f} expected ({a / e:.2f}x).")
-    far = [b for b in zfull if b.n and b.lo >= 4]
+    far = [b for b in zall if b.n and b.lo >= 4]
     a, e = _ratio(far)
     out.append(
         f"- **The tail (|z| >= 4) is where GBM fails:** {a} touches in {sum(b.n for b in far)} windows where "
@@ -898,34 +971,36 @@ def _findings(ctx: dict) -> str:
         "prices them at their observed frequency (upper bound) instead of ~0."
     )
     fitted = [b for b in buckets if b.k is not None]
-    dn = [b for b in fitted if b.direction == "down"]
-    up = [b for b in fitted if b.direction == "up"]
-    (ad, ed), (au, eu) = _ratio(dn), _ratio(up)
+    (ad, ed) = _ratio([b for b in fitted if b.direction == "down"])
+    (au, eu) = _ratio([b for b in fitted if b.direction == "up"])
     out.append(
         f"- **Direction:** actual/expected {ad / ed:.2f} for down levels (long covers), {au / eu:.2f} for up."
     )
-    fails = [r for r in ctx["diag"] if r["n"] and not r["pass"]]
-    if fails:
+    f2 = [r for r in ctx["diag_v2"] if r["n"] and not r["pass"]]
+    f3 = [r for r in ctx["diag_v3"] if r["n"] and not r["pass"]]
+    out.append(
+        f"- **Per-horizon diagnostic:** {len(f2)} horizon x z cells fail out of sample with the fully pooled "
+        f"table, {len(f3)} with the per-horizon tables."
+    )
+    if f3:
         out.append(
-            "- **Per-horizon cells that fail with the pooled table** (out of sample): "
+            "  Still failing with v3: "
             + "; ".join(
-                f"{r['horizon']} {r['direction']} |z| {_zlabel(r['lo'], r['hi'])} "
-                f"({r['hits']}/{r['n']} touched, priced {r['priced']:.1e})"
-                for r in fails
+                f"{r['horizon']} {r['direction']} |z| {_zlabel(r['lo'], r['hi'])} ({r['hits']}/{r['n']} touched, "
+                f"realized {r['realized']:.1e} vs priced {r['priced']:.1e})"
+                for r in f3
             )
-            + ". Pooling across horizons is not perfectly fair there."
+            + "."
         )
-    else:
-        out.append("- **Every per-horizon z cell passes out of sample** with the pooled table.")
-    f2 = [(k, v) for k, v in ctx["oos"].items() if not v["v2_pass"]]
-    if f2:
+    fb = [(k, v) for k, v in ctx["oos"].items() if not v["v3_pass"]]
+    if fb:
         out.append(
-            "- **Out-of-sample % buckets failing with v2:** "
+            "- **Out-of-sample % buckets failing with v3:** "
             + "; ".join(
-                f"{c} {h} {d} {x:.1%} (realized {v['realized_test']:.4f} > priced {v['v2_priced']:.4f})"
-                for (c, h, d, x), v in f2[:12]
+                f"{c} {h} {d} {x:.1%} (realized {v['realized_test']:.4f} > priced {v['v3_priced']:.4f})"
+                for (c, h, d, x), v in fb[:20]
             )
-            + ("; ..." if len(f2) > 12 else "")
+            + ("; ..." if len(fb) > 20 else "")
             + "."
         )
     return "\n".join(out)
@@ -994,65 +1069,70 @@ def run(coins: list[str], out_dir: Path = REPORTS_DIR, info_url: str = MAINNET_I
             for coin, ob in obs_all[hz.name].items():
                 yield hz, coin, ob
 
-    # v2 tables: pooled over every coin and horizon
-    zfull = fit_z([(ob, np.ones(len(ob), dtype=bool)) for _, _, ob in each()])
-    ztrain = fit_z([(ob, ob.start_ms < split_t[hz.name]) for hz, _, ob in each()])
-    table_full, table_train = z_table(zfull), z_table(ztrain)
-    # v2b (comparison only): pooled over coins, but a separate z table per horizon
-    table_train_h = {
-        hz.name: z_table(fit_z([(ob, ob.start_ms < split_t[hz.name]) for ob in obs_all[hz.name].values()]))
-        for hz in HORIZONS
-    }
+    def train_mask(hz: Horizon, ob: Obs) -> np.ndarray:
+        return ob.start_ms < split_t[hz.name]
+
+    # v2 (comparison): pooled over every coin and horizon
+    zfull_all = fit_z([(ob, np.ones(len(ob), dtype=bool)) for _, _, ob in each()])
+    ztrain_all = fit_z([(ob, train_mask(hz, ob)) for hz, _, ob in each()])
+    table_v2 = z_table(ztrain_all)
+    # v3 (adopted, D11): pooled over coins, one table per horizon
+    zfull_h, ztrain_h, table_v3, table_v3_full, table_v3p = {}, {}, {}, {}, {}
+    for hz in HORIZONS:
+        obs = obs_all[hz.name].values()
+        zfull_h[hz.name] = fit_z([(ob, np.ones(len(ob), dtype=bool)) for ob in obs])
+        ztrain_h[hz.name] = fit_z([(ob, train_mask(hz, ob)) for ob in obs])
+        table_v3[hz.name], table_v3_full[hz.name] = z_table(ztrain_h[hz.name]), z_table(zfull_h[hz.name])
+        table_v3p[hz.name] = z_table(fit_z([(ob, train_mask(hz, ob)) for ob in obs], monotone=True))
 
     buckets: list[Bucket] = []
-    v2_full: dict[tuple, Bucket] = {}
+    v3_full: dict[tuple, Bucket] = {}
     oos: dict[tuple, dict] = {}
     priced: dict[str, dict[str, dict[str, np.ndarray]]] = {
-        k: defaultdict(dict) for k in ("v1", "v2", "v2full", "v2b")
+        k: defaultdict(dict) for k in ("v1", "v2", "v3", "v3full", "v3p")
     }
     for hz, coin, ob in each():
-        bs = aggregate(coin, hz.name, ob)
-        buckets += bs
-        tr, te = ob.start_ms < split_t[hz.name], ob.start_ms >= split_t[hz.name]
-        p1 = v1_priced(ob, v1_fit(aggregate(coin, hz.name, ob, tr)))
-        p2 = v2_priced(ob, table_train)
-        p2f = v2_priced(ob, table_full)
-        priced["v2b"][hz.name][coin] = p2b = v2_priced(ob, table_train_h[hz.name])
-        priced["v1"][hz.name][coin], priced["v2"][hz.name][coin], priced["v2full"][hz.name][coin] = (
-            p1,
-            p2,
-            p2f,
-        )
-        for b in aggregate(coin, hz.name, ob, priced=p2f):
-            v2_full[(coin, hz.name, b.direction, b.distance)] = b
-        t1 = aggregate(coin, hz.name, ob, te, priced=p1)
-        t2 = aggregate(coin, hz.name, ob, te, priced=p2)
-        t2b = aggregate(coin, hz.name, ob, te, priced=p2b)
+        buckets += aggregate(coin, hz.name, ob)
+        tr, te = train_mask(hz, ob), ~train_mask(hz, ob)
         train_v1 = v1_fit(aggregate(coin, hz.name, ob, tr))
-        for a, b, c in zip(t1, t2, t2b, strict=True):
+        pr = {
+            "v1": v1_priced(ob, train_v1),
+            "v2": v2_priced(ob, table_v2),
+            "v3": v2_priced(ob, table_v3[hz.name]),
+            "v3full": v2_priced(ob, table_v3_full[hz.name]),
+            "v3p": v2_priced(ob, table_v3p[hz.name]),
+        }
+        for k, v in pr.items():
+            priced[k][hz.name][coin] = v
+        for b in aggregate(coin, hz.name, ob, priced=pr["v3full"]):
+            v3_full[(coin, hz.name, b.direction, b.distance)] = b
+        tests = {m: aggregate(coin, hz.name, ob, te, priced=pr[m]) for m, _ in METHODS}
+        for i, a in enumerate(tests["v1"]):
             if a.n < MIN_OBS or (a.direction, a.distance) not in train_v1:
                 continue
-            oos[(coin, hz.name, a.direction, a.distance)] = {
-                "n_test": a.n, "realized_test": a.realized, "v1_priced": a.priced, "v1_pass": bool(a.passes),
-                "v2_priced": b.priced, "v2_pass": bool(b.passes), "v2b_priced": c.priced,
-                "v2b_pass": bool(c.passes),
-            }  # fmt: skip
+            row = {"n_test": a.n, "realized_test": a.realized}
+            for m, _ in METHODS:
+                t = tests[m][i]
+                row[f"{m}_priced"], row[f"{m}_pass"] = t.priced, bool(t.passes)
+            oos[(coin, hz.name, a.direction, a.distance)] = row
 
-    # z-bucket OOS (pooled) and per-horizon diagnostic
-    z_test_eval = {}
-    for b in ztrain:
-        parts = [(ob, ob.start_ms >= split_t[hz.name], priced["v2"][hz.name][c]) for hz, c, ob in each()]
-        z_test_eval[(b.direction, b.lo)] = _z_eval(parts, b.lo, b.hi, b.direction)
-    diag = []
+    def test_parts(hz: Horizon, method: str) -> list:
+        return [(ob, ~train_mask(hz, ob), priced[method][hz.name][c]) for c, ob in obs_all[hz.name].items()]
+
+    # OOS per z bucket for the csv, and the per-horizon diagnostic for v2 and v3
+    z_eval_all = {}
+    for b in ztrain_all:
+        parts = [p for hz in HORIZONS for p in test_parts(hz, "v2")]
+        z_eval_all[(b.direction, b.lo)] = _z_eval(parts, b.lo, b.hi, b.direction)
+    z_eval_h = {hz.name: {(b.direction, b.lo): _z_eval(test_parts(hz, "v3"), b.lo, b.hi, b.direction)
+                          for b in ztrain_h[hz.name]} for hz in HORIZONS}  # fmt: skip
+    diag_v2, diag_v3 = [], []
     for hz in HORIZONS:
-        parts = [
-            (ob, ob.start_ms >= split_t[hz.name], priced["v2"][hz.name][c])
-            for c, ob in obs_all[hz.name].items()
-        ]
         for direction in ("down", "up"):
             for lo, hi in ZGROUPS:
-                diag.append({"horizon": hz.name, "direction": direction, "lo": lo, "hi": hi,
-                             **_z_eval(parts, lo, hi, direction)})  # fmt: skip
+                base = {"horizon": hz.name, "direction": direction, "lo": lo, "hi": hi}
+                diag_v2.append(base | _z_eval(test_parts(hz, "v2"), lo, hi, direction))
+                diag_v3.append(base | _z_eval(test_parts(hz, "v3"), lo, hi, direction))
 
     sims: dict[tuple[str, str], SimResult] = {}
     sim_list: list[SimResult] = []
@@ -1062,38 +1142,45 @@ def run(coins: list[str], out_dir: Path = REPORTS_DIR, info_url: str = MAINNET_I
             ("raw", "raw, OOS half", None, t0),
             ("v1", "v1 per-bucket, OOS half", priced["v1"][hz.name], t0),
             ("v2", "v2 pooled z, OOS half", priced["v2"][hz.name], t0),
-            ("v2full", "v2 pooled z, in-sample, full", priced["v2full"][hz.name], None),
-            ("v2b", "v2b z per horizon, OOS half", priced["v2b"][hz.name], t0),
+            ("v3", "v3 z per horizon (adopted), OOS half", priced["v3"][hz.name], t0),
+            ("v3full", "v3 z per horizon, in-sample, full", priced["v3full"][hz.name], None),
+            ("v3p", "v3 + PAVA (not adopted), OOS half", priced["v3p"][hz.name], t0),
         ]
-        for key, label, pr, tf in variants:
-            s = simulate_pool(label, hz, ob, pr, t_from=tf)
+        for key, label, pr_, tf in variants:
+            s = simulate_pool(label, hz, ob, pr_, t_from=tf)
             sims[(hz.name, key)] = s
             sim_list.append(s)
 
     meta = {"generated_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "coins": coins,
             "ranges": ranges, "windows": windows}  # fmt: skip
-    write_csv(out_dir / "calibration.csv", buckets, oos, v2_full)
-    write_z_csv(out_dir / "calibration_z.csv", zfull, ztrain, z_test_eval)
+    write_csv(out_dir / "calibration.csv", buckets, oos, v3_full)
+    write_z_csv(
+        out_dir / "calibration_z.csv",
+        [(hz.name, zfull_h[hz.name], ztrain_h[hz.name], z_eval_h[hz.name]) for hz in HORIZONS]
+        + [("all", zfull_all, ztrain_all, z_eval_all)],
+    )
     with (out_dir / "calibration_z_by_horizon.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["horizon", "direction", "abs_z_lo", "abs_z_hi", "n_test", "hits_test", "expected_test",
-                    "realized_test", "priced_test", "pass"])  # fmt: skip
-        for r in diag:
-            w.writerow([r["horizon"], r["direction"], r["lo"], "inf" if math.isinf(r["hi"]) else r["hi"], r["n"],
-                        r["hits"], f"{r['expected']:.4f}", _f(r["realized"]), _f(r["priced"]), r["pass"]])  # fmt: skip
-    blob = write_tail_json(out_dir / "tail_multipliers.json", zfull, meta)
+                    "realized_test", "v2_priced_test", "v2_pass", "v3_priced_test", "v3_pass"])  # fmt: skip
+        for r2, r3 in zip(diag_v2, diag_v3, strict=True):
+            w.writerow([r3["horizon"], r3["direction"], r3["lo"], "inf" if math.isinf(r3["hi"]) else r3["hi"],
+                        r3["n"], r3["hits"], f"{r3['expected']:.4f}", _f(r3["realized"]), _f(r2["priced"]),
+                        r2["pass"], _f(r3["priced"]), r3["pass"]])  # fmt: skip
+    blob = write_tail_json(out_dir / "tail_multipliers.json", zfull_h, meta)
     pts = [(b.mean_p, b.realized, HZ_COLORS[b.horizon], "circle" if b.direction == "down" else "square",
             f"{b.coin} {b.horizon} {b.direction} {b.distance:.1%}: {b.hits}/{b.n}")
            for b in buckets if b.n >= MIN_OBS and b.hits]  # fmt: skip
     pts += [(b.mean_p, b.realized, "#000000", "circle" if b.direction == "down" else "square",
              f"pooled {b.direction} |z| {_zlabel(b.lo, b.hi)}: {b.hits}/{b.n}")
-            for b in zfull if b.n >= MIN_OBS and b.hits]  # fmt: skip
-    legend = [*HZ_COLORS.items(), ("pooled z bucket", "#000000")]
+            for b in zfull_all if b.n >= MIN_OBS and b.hits]  # fmt: skip
+    legend = [*HZ_COLORS.items(), ("z bucket, all pooled", "#000000")]
     (out_dir / "calibration.svg").write_text(
         reliability_svg(pts, legend, "Predicted vs realized touch frequency (log-log)"), encoding="utf-8"
     )
-    ctx = {"buckets": buckets, "zfull": zfull, "ztrain": ztrain, "oos": oos, "sims": sims, "sim_list": sim_list,
-           "meta": meta, "diag": diag, "v2_full": v2_full, "z_test_eval": z_test_eval, "tail": blob}  # fmt: skip
+    ctx = {"buckets": buckets, "zfull_all": zfull_all, "zfull_h": zfull_h, "oos": oos, "sims": sims,
+           "sim_list": sim_list, "meta": meta, "diag_v2": diag_v2, "diag_v3": diag_v3, "v3_full": v3_full,
+           "tail": blob}  # fmt: skip
     write_markdown(out_dir / "calibration.md", ctx)
     print(f"[backtest] wrote {out_dir}", flush=True)
     return ctx
@@ -1105,17 +1192,12 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--out", type=Path, default=REPORTS_DIR)
     args = ap.parse_args(argv)
     ctx = run(args.coins, args.out)
-    oos = ctx["oos"].values()
-    print(f"[backtest] OOS failing % buckets: v2 {sum(1 for o in oos if not o['v2_pass'])}/{len(oos)}, "
-          f"v1 {sum(1 for o in oos if not o['v1_pass'])}/{len(oos)}, "
-          f"v2b {sum(1 for o in oos if not o['v2b_pass'])}/{len(oos)}")  # fmt: skip
+    for m, label in METHODS:
+        f, n = _fails(ctx["oos"], m)
+        print(f"[backtest] OOS failing % buckets {label}: {f}/{n}")
     for s in ctx["sim_list"]:
-        print(f"[backtest] pool {s.horizon:>3} {s.label:<30} sold {s.sold:>6} refused {s.refused:>5} "
+        print(f"[backtest] pool {s.horizon:>3} {s.label:<38} sold {s.sold:>6} refused {s.refused:>5} "
               f"price/100 {s.price_per_100:.3f} loss ratio {s.loss_ratio:.2f} maxDD {s.max_dd:.2%}")  # fmt: skip
-    for r in ctx["diag"]:
-        if r["n"] and not r["pass"]:
-            print(f"[backtest] diag FAIL {r['horizon']} {r['direction']} |z| {_zlabel(r['lo'], r['hi'])}: "
-                  f"{r['hits']}/{r['n']} realized {r['realized']:.2e} priced {r['priced']:.2e}")  # fmt: skip
 
 
 if __name__ == "__main__":

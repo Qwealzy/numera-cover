@@ -19,6 +19,7 @@ import pytest
 from scipy.special import ndtr
 
 from numera_engine.pricing import (
+    HorizonZTable,
     QuoteRefusedError,
     TailAdj,
     TailTable,
@@ -275,10 +276,22 @@ def test_ztable_adjust_uses_z_of_the_quote():
 
 def test_published_table_loads_and_is_sane():
     t = load_tail_table(Path(__file__).parent.parent / "reports" / "tail_multipliers.json")
-    assert isinstance(t, ZTailTable)
-    for is_long in (True, False):
-        prev = 1.0
-        for z in (0.1, 1.0, 2.0, 3.0, 4.0, 6.0, 10.0, 40.0):
-            a = t.kq(is_long, z)
-            assert 1.0 <= a.k <= 10.0 and 0 < a.q <= prev + 1e-15
-            prev = a.q
+    assert isinstance(t, HorizonZTable)
+    assert t.horizons_s == (3600, 4 * 3600, 86400, 7 * 86400)
+    for table in t.tables.values():
+        for is_long in (True, False):
+            prev = 1.0
+            for z in (0.1, 1.0, 2.0, 3.0, 4.0, 6.0, 10.0, 40.0):
+                a = table.kq(is_long, z)
+                assert 1.0 <= a.k <= 10.0 and 0 < a.q <= prev + 1e-15
+                prev = a.q
+
+
+def test_horizon_table_picks_smallest_horizon_at_or_above_duration():
+    t1 = ZTailTable((0.0, math.inf), {"down": [{"k": 1.0, "q": 0.01}], "up": [None]})
+    t2 = ZTailTable((0.0, math.inf), {"down": [{"k": 2.0, "q": 0.02}], "up": [None]})
+    h = HorizonZTable((3600, 86400), {3600: t1, 86400: t2})
+    assert h.adjust("BTC", True, 1800, 100.0, 95.0, 0.5) == TailAdj(1.0, pytest.approx(0.01))
+    assert h.adjust("BTC", True, 3600, 100.0, 95.0, 0.5) == TailAdj(1.0, pytest.approx(0.01))
+    assert h.adjust("BTC", True, 7200, 100.0, 95.0, 0.5) == TailAdj(2.0, pytest.approx(0.02))
+    assert h.adjust("BTC", True, 10 * 86400, 100.0, 95.0, 0.5) == TailAdj(2.0, pytest.approx(0.02))
