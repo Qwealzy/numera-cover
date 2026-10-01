@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.24;
 
 /// @notice Perp position of a user, used by CoverPool to check insurable interest (ARCHITECTURE §5, D3).

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.24;
 
 /// @notice Oracle price feed used by CoverPool. Prices are px6 (USD x 1e6), ARCHITECTURE §3.

@@ -1,6 +1,7 @@
 [project]
 name = "numera-engine"
 version = "0.1.0"
+license = "AGPL-3.0-only"
 description = "Numera actuarial engine: Hyperliquid market data, one-touch pricing, calibration backtest, quote signer, keeper"
 requires-python = ">=3.11"
 dependencies = [
