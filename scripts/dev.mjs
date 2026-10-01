@@ -108,10 +108,13 @@ async function main() {
     const label = `${labels.join(' + ')} (${host(url)})`;
     let id = null;
     try {
-      const { result } = await makeClient([url], { retries: 2, timeoutMs: 6000 }).call('eth_chainId');
+      // 4 retries, jittered 1-2-4-8 s backoff on -32005/429/5xx/transport errors, at most 15 s of waiting per RPC,
+      // so a transient rate limit does not block the start; after that, fail closed.
+      const { result } = await makeClient([url], { retries: 4, baseDelayMs: 1000, maxWaitMs: 15000, timeoutMs: 6000 }).call('eth_chainId');
       id = parseInt(result, 16);
     } catch (e) {
-      if (!ALLOW_UNVERIFIED_RPC) die(`${label}: chain id not verified (${e.message}). Refusing to start; fix the RPC or pass --allow-unverified-rpc.`);
+      if (!ALLOW_UNVERIFIED_RPC)
+        die(`${label}: chain id not verified after retries (${e.message}). Refusing to start; fix the RPC, retry in a minute, or pass --allow-unverified-rpc to start anyway.`);
       say(`WARN: ${label}: chain id NOT verified (${e.message}); continuing because of --allow-unverified-rpc`);
       continue;
     }

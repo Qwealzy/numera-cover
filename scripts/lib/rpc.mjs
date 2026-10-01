@@ -50,8 +50,29 @@ async function post(url, payload, timeoutMs, fetchImpl) {
   return { status: res.status, body, ms: Date.now() - t0 };
 }
 
+// Error text that never contains the URL (provider API keys live in URL paths). fetch's own messages quote the
+// URL ("Failed to parse URL from <url>"), so the URL is cut out, and an unparsable URL is reported as such.
+export function redact(message, url) {
+  let m = String(message ?? '');
+  if (url && !isParsableUrl(url)) return 'invalid URL';
+  if (url) m = m.split(url).join('<url>');
+  return m;
+}
+
+function isParsableUrl(url) {
+  try {
+    return !!new URL(url).host;
+  } catch {
+    return false;
+  }
+}
+
 // Client over an ordered endpoint list. call(method, params) -> { result, url }.
-export function makeClient(urls, { retries = 3, baseDelayMs = 500, timeoutMs = 8000, fetchImpl = fetch, sleepImpl = sleep } = {}) {
+// Retries back off exponentially with +/-20 % jitter; maxWaitMs caps the total sleep per endpoint.
+export function makeClient(
+  urls,
+  { retries = 3, baseDelayMs = 500, maxWaitMs = Infinity, timeoutMs = 8000, fetchImpl = fetch, sleepImpl = sleep, rand = Math.random } = {},
+) {
   const list = [...new Set(urls.filter(Boolean))];
   let id = 0;
   const answeredBy = new Map(); // url -> count
@@ -59,26 +80,39 @@ export function makeClient(urls, { retries = 3, baseDelayMs = 500, timeoutMs = 8
     if (!READ_METHODS.has(method)) throw new Error(`refusing non-read RPC method ${method}`);
     let lastErr = null;
     for (const url of list) {
+      if (!isParsableUrl(url)) {
+        lastErr = new Error('not a parsable URL (value not shown)');
+        continue;
+      }
+      let waited = 0;
+      const backoff = async (attempt) => {
+        if (attempt >= retries) return;
+        const ms = Math.min(baseDelayMs * 2 ** attempt * (1 + 0.2 * (2 * rand() - 1)), maxWaitMs - waited);
+        if (ms > 0) {
+          waited += ms;
+          await sleepImpl(ms);
+        }
+      };
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
           const { status, body } = await post(url, { jsonrpc: '2.0', id: ++id, method, params }, timeoutMs, fetchImpl);
           if (isRateLimit(status, body)) {
             lastErr = new Error(`${host(url)} rate-limited`);
-            if (attempt < retries) await sleepImpl(baseDelayMs * 2 ** attempt);
+            await backoff(attempt);
             continue;
           }
           if (status >= 500 || !body) {
             lastErr = new Error(`${host(url)} HTTP ${status}`);
-            if (attempt < retries) await sleepImpl(baseDelayMs * 2 ** attempt);
+            await backoff(attempt);
             continue;
           }
-          if (body.error) throw new RpcError(body.error.code, body.error.message);
+          if (body.error) throw new RpcError(body.error.code, redact(body.error.message, url));
           answeredBy.set(url, (answeredBy.get(url) ?? 0) + 1);
           return { result: body.result, url };
         } catch (e) {
           if (e instanceof RpcError) throw e;
-          lastErr = new Error(`${host(url)} ${e.name === 'TimeoutError' ? 'timeout' : e.message}`);
-          if (attempt < retries) await sleepImpl(baseDelayMs * 2 ** attempt);
+          lastErr = new Error(`${host(url)} ${e.name === 'TimeoutError' ? 'timeout' : redact(e.message, url)}`);
+          await backoff(attempt);
         }
       }
     }
@@ -93,18 +127,19 @@ export async function probe(url, method = 'eth_blockNumber', { timeoutMs = 8000,
   try {
     const { status, body, ms } = await post(url, { jsonrpc: '2.0', id: 1, method, params: [] }, timeoutMs, fetchImpl);
     if (isRateLimit(status, body)) return { ok: false, limited: true, ms };
-    if (body?.error || status !== 200) return { ok: false, limited: false, ms, error: body?.error?.message ?? `HTTP ${status}` };
+    if (body?.error || status !== 200) return { ok: false, limited: false, ms, error: redact(body?.error?.message ?? `HTTP ${status}`, url) };
     return { ok: true, limited: false, ms, result: body.result };
   } catch (e) {
-    return { ok: false, limited: false, ms: 0, error: e.name === 'TimeoutError' ? 'timeout' : e.message };
+    return { ok: false, limited: false, ms: 0, error: e.name === 'TimeoutError' ? 'timeout' : redact(e.message, url) };
   }
 }
 
+// Host part only (no path, no user:key). Never echoes an unparsable URL.
 export function host(url) {
   try {
-    return new URL(url).host;
+    return new URL(url).host || '<invalid URL>';
   } catch {
-    return url;
+    return '<invalid URL>';
   }
 }
 
