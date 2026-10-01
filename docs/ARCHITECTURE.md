@@ -149,21 +149,35 @@ Accepted 2026-10-01 after engine merge (`2998ec4`):
 - `capacity` is an engine-side sanity cap only (`NUMERA_MAX_PAYOUT`); the on-chain utilization and
   per-perp checks (§5 check 5) are authoritative.
 
-## 7. Pricing model (engine, v1)
+Added 2026-10-01 (D10, engine merge `de5690c`):
+- Optional request field `pool` (address). Default: the configured pool. It must be in the allowlist
+  (configured pool + every pool in `deployments/<env>.json`), else 400 `unknown_pool`. The quote is signed
+  with `verifyingContract = pool` and priced against that pool's own price source.
+- Extra breakdown fields: `z` (standardized distance, §7), `spotSource` (`pool` | `info_api`), `pool`.
+- `/health` also returns `pools` (the allowlist).
 
-1. σ per asset: EWMA (λ = 0.94) of 1 h log returns from Info API candles, annualized; floor at the
-   30-day realized σ. Stored with timestamp.
-2. Touch probability, driftless GBM (ν = −σ²/2), down barrier `H < S` (mirror for up):
+## 7. Pricing model (engine, v1 — final, D11)
+
+Evidence and compared methods: [`engine/reports/calibration.md`](../engine/reports/calibration.md).
+Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D / 1 y`:
+
+1. **Spot** `S = pool.priceSource().oraclePx6(i)` via `eth_call` — the price `buyCover` checks (D10).
+   Fallback: testnet Info API `oraclePx`; reported as `breakdown.spotSource`. `spotRef = S`.
+2. **σ** = max(EWMA λ = 0.94 of 1 h log returns, 30-day realized σ), annualized, from **mainnet** 1 h
+   candles of the same coin (read-only; testnet books are thin).
+3. **Touch probability**, driftless GBM, down barrier `H < S` (mirror for up):
    `p = N((b + σ²T/2)/(σ√T)) + (S/H)·N((b − σ²T/2)/(σ√T))`, `b = ln(H/S)`.
    Discrete-monitoring correction is negligible at 1 s keeper cadence (documented, not applied).
-3. Tail adjustment: multiplier `k(asset, horizon, distance-bucket) ≥ 1` from the backtest (§9), so the
-   model never prices below realized touch frequency.
-4. `premium = payout × min(p·k, pMax) × (1 + θ) + fee`, θ = 0.20 loading, refuse if `p·k > pMax` (0.5).
+4. **Tail tables** (`tail_multipliers.json`, `z-per-horizon-v3`): `z = ln(H/S)/(σ√T)`; one table per
+   horizon h ∈ {1h, 4h, 1d, 7d} (smallest h ≥ D), coins pooled, buckets of |z| per direction. Per bucket
+   `q` = Wilson 95 % upper bound of the realized touch frequency, `k = clamp(q / mean p, 1, 10)`.
+   q is made non-increasing in |z| and interpolated, so the price never rises as the level moves away.
+5. **Priced probability** `= min(max(p·k_z, q_z), pMax)`; refuse `prob_too_high` if `max(p·k, q) > pMax`
+   (0.5), `level_already_breached` if S is already past H.
+6. **Premium** `= ceil(P × priced × (1 + θ)) + fee`, θ = 0.20, fee = 0 (configurable).
 
-Implementation notes (engine merge `2998ec4`, 2026-10-01): σ from **mainnet** 1 h candles (testnet books
-are thin), oracle from **testnet** asset ctxs; a floor q (Wilson 95 % upper bound of the realized touch
-frequency) applies in addition to k; calibration is being reworked under D9 — the final formula lives in
-`engine/reports/calibration.md`.
+Out of sample (fit first half, test second): 17/240 % buckets fail; loss ratio 1h 0.43 / 4h 0.41 /
+1d 0.46 / 7d 0.69. Short horizons are priced conservatively on purpose (D11).
 
 ## 8. Trigger semantics and demo
 
