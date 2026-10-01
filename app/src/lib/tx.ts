@@ -1,10 +1,11 @@
 // Write paths. Every write is simulated first (so a revert shows its decoded reason before the wallet
 // pops up), then sent through the injected wallet, then awaited. Testnet (998) only.
-import { decodeEventLog, type Address, type Hex, type TransactionReceipt } from 'viem';
+import type { Address, Hex, TransactionReceipt } from 'viem';
 import { ensureTestnet, txPublicClient as publicClient, walletClient } from './chain';
 import { coverPoolAbi, mockPositionSourceAbi, mockPriceSourceAbi, mockUSDCAbi } from '../generated/abi';
 import { FAUCET_AMOUNT, hyperEvmTestnet, USDC } from '../config';
 import { toContractQuote, type QuoteJson } from './quote';
+import { purchasedCoverIds, rememberPurchase } from './purchases';
 
 export interface TxDone {
   hash: Hex;
@@ -35,28 +36,22 @@ export async function readAllowance(owner: Address, spender: Address): Promise<b
   return publicClient.readContract({ address: USDC, abi: mockUSDCAbi, functionName: 'allowance', args: [owner, spender] });
 }
 
-/** buyCover(quote, sig); returns the new cover id parsed from CoverPurchased. */
+/**
+ * buyCover(quote, sig); returns the new cover id parsed from CoverPurchased, and remembers the purchase tx
+ * in this browser (lib/purchases.ts) so the My covers Tx cell finds it with one receipt read.
+ */
 export async function buyCover(account: Address, pool: Address, q: QuoteJson, sig: Hex, onHash?: (h: Hex) => void) {
   const done = await send(
     account,
     { address: pool, abi: coverPoolAbi, functionName: 'buyCover', args: [toContractQuote(q), sig] },
     onHash,
   );
-  return { ...done, coverId: coverIdFromReceipt(done.receipt, pool) };
+  const coverId = coverIdFromReceipt(done.receipt, pool);
+  if (coverId !== undefined) rememberPurchase(hyperEvmTestnet.id, pool, coverId, done.hash, done.receipt.blockNumber);
+  return { ...done, coverId };
 }
 
-export function coverIdFromReceipt(receipt: TransactionReceipt, pool: Address): bigint | undefined {
-  for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== pool.toLowerCase()) continue;
-    try {
-      const ev = decodeEventLog({ abi: coverPoolAbi, data: log.data, topics: log.topics });
-      if (ev.eventName === 'CoverPurchased') return (ev.args as { coverId: bigint }).coverId;
-    } catch {
-      /* other event */
-    }
-  }
-  return undefined;
-}
+export const coverIdFromReceipt = (receipt: TransactionReceipt, pool: Address): bigint | undefined => purchasedCoverIds(receipt, pool)[0];
 
 export const triggerCover = (account: Address, pool: Address, id: bigint, onHash?: (h: Hex) => void) =>
   send(account, { address: pool, abi: coverPoolAbi, functionName: 'trigger', args: [id] }, onHash);
