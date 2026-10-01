@@ -169,7 +169,8 @@ Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D 
    candles of the same coin (read-only; testnet order books are thin).
 3. **Touch probability**, driftless GBM, down barrier `H < S` (mirror for up):
    `p = N((b + σ²T/2)/(σ√T)) + (S/H)·N((b − σ²T/2)/(σ√T))`, `b = ln(H/S)`.
-   The discrete-monitoring correction is negligible at a ~1 s keeper cadence (not applied).
+   The discrete-monitoring correction is negligible at the ~3 s keeper cadence (Broadie–Glasserman level
+   shift ≈ 0.007 % at σ = 40 %; not applied).
 4. **Tail tables** (`engine/reports/tail_multipliers.json`): standardized distance `z = ln(H/S)/(σ√T)`.
    One table per horizon h ∈ {1h, 4h, 1d, 7d} (the smallest h ≥ D), coins pooled, buckets of |z| per
    direction. The 1h and 4h tables are fitted on 1 h candles; the 1d and 7d tables on daily candles
@@ -196,7 +197,10 @@ failing out of sample, loss ratio 0.49.
   price, which includes the Hyperliquid book). Liquidation uses the mark price, so there is basis risk; the
   default level sits a buffer above the liquidation price, and the app says so.
 - A cover pays if **a `trigger()` call before expiry observes the breach on-chain**. The keeper checks
-  about every block (~1 s). A sub-second wick between checks can be missed.
+  every ~3 s: one Multicall3 `eth_call` reads all cover states and price sources, with RPC failover and
+  backoff. A wick shorter than the poll interval can be missed; the effect on pricing is negligible
+  (Broadie–Glasserman level shift ≈ 0.007 % at σ = 40 %). `trigger()` is permissionless, so anyone
+  watching faster can call it.
 - **Demo A (real):** a testnet pool on the HyperCore sources. Buying cover needs a real testnet HyperCore
   position; the keeper triggers on a real oracle touch.
 - **Demo B (staged):** a separate pool on `MockPriceSource`/`MockPositionSource`, labelled **MOCK** in the

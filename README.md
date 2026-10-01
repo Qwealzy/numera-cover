@@ -119,7 +119,8 @@ python -m pytest -q tests
 NUMERA_ENV=testnet NUMERA_CHAIN_ID=998 NUMERA_POOL=0xda611e1a07260005ea5641e9fe633cd4d10c341e \
 QUOTE_SIGNER_KEY=<testnet key> uvicorn numera_engine.quote_api:app --port 8000
 
-# Keeper (watches all pools in deployments/testnet.json and calls trigger/expire)
+# Keeper (polls all pools in deployments/testnet.json every 3 s via one Multicall3 call and sends
+# trigger/expire; --rpc is repeatable for failover, --poll sets the interval, --dry-run needs no key)
 KEEPER_KEY=<testnet key> python -m numera_engine.keeper
 
 # Re-run the calibration backtest (reads Hyperliquid mainnet candles, read-only)
@@ -145,8 +146,9 @@ Configuration: `app/.env.example` (engine URL, RPC, explorer). Without an engine
 
 - **Testnet only.** USDC is a mock token; mainnet is out of scope and deploy scripts refuse chain 999.
 - **A touch counts only when observed on-chain.** A cover pays if a `trigger()` call before expiry sees the
-  oracle at or past the level. The keeper checks about every block (~1 s); a wick shorter than that can be
-  missed. `trigger()` is permissionless, so anyone can call it.
+  oracle at or past the level. The keeper checks every ~3 s (one Multicall3 call per poll); a wick shorter
+  than that can be missed (pricing effect ≈ 0.007 % of the level at σ = 40 %). `trigger()` is
+  permissionless, so anyone can call it.
 - **Oracle vs mark basis.** Covers trigger on the oracle price; Hyperliquid liquidates on the mark price.
   They can differ, so the default level sits a buffer above the liquidation price, and a liquidation without
   an oracle touch does not pay.

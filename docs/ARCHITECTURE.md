@@ -167,7 +167,8 @@ Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D 
    candles of the same coin (read-only; testnet books are thin).
 3. **Touch probability**, driftless GBM, down barrier `H < S` (mirror for up):
    `p = N((b + σ²T/2)/(σ√T)) + (S/H)·N((b − σ²T/2)/(σ√T))`, `b = ln(H/S)`.
-   Discrete-monitoring correction is negligible at 1 s keeper cadence (documented, not applied).
+   Discrete-monitoring correction is negligible at the ~3 s keeper cadence (Broadie–Glasserman level shift
+   ≈ 0.007 % at σ = 40 %; documented, not applied) (D18).
 4. **Tail tables** (`tail_multipliers.json`, `z-per-horizon-v4`): `z = ln(H/S)/(σ√T)`; one table per
    horizon h ∈ {1h, 4h, 1d, 7d} (smallest h ≥ D), coins pooled, buckets of |z| per direction. The 1h and
    4h tables are fitted on 1 h candles; the **1d table (like 7d) is fitted on daily candles** (HL-traded
@@ -193,8 +194,11 @@ engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/6
 - Trigger price is the **oracle** price (validator median of 8 venues; harder to manipulate than mark, which
   includes the HL book). Liquidation uses mark → small basis risk; the default level sits a buffer above
   the liquidation price. Documented in UI.
-- A cover pays if **a `trigger()` call before expiry observes the breach on-chain**. The keeper checks every
-  block (~1 s). A sub-second wick between checks can be missed — stated in docs, reflected in pricing.
+- A cover pays if **a `trigger()` call before expiry observes the breach on-chain**. The keeper polls every
+  ~3 s: one Multicall3 `eth_call` reads cover state and price sources (no `eth_getLogs` on the hot path),
+  with RPC failover and backoff (D18). A wick shorter than the poll interval can be missed — stated in docs;
+  the pricing effect is negligible (Broadie–Glasserman shift ≈ 0.007 % at σ = 40 %). `trigger()` stays
+  permissionless, so anyone watching faster can call it.
 - Demo A (real): testnet pool on HyperCore sources; buy a short cover with a level close to spot; the
   keeper triggers on a real touch. Needs a testnet HyperCore position (mock USDC drip needs prior mainnet
   deposit on that address).
