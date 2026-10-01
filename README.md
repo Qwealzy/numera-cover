@@ -83,8 +83,9 @@ daily candles since 2023):
 
 **End-to-end on testnet** (MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
 trigger → payout, 5 s from price drop to trigger). No working HyperEVM testnet explorer exists as of
-2026-10-02 (the hyperpc indexer is stale), so the hashes below are not links. Verify one in the app (click a
-hash: in-app receipt read from the RPC) or with `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet`.
+2026-10-02 (the hyperpc indexer is stale), so the hashes below are not links. Verify any of them with
+`cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet`. Inside the app, the transactions it
+lists (My covers, Pool) open an in-app receipt view read from the RPC when you click their hash.
 
 | Step | Transaction |
 |---|---|
