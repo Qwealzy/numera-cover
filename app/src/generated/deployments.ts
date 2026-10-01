@@ -3,38 +3,41 @@ export const testnet = {
   "env": "testnet",
   "chainId": 998,
   "rpc": "https://rpc.hyperliquid-testnet.xyz/evm",
-  "deployedAt": "2026-10-01",
-  "commit": "152f456",
+  "deployedAt": "2026-10-02",
+  "commit": "7fda9d0",
   "deployer": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
   "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
   "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
   "usdc": {
-    "address": "0xe925058ad0aed15533ab089ef8607f8bc4b03572",
+    "address": "0x8675c05f2403f220e19057f3f60c6c91bb14462a",
     "kind": "MockUSDC (6 decimals, public mint) — testnet only",
-    "tx": "0xfb580e17e2eab3a02b9373e03cae4850ecf97c1b540b166ff8caedc5c9ba3278"
+    "tx": "0xdb29221fa005212da2f1546043b618be2270da82a1f3ec761f3acd494cff8fae"
   },
   "pools": {
     "hypercore": {
       "label": "Real HyperCore sources (Demo A)",
-      "pool": "0xd9e3b5fa578883f66438f3e3be05db420b94fd54",
-      "priceSource": "0x67870faee9f561269e683e0a2c8524d65973451a",
-      "positionSource": "0xf597e2b7ab40ebc86d3a82260ac1b8ce4b6a598c",
+      "pool": "0xda611e1a07260005ea5641e9fe633cd4d10c341e",
+      "priceSource": "0xf8323c267ef0516651c1cc2f94f984d50f597f44",
+      "positionSource": "0xcd44735b5640ab54777d31caf88d8ebb19730645",
       "txs": {
-        "pool": "0xb8ba0298981901af41aed16c1c3dede3cfa52302512b224a84e1a5e621a8ff55",
-        "priceSource": "0x945f02677e5d295827addc87cf77d1f5d0814711f20ec012b5b34f39627492e2",
-        "positionSource": "0x119f8b3b51d0d86a08d47a8f5d978005369412a52d9f6fa11d632f34aeb7c502",
-        "cachePerpBTC3": "0xe097d6feaa7b98a65cc23adc083a0caaa35b9b5168c998d1738aa94a8e5deea2"
+        "pool": "0xb8f7025a2b140fe76cf146f6050da32d938e32cc43e2d2f761a6d029922e0899",
+        "priceSource": "0x15bd03fc5b9bd59134447bc735a9f731f9b2ae31a87fe437d04406a0113c4d6b",
+        "positionSource": "0xdaf8c97ae0f60736125c9c4f3511c8942e170bf81d9e5588d8159bb4533733c6",
+        "cachePerpBTC3": "0x04d6a74a8f8a4e8a0e79e0f905f9c2373191e507754fa55d80762c383526c6e5",
+        "cachePerpETH4": "0xb3a8c10570842d1798d5062506685a19f676b147561ea7af1a57cc043bd82b8d",
+        "cachePerpSOL0": "0x26fe9e623c49baaeef9b1da0f3ef1044ebff0953633e97c1dfc58d9d746379bf",
+        "cachePerpHYPE135": "0x4b98a517ca9cadb8ec31f7a307b5c134f6c192e6d1eb6e895b2d272709fd8a79"
       }
     },
     "mock": {
       "label": "MOCK sources — staged demo only (Demo B)",
-      "pool": "0x7e5e234a3b7606a471eb97f5d64041309f457041",
-      "priceSource": "0x13cef3f8571926fae6f13fbc46e16f0b56cceabf",
-      "positionSource": "0x37ef4b17e3583926ca6359bf2cf7447659dfec76",
+      "pool": "0x1b1bfb83f2100c95a7460ed1a746170cbdeccbae",
+      "priceSource": "0x08d24f21bcd9fdf690499456e90b9712b31bbc13",
+      "positionSource": "0x728159ab10146beffdc15ec8fbb4ce4bb44a3425",
       "txs": {
-        "pool": "0x601c8e524c79551e3598c12dc187c69e58909ea0d78785043fe0f63ca89db6d4",
-        "priceSource": "0xa007e7e74542762fdc3655a3d083c9d12985fa572c73fca00450da4830541b5d",
-        "positionSource": "0x70a33460d44bf638b1e8d6d1a9a01ae5943398d6d38d7ccf26f330d28dda3094"
+        "pool": "0x72d7f70197d5260aa3175f1d0c287bed1a060b32e8cfa6e72a77ef43713c4dcd",
+        "priceSource": "0xcb85f21c903d947563f252fdf8fd90221f133b49f114a6bd99d14a2e74136441",
+        "positionSource": "0x33d0a0a6215d7ff8efc910d4643b91b6c85be11a371a280c7973152e112692d8"
       }
     }
   },
@@ -45,41 +48,88 @@ export const testnet = {
     "HYPE": 135
   },
   "seed": {
-    "note": "2026-10-01 deployer minted 20k mUSDC, deposited 10k into each pool; trader minted 1k mUSDC",
+    "note": "2026-10-02 deployer minted 20k mUSDC, deposited 10k into each pool; trader 0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7 minted 1k mUSDC",
     "txs": {
-      "mintDeployer": "0x5d3e8d36c98686524330cd6f2808a0189da90622bc3fcca6139ff93b7492ad88",
-      "mintTrader": "0x63d51b19a14d9753ad8d7cc3e4bce712849ca0303a06496e3f5696eb0105e09b",
-      "depositHypercore": "0x24d0072c6bb278f698e5e894415f835e787aae49a070f4579abb4e95b99298b7",
-      "depositMock": "0x3bc7f32dac340bc7394ecb0d99f8857d753354bfbc32d9244c492f608f1ed5aa"
+      "mintDeployer": "0x99907d2257c6b43755655e91ae343e6a00466bc1a710ed1bf4fb343d0104e501",
+      "mintTrader": "0x3fe4a8b30b1f253c8f2f564d2dac43b80bf0175c1cfa861a5a67054abcd8d198",
+      "approveHypercore": "0x2d06fab1d3ea91fc541156975773566366df2f89899eb5d65efa71042039e808",
+      "depositHypercore": "0xf01ecb8b61496dcbd20d47238bdd5ba01fd3c90bc5b705b64eb81b68ef1d6014",
+      "approveMock": "0xffa961f9a137da750ba31890d46ad5a5bce67ee279593cb9fc66768925a7def1",
+      "depositMock": "0xcaa8b141d648b09bbcf974bb26fad985afda28839601ba5f2a276d0d028aadb7"
     }
   },
-  "e2e": {
-    "F7_F9_mockPool_2026-10-01": {
-      "note": "MOCK pool. Engine /quote API (chain 998, verifyingContract=mock pool) signed; deployer bought cover 1; keeper triggered after staged price drop",
-      "setup": {
-        "mintDeployer100": "0x19d3a4e0730a0ea056d09331b683d3031fb2036c6a2294b3db9db880c0612962",
-        "setPricePerp3_84833900000": "0x67495ff9df2a76995b2945cf192e4b31abae9dd20d3c4dcd34880cbde07058c7",
-        "setPositionDeployerPerp3": "0x6de2131ea8bb5542db83d515df63fe65c2904975193fa5c016de9838399b7a2e"
+  "e2e": {},
+  "previous": {
+    "reason": "compiled with SPDX MIT; superseded by AGPL redeploy (D16)",
+    "deployedAt": "2026-10-01",
+    "commit": "152f456",
+    "usdc": {
+      "address": "0xe925058ad0aed15533ab089ef8607f8bc4b03572",
+      "kind": "MockUSDC (6 decimals, public mint) — testnet only",
+      "tx": "0xfb580e17e2eab3a02b9373e03cae4850ecf97c1b540b166ff8caedc5c9ba3278"
+    },
+    "pools": {
+      "hypercore": {
+        "label": "Real HyperCore sources (Demo A)",
+        "pool": "0xd9e3b5fa578883f66438f3e3be05db420b94fd54",
+        "priceSource": "0x67870faee9f561269e683e0a2c8524d65973451a",
+        "positionSource": "0xf597e2b7ab40ebc86d3a82260ac1b8ce4b6a598c",
+        "txs": {
+          "pool": "0xb8ba0298981901af41aed16c1c3dede3cfa52302512b224a84e1a5e621a8ff55",
+          "priceSource": "0x945f02677e5d295827addc87cf77d1f5d0814711f20ec012b5b34f39627492e2",
+          "positionSource": "0x119f8b3b51d0d86a08d47a8f5d978005369412a52d9f6fa11d632f34aeb7c502",
+          "cachePerpBTC3": "0xe097d6feaa7b98a65cc23adc083a0caaa35b9b5168c998d1738aa94a8e5deea2"
+        }
       },
-      "approvePremium": "0xa4cd41e5a9c8d9c9477be1abd01e985fbd77ef67edceb100652f375f3d0d75c4",
-      "buyCover": "0x0b31d95e91c9cccc5e9d48054a7cee1125fb9aca0f19e5e8c5484809e6340f7d",
-      "coverPurchased": {
-        "coverId": 1,
-        "perpIndex": 3,
-        "isLong": true,
-        "level": 83137000000,
-        "payout": 20000000,
-        "premium": 7739522,
-        "expiry": 1790963878
-      },
-      "setPriceCrash_83000000000": "0xc5572d131eefbb00b7a3bd8c256aec42b8ec3c9bf144b36d389740a0dfbb388e",
-      "trigger": "0x89f61dbc6cfcbafab3df8ff8d63e7f2ca5f2d6494ba1e9afa70648ff3f3a84e0",
-      "coverTriggered": {
-        "coverId": 1,
-        "oraclePx": 83000000000,
-        "caller": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B"
-      },
-      "crashToTriggerSeconds": 5
+      "mock": {
+        "label": "MOCK sources — staged demo only (Demo B)",
+        "pool": "0x7e5e234a3b7606a471eb97f5d64041309f457041",
+        "priceSource": "0x13cef3f8571926fae6f13fbc46e16f0b56cceabf",
+        "positionSource": "0x37ef4b17e3583926ca6359bf2cf7447659dfec76",
+        "txs": {
+          "pool": "0x601c8e524c79551e3598c12dc187c69e58909ea0d78785043fe0f63ca89db6d4",
+          "priceSource": "0xa007e7e74542762fdc3655a3d083c9d12985fa572c73fca00450da4830541b5d",
+          "positionSource": "0x70a33460d44bf638b1e8d6d1a9a01ae5943398d6d38d7ccf26f330d28dda3094"
+        }
+      }
+    },
+    "seed": {
+      "note": "2026-10-01 deployer minted 20k mUSDC, deposited 10k into each pool; trader minted 1k mUSDC",
+      "txs": {
+        "mintDeployer": "0x5d3e8d36c98686524330cd6f2808a0189da90622bc3fcca6139ff93b7492ad88",
+        "mintTrader": "0x63d51b19a14d9753ad8d7cc3e4bce712849ca0303a06496e3f5696eb0105e09b",
+        "depositHypercore": "0x24d0072c6bb278f698e5e894415f835e787aae49a070f4579abb4e95b99298b7",
+        "depositMock": "0x3bc7f32dac340bc7394ecb0d99f8857d753354bfbc32d9244c492f608f1ed5aa"
+      }
+    },
+    "e2e": {
+      "F7_F9_mockPool_2026-10-01": {
+        "note": "MOCK pool. Engine /quote API (chain 998, verifyingContract=mock pool) signed; deployer bought cover 1; keeper triggered after staged price drop",
+        "setup": {
+          "mintDeployer100": "0x19d3a4e0730a0ea056d09331b683d3031fb2036c6a2294b3db9db880c0612962",
+          "setPricePerp3_84833900000": "0x67495ff9df2a76995b2945cf192e4b31abae9dd20d3c4dcd34880cbde07058c7",
+          "setPositionDeployerPerp3": "0x6de2131ea8bb5542db83d515df63fe65c2904975193fa5c016de9838399b7a2e"
+        },
+        "approvePremium": "0xa4cd41e5a9c8d9c9477be1abd01e985fbd77ef67edceb100652f375f3d0d75c4",
+        "buyCover": "0x0b31d95e91c9cccc5e9d48054a7cee1125fb9aca0f19e5e8c5484809e6340f7d",
+        "coverPurchased": {
+          "coverId": 1,
+          "perpIndex": 3,
+          "isLong": true,
+          "level": 83137000000,
+          "payout": 20000000,
+          "premium": 7739522,
+          "expiry": 1790963878
+        },
+        "setPriceCrash_83000000000": "0xc5572d131eefbb00b7a3bd8c256aec42b8ec3c9bf144b36d389740a0dfbb388e",
+        "trigger": "0x89f61dbc6cfcbafab3df8ff8d63e7f2ca5f2d6494ba1e9afa70648ff3f3a84e0",
+        "coverTriggered": {
+          "coverId": 1,
+          "oraclePx": 83000000000,
+          "caller": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B"
+        },
+        "crashToTriggerSeconds": 5
+      }
     }
   }
 } as const;
