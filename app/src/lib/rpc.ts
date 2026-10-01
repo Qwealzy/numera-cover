@@ -20,6 +20,30 @@ export function backoffMs(fails: number, floorMs = 0): number {
   return Math.max(exp, floorMs);
 }
 
+/**
+ * Run a one-shot read, retrying ONLY rate-limit answers (-32005 / 429) with spaced, jittered delays
+ * (default 1.5 s, 3 s, 6 s). Any other error (revert, bad address, network) is thrown at once, and the
+ * last rate-limit error is rethrown after the final attempt, so callers still see the real reason.
+ * Used for reads whose failure would otherwise leave a hole in a screen that loaded fine (the max-payout
+ * cap) and for the receipt view; polled reads keep usePoll's own backoff.
+ */
+export async function retryRateLimited<T>(
+  fn: () => Promise<T>,
+  opts: { delaysMs?: number[]; sleep?: (ms: number) => Promise<void>; onRetry?: (attempt: number, e: unknown) => void } = {},
+): Promise<T> {
+  const delays = opts.delaysMs ?? [1_500, 3_000, 6_000];
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!isRateLimited(e) || attempt >= delays.length) throw e;
+      opts.onRetry?.(attempt + 1, e);
+      await sleep(delays[attempt] * (0.8 + Math.random() * 0.4));
+    }
+  }
+}
+
 // ---------------------------------------------------------------- dedupe identical reads
 
 interface Entry {

@@ -3,7 +3,8 @@ import type { Address } from 'viem';
 import { PERPS, perpIndexOf, type PoolConfig } from '../config';
 import { fetchAccount, type Market } from './info';
 import { mockPositionLiq, positionLiq, type LiqResult, type Side } from './liq';
-import { readPositions, type OnchainPosition } from './pool';
+import { firstLine, readPositions, type OnchainPosition, type ReadClient } from './pool';
+import { isRateLimited } from './rpc';
 
 export interface PositionRow {
   coin: string;
@@ -21,24 +22,61 @@ export interface PositionRow {
   liq: LiqResult;
   onchain: OnchainPosition | { error: string } | undefined; // what buyCover check 4 sees
   cap: bigint | undefined; // max payout = entryNtl / leverage (from the position source)
+  /** Why `cap` is undefined although the perp is configured (read failed after retries, or the entry reverted). */
+  capError?: string;
   source: 'info' | 'mock';
 }
 
-export async function loadPositions(pool: PoolConfig, user: Address, market: Market | undefined, signal?: AbortSignal): Promise<PositionRow[]> {
-  return pool.kind === 'mock' ? loadMock(pool, user, market) : loadReal(pool, user, market, signal);
+/** Injectable I/O for tests (defaults: the public RPC client and the Info API). */
+export interface LoadDeps {
+  client?: Pick<ReadClient, 'multicall'>;
+  fetchAccount?: typeof fetchAccount;
+  retryDelaysMs?: number[];
 }
 
-async function loadReal(pool: PoolConfig, user: Address, market: Market | undefined, signal?: AbortSignal): Promise<PositionRow[]> {
-  const acct = await fetchAccount(user, signal);
+export async function loadPositions(
+  pool: PoolConfig,
+  user: Address,
+  market: Market | undefined,
+  signal?: AbortSignal,
+  deps: LoadDeps = {},
+): Promise<PositionRow[]> {
+  return pool.kind === 'mock' ? loadMock(pool, user, market, deps) : loadReal(pool, user, market, signal, deps);
+}
+
+/**
+ * The position-source reads behind "Max payout". The Info API rows are still shown when this fails, so the
+ * failure is returned (and logged), never swallowed: the row then says "unavailable" with the reason.
+ */
+export async function readCaps(
+  positionSource: Address,
+  user: Address,
+  perps: number[],
+  deps: LoadDeps = {},
+): Promise<Map<number, OnchainPosition | { error: string }> | { error: string }> {
+  if (!perps.length) return new Map();
+  try {
+    return await readPositions(positionSource, user, perps, deps.client, deps.retryDelaysMs);
+  } catch (e) {
+    console.error('[numera] position source read failed (max payout unavailable)', e);
+    return { error: isRateLimited(e) ? 'RPC rate-limited (-32005/429) after retries' : firstLine(e) };
+  }
+}
+
+async function loadReal(pool: PoolConfig, user: Address, market: Market | undefined, signal: AbortSignal | undefined, deps: LoadDeps): Promise<PositionRow[]> {
+  const acct = await (deps.fetchAccount ?? fetchAccount)(user, signal);
   const positions = acct.assetPositions.map((a) => a.position);
   const idxs = positions.map((p) => perpIndexOf(p.coin)).filter((x): x is number => x !== undefined);
-  const onchain = idxs.length ? await readPositions(pool.positionSource, user, idxs).catch(() => undefined) : undefined;
+  const caps = await readCaps(pool.positionSource, user, idxs, deps);
+  const onchain = caps instanceof Map ? caps : undefined;
+  const readError = caps instanceof Map ? undefined : caps.error;
   return positions.map((p) => {
     const m = market?.byName.get(p.coin);
     const markPx = m ? Number(m.ctx.markPx) : undefined;
     const szi = Number(p.szi);
     const perpIndex = perpIndexOf(p.coin);
-    const oc = perpIndex !== undefined ? onchain?.get(perpIndex) : undefined;
+    const oc: PositionRow['onchain'] =
+      perpIndex === undefined ? undefined : readError !== undefined ? { error: readError } : onchain?.get(perpIndex);
     return {
       coin: p.coin,
       perpIndex,
@@ -55,13 +93,15 @@ async function loadReal(pool: PoolConfig, user: Address, market: Market | undefi
       liq: positionLiq(p, acct, markPx ?? 0),
       onchain: oc,
       cap: oc && 'cap' in oc ? oc.cap : undefined,
+      capError: oc && 'error' in oc ? oc.error : undefined,
       source: 'info',
     } satisfies PositionRow;
   });
 }
 
-async function loadMock(pool: PoolConfig, user: Address, market: Market | undefined): Promise<PositionRow[]> {
-  const res = await readPositions(pool.positionSource, user, PERPS.map((p) => p.index));
+async function loadMock(pool: PoolConfig, user: Address, market: Market | undefined, deps: LoadDeps): Promise<PositionRow[]> {
+  // MOCK rows come only from the position source, so a failed read fails the whole load (usePoll shows it).
+  const res = await readPositions(pool.positionSource, user, PERPS.map((p) => p.index), deps.client, deps.retryDelaysMs);
   const rows: PositionRow[] = [];
   for (const { coin, index } of PERPS) {
     const oc = res.get(index);
@@ -92,4 +132,11 @@ async function loadMock(pool: PoolConfig, user: Address, market: Market | undefi
     });
   }
   return rows;
+}
+
+/** What the "Max payout" cell shows: the cap, "unavailable (retry)" with the reason, or "n/a" for an unconfigured perp. */
+export function capView(row: Pick<PositionRow, 'cap' | 'capError' | 'perpIndex'>, fmt: (x: bigint) => string): { text: string; title?: string; unavailable: boolean } {
+  if (row.cap !== undefined) return { text: fmt(row.cap), unavailable: false };
+  if (row.perpIndex === undefined) return { text: 'n/a', title: 'This perp is not configured for Numera on this network', unavailable: false };
+  return { text: 'unavailable (retry)', title: row.capError ?? 'Position source not read yet', unavailable: true };
 }
