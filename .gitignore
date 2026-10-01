@@ -27,3 +27,6 @@ app/dist/
 .claude/worktrees/
 .claude/settings.local.json
 *.log
+
+# founder-private drafts (D15) — never commit
+private/
