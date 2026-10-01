@@ -14,6 +14,12 @@ Docs root: https://hyperliquid.gitbook.io/hyperliquid-docs/ (index: `/llms.txt`)
 | USDC (EVM) | `0x2B3370eE501B4a559b57D449569354196457D8Ab` (from hyper-evm-lib HLConstants; proxy, 6 dec [RUN]; mintability unknown) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` (Circle, 6 dec) [docs hypercore/usdc] |
 | Block explorer | none used | none used |
 
+- Testnet explorer, checked 2026-10-02 [RUN]: `explore-testnet.hyperpc.app` (community Blockscout) is STALE. Its API
+  latest block is 60,609,357 (timestamp 2026-08-03) while the RPC head is about 65.77M, and
+  `/api/v2/transactions/0x3fb5…6d44` (the founder's buyCover) returns "Not found". No working 998 explorer was found
+  on 2026-10-02: testnet.hypurrscan.io/evm/tx says "Transaction not found" (checked in a browser), Etherscan V2
+  rejects chainid 998, chainid.network lists no explorers for 998, and purrsec.com is now a spam site. Use
+  `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet` or the app's receipt view (D22).
 - Gas token HYPE. Testnet HYPE faucets: https://faucet.chainstack.com/hyperliquid-testnet-faucet (1/24h),
   https://faucet.quicknode.com/hyperliquid [docs builder-tools/hyperevm-tools].
 - Testnet mock USDC (on **Core**, not EVM): https://app.hyperliquid-testnet.xyz/drip — 1,000 USDC,
