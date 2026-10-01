@@ -117,6 +117,20 @@ failure. Validate perp index once via `perpAssetInfo` and cache `szDecimals`.
 
 Mainnet lock: deploy scripts `require(block.chainid == 998 || block.chainid == 31337)`.
 
+Implementation notes (v1, accepted 2026-10-01 after contracts merge `00343cb`):
+- Price/position sources are immutable (constructor). A price source **reverts, never returns 0**, so a
+  missing price can never count as a breach.
+- Extra views for app/engine: `quoteDigest`, `quoteStructHash`, `DOMAIN_SEPARATOR`, `QUOTE_TYPEHASH`,
+  `freeAssets`, `lockedByPerp`, `nonceUsed`, `coverCount`, limit getters; events `QuoteSignerUpdated`,
+  `LimitsUpdated`; `setLimits(uint16 maxUtilBps, uint16 perPerpCapBps, uint64 maxDuration, uint16 maxSpotDevBps, uint256 minPayout)`.
+- Pool shares have **12 decimals** (USDC 6 + offset 6, inflation-attack defence).
+- Pause blocks `buyCover` and deposits only; trigger, expire and free-asset withdrawals always work.
+- Capacity is checked against `totalAssets` before the premium arrives (conservative).
+- Compiled with `via_ir` (deploy gas 2.67M vs 3M small-block limit; ~11 % headroom — growth needs big blocks).
+- `HyperCorePriceSource.cachePerp(idx)` should be called once per perp after deploy (cheaper reads).
+- Verified on testnet [RUN]: `perpAssetInfo(3)` decodes as one tuple → `("BTC", 54, 5, 40, false)`;
+  position `entryNtl` = USD × 1e6 (research doc).
+
 ## 6. Quote API (engine → app)
 
 `POST /quote` body `{buyer, perpIndex, isLong, level, payout, durationSec}` (level px6 int, payout 6-dec int).
