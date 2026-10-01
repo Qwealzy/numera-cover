@@ -82,7 +82,9 @@ daily candles since 2023):
 - Failing buckets and limitations are listed in the report.
 
 **End-to-end on testnet** (MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
-trigger → payout, 5 s from price drop to trigger). Explorer: `https://explore-testnet.hyperpc.app/tx/<hash>`.
+trigger → payout, 5 s from price drop to trigger). No working HyperEVM testnet explorer exists as of
+2026-10-02 (the hyperpc indexer is stale); check a hash in the app (click it: in-app receipt read from the RPC)
+or with `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet`.
 
 | Step | Transaction |
 |---|---|
