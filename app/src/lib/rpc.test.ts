@@ -47,7 +47,8 @@ describe('modelText (Model screen text from the synced calibration.md)', () => {
   it('extracts the adopted method, the floor and the priced formula', () => {
     const t = modelText(md);
     expect(t.formula).toMatch(/priced\s*=\s*max\(p \* k, q\)/);
-    expect(t.adopted).toMatch(/one z table per horizon, pooled over coins/i);
+    expect(t.adopted).toMatch(/one z table per horizon, pooled over coins|per horizon, all coins pooled/i);
+    expect(t.adopted).not.toMatch(/Per bucket/);
     expect(t.perBucket).toMatch(/Wilson one-sided 95 % upper bound/);
     expect(t.lookup).toMatch(/never rises as the level moves away/);
     expect(t.lookup).not.toMatch(/Quote API/);
