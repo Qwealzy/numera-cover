@@ -135,8 +135,19 @@ Implementation notes (v1, accepted 2026-10-01 after contracts merge `00343cb`):
 
 `POST /quote` body `{buyer, perpIndex, isLong, level, payout, durationSec}` (level px6 int, payout 6-dec int).
 Response `{quote: <§4 fields>, signature, breakdown: {sigma, touchProb, loading, premium, model:"gbm-touch-v1"}}`
-or `{error, reason}` (e.g. `level_already_breached`, `prob_too_high`, `capacity`).
+or `{error, reason}`.
 `GET /health` → `{ok, env, signer, chainId, pool}`. Engine never signs for chainId 999.
+
+Accepted 2026-10-01 after engine merge (`2998ec4`):
+- Error codes: `invalid_request`, `unknown_perp`, `duration_out_of_range`, `market_data_unavailable`,
+  `signer_unavailable`, `chain_not_allowed`, `level_already_breached`, `prob_too_high`, `capacity`.
+- HTTP status: 400 bad request (`invalid_request`, `unknown_perp`, `duration_out_of_range`), 422 refusal
+  (`level_already_breached`, `prob_too_high`, `capacity`), 503 dependency (`market_data_unavailable`,
+  `signer_unavailable`); `chain_not_allowed` is 403.
+- Extra breakdown fields (additive, informational): `tailMultiplier`, `tailFloor`, `pricedProb`, `fee`, `coin`.
+- `nonce` < 2^53 (JSON-number safe for JS clients).
+- `capacity` is an engine-side sanity cap only (`NUMERA_MAX_PAYOUT`); the on-chain utilization and
+  per-perp checks (§5 check 5) are authoritative.
 
 ## 7. Pricing model (engine, v1)
 
@@ -148,6 +159,11 @@ or `{error, reason}` (e.g. `level_already_breached`, `prob_too_high`, `capacity`
 3. Tail adjustment: multiplier `k(asset, horizon, distance-bucket) ≥ 1` from the backtest (§9), so the
    model never prices below realized touch frequency.
 4. `premium = payout × min(p·k, pMax) × (1 + θ) + fee`, θ = 0.20 loading, refuse if `p·k > pMax` (0.5).
+
+Implementation notes (engine merge `2998ec4`, 2026-10-01): σ from **mainnet** 1 h candles (testnet books
+are thin), oracle from **testnet** asset ctxs; a floor q (Wilson 95 % upper bound of the realized touch
+frequency) applies in addition to k; calibration is being reworked under D9 — the final formula lives in
+`engine/reports/calibration.md`.
 
 ## 8. Trigger semantics and demo
 
