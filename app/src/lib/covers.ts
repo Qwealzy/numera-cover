@@ -75,6 +75,12 @@ export async function findPurchaseStoredOrScan(
   return (deps.scan ?? findPurchaseQueued)(pool, id, start);
 }
 
+/** True when this browser remembered a purchase tx for the cover (no RPC call). */
+export const hasStoredPurchase = (pool: Address, id: bigint): boolean => storedPurchase(hyperEvmTestnet.id, pool, id) !== undefined;
+
+/** "All in pool" view: rows (newest first) whose purchase tx is located without a click. */
+export const AUTO_LOCATE_ALL = 5;
+
 export const PURCHASE_MAX_ATTEMPTS = 4;
 export type PurchaseLookup =
   | { state: 'pending'; done: Promise<void> }
