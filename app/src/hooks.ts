@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { backoffMs, busyUntil, isRateLimited, setBusy, subscribeBusy } from './lib/rpc';
 
 export interface Polled<T> {
   data: T | undefined;
@@ -6,58 +7,116 @@ export interface Polled<T> {
   loading: boolean;
   reload: () => void;
   updatedAt: number | undefined;
+  /** The last attempt was rate-limited; a retry is scheduled with backoff. */
+  busy: boolean;
+}
+
+/** Stable string key for a deps list (bigints included). */
+export const depsKey = (deps: unknown[]): string => JSON.stringify(deps, (_k, v) => (typeof v === 'bigint' ? `${v}n` : v));
+
+const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+
+interface St<T> {
+  key: string;
+  data?: T;
+  error?: string;
+  updatedAt?: number;
+  busy?: boolean;
 }
 
 /**
- * Run `fn` now and every `ms` while mounted; re-run when `deps` change. Keeps the last good value on
- * error. `fn` receives an AbortSignal; pass `ms = 0` to disable polling. `enabled = false` clears data.
+ * Run `fn` now and then every `ms` (0 = only when `deps` change or on reload()).
+ * - Data is keyed by `deps`: when they change (e.g. another pool) the old value is never returned,
+ *   `data` is undefined until the new read lands.
+ * - Polls only while the browser tab is visible; on return it refreshes if a poll was due.
+ * - On error keeps the last good value for the same key and retries with exponential backoff
+ *   (4 s … 60 s); a rate-limited error (-32005) also lights the global "RPC busy" hint.
+ * - `enabled = false` stops polling and returns no data.
  */
 export function usePoll<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknown[], ms: number, enabled = true): Polled<T> {
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<string>();
-  const [loading, setLoading] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState<number>();
+  const key = depsKey(deps);
+  const id = useId();
+  const [st, setSt] = useState<St<T>>({ key: '' });
+  const [inflight, setInflight] = useState(false);
   const [tick, setTick] = useState(0);
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
   useEffect(() => {
-    if (!enabled) {
-      setData(undefined);
-      setError(undefined);
-      return;
-    }
+    if (!enabled) return;
     let alive = true;
+    let seq = 0;
+    let fails = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let due = false; // a poll came due while the tab was hidden
     let ctrl = new AbortController();
-    const run = async () => {
+
+    const schedule = (delay: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(run, delay);
+    };
+    async function run() {
+      if (!alive) return;
+      if (!visible()) {
+        due = true;
+        return;
+      }
+      due = false;
+      const my = ++seq;
       ctrl.abort();
       ctrl = new AbortController();
-      setLoading(true);
+      setInflight(true);
       try {
         const v = await fnRef.current(ctrl.signal);
-        if (!alive) return;
-        setData(v);
-        setError(undefined);
-        setUpdatedAt(Date.now());
+        if (!alive || my !== seq) return;
+        fails = 0;
+        setBusy(id, undefined);
+        setSt({ key, data: v, updatedAt: Date.now() });
+        if (ms > 0) schedule(ms);
       } catch (e) {
-        if (!alive || (e as Error).name === 'AbortError') return;
-        setError((e as Error).message ?? String(e));
+        if (!alive || my !== seq || (e as Error).name === 'AbortError') return;
+        fails++;
+        const limited = isRateLimited(e);
+        const delay = backoffMs(fails, ms);
+        setBusy(id, limited ? Date.now() + delay : undefined);
+        const msg = limited ? 'The public testnet RPC is rate-limiting requests; retrying.' : ((e as Error).message ?? String(e));
+        setSt((s) => ({ ...(s.key === key ? s : { key }), error: msg, busy: limited }));
+        schedule(delay);
       } finally {
-        if (alive) setLoading(false);
+        if (alive && my === seq) setInflight(false);
       }
+    }
+    const onVisibility = () => {
+      if (visible() && due) run();
     };
+    document.addEventListener('visibilitychange', onVisibility);
     run();
-    const t = ms > 0 ? setInterval(run, ms) : undefined;
     return () => {
       alive = false;
       ctrl.abort();
-      if (t) clearInterval(t);
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      setBusy(id, undefined);
+      setInflight(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, tick, enabled, ms]);
+  }, [key, tick, enabled, ms]);
 
   const reload = useCallback(() => setTick((x) => x + 1), []);
-  return { data, error, loading, reload, updatedAt };
+  const mine = enabled && st.key === key;
+  return {
+    data: mine ? st.data : undefined,
+    error: mine ? st.error : undefined,
+    loading: enabled && (inflight || !mine),
+    reload,
+    updatedAt: mine ? st.updatedAt : undefined,
+    busy: mine && !!st.busy,
+  };
+}
+
+/** Retry time of the most delayed rate-limited poll, or undefined when the RPC is fine. */
+export function useRpcBusy(): number | undefined {
+  return useSyncExternalStore(subscribeBusy, busyUntil, busyUntil);
 }
 
 /** Current unix seconds, ticking every `ms`. */

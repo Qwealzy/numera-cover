@@ -3,6 +3,7 @@ import { shortAddr } from '../lib/format';
 import { ensureTestnet } from '../lib/chain';
 import { useApp, type Tab } from '../state';
 import { MockTag } from './ui';
+import { useNow, useRpcBusy } from '../hooks';
 
 const NAV: { tab: Tab; label: string }[] = [
   { tab: 'about', label: 'About' },
@@ -59,6 +60,7 @@ export function Header() {
           </div>
         </div>
       </header>
+      <RpcBusy />
       {(wrongChain || connectError) && (
         <div className="wrap" style={{ marginTop: 12 }}>
           {wrongChain && (
@@ -74,5 +76,25 @@ export function Header() {
         </div>
       )}
     </>
+  );
+}
+
+/** Shown while any poll is backing off after a -32005 from the public RPC. */
+function RpcBusy() {
+  const until = useRpcBusy();
+  if (until === undefined) return null;
+  return <RpcBusyNotice until={until} />;
+}
+
+function RpcBusyNotice({ until }: { until: number }) {
+  const now = useNow(1000);
+  const left = Math.max(0, until / 1000 - now);
+  return (
+    <div className="wrap" style={{ marginTop: 12 }}>
+      <div className="notice" role="status">
+        RPC busy, retrying{left >= 1 ? ` in ${Math.ceil(left)} s` : ' now'}. The public testnet RPC is rate-limiting requests. Numbers on screen are the
+        last confirmed reads for this pool; “…” means not read yet.
+      </div>
+    </div>
   );
 }

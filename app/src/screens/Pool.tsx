@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { coinOf, USDC } from '../config';
 import { useApp } from '../state';
-import { Status } from '../lib/pool';
+import { Status, type Cover } from '../lib/pool';
 import { fmtBps, fmtDuration, fmtFixed, fmtPx6, fmtRatio, fmtShares, fmtTime, fmtUsdc, parseDecimal } from '../lib/format';
 import { approveUsdc, deposit, readAllowance, withdraw } from '../lib/tx';
 import { Addr, MockTag, Notice, Stat, TxLink, TxStatus, useTx } from '../components/ui';
@@ -12,7 +12,8 @@ export function Pool() {
   const { pool, poolKind, stats } = useApp();
   const s = stats.data;
   const util = s && s.totalAssets > 0n ? Number((s.lockedAssets * 10000n) / s.totalAssets) / 100 : 0;
-  const { covers, events } = useCovers();
+  // the log scan is only needed for "paid" tx links in the recent list
+  const { covers, events } = useCovers((list) => list.slice(0, RECENT).some((c) => c.status === Status.Paid));
   const all = covers.data ?? [];
   const sold = all.reduce((a, c) => a + c.premium, 0n);
   const paid = all.filter((c) => c.status === Status.Paid).reduce((a, c) => a + c.payout, 0n);
@@ -32,7 +33,7 @@ export function Pool() {
         </span>
       </div>
 
-      {stats.error && !s && <Notice kind="error">Could not read the pool: {stats.error}</Notice>}
+      {stats.error && !s && !stats.busy && <Notice kind="error">Could not read the pool: {stats.error}</Notice>}
       <div className="stats">
         <Stat label="Total assets" value={s ? fmtUsdc(s.totalAssets) : '…'} sub="mUSDC held by the pool" />
         <Stat label="Locked for covers" value={s ? fmtUsdc(s.lockedAssets) : '…'} sub="sum of active payouts" />
@@ -51,7 +52,7 @@ export function Pool() {
 
       <div className="grid grid--2" style={{ marginTop: 16 }}>
         <div className="stack">
-          <RecentCovers covers={all} events={events.data} />
+          <RecentCovers covers={covers} events={events.data} count={s?.coverCount} />
           <Limits />
         </div>
         <div className="stack">
@@ -169,16 +170,32 @@ function LpPanel() {
   );
 }
 
-function RecentCovers({ covers, events }: { covers: ReturnType<typeof useCovers>['covers']['data'] & object; events: ReturnType<typeof useCovers>['events']['data'] }) {
-  const recent = covers.slice(0, 15);
+const RECENT = 15;
+
+function RecentCovers({
+  covers,
+  events,
+  count,
+}: {
+  covers: ReturnType<typeof useCovers>['covers'];
+  events: ReturnType<typeof useCovers>['events']['data'];
+  count: bigint | undefined;
+}) {
+  const recent: Cover[] = (covers.data ?? []).slice(0, RECENT);
   return (
     <section className="panel">
       <div className="panel__head">
         <h2>Recent covers</h2>
         <span className="meta">newest first</span>
       </div>
-      {recent.length === 0 ? (
+      {count === 0n ? (
         <p className="empty">No covers sold yet.</p>
+      ) : !covers.data ? (
+        covers.error && !covers.busy ? (
+          <Notice kind="error">Could not read covers: {covers.error}</Notice>
+        ) : (
+          <p className="empty">{covers.busy ? 'RPC busy, retrying…' : 'Loading covers…'}</p>
+        )
       ) : (
         <div className="table-wrap">
           <table>

@@ -1,7 +1,7 @@
 // Write paths. Every write is simulated first (so a revert shows its decoded reason before the wallet
 // pops up), then sent through the injected wallet, then awaited. Testnet (998) only.
 import { decodeEventLog, type Address, type Hex, type TransactionReceipt } from 'viem';
-import { ensureTestnet, publicClient, walletClient } from './chain';
+import { ensureTestnet, txPublicClient as publicClient, walletClient } from './chain';
 import { coverPoolAbi, mockPositionSourceAbi, mockPriceSourceAbi, mockUSDCAbi } from '../generated/abi';
 import { FAUCET_AMOUNT, hyperEvmTestnet, USDC } from '../config';
 import { toContractQuote, type QuoteJson } from './quote';

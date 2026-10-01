@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { coinOf } from '../config';
+import { coinOf, POLL_MS } from '../config';
 import { useApp } from '../state';
 import { useNow } from '../hooks';
 import { Status, type Cover, type CoverEvents } from '../lib/pool';
@@ -39,12 +39,12 @@ export function Covers() {
         <div className="panel__head">
           <h2>{all ? 'All covers' : 'Covers bought by this address'}</h2>
           <span className="meta">
-            pool <Addr a={pool.pool} /> · oracle refresh 3 s
+            pool <Addr a={pool.pool} /> · oracle refresh {POLL_MS / 1000} s
           </span>
         </div>
-        {covers.error && !covers.data && <Notice kind="error">Could not read covers: {covers.error}</Notice>}
+        {covers.error && !covers.data && !covers.busy && <Notice kind="error">Could not read covers: {covers.error}</Notice>}
         {!covers.data ? (
-          <p className="empty">Loading covers…</p>
+          <p className="empty">{covers.busy ? 'RPC busy, retrying…' : 'Loading covers…'}</p>
         ) : list.length === 0 ? (
           <p className="empty">{!all && !subject ? 'Connect a wallet or enter an address.' : 'No covers yet.'}</p>
         ) : (
