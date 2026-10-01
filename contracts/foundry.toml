@@ -9,6 +9,9 @@ solc_version = "0.8.28"
 evm_version = "shanghai"
 optimizer = true
 optimizer_runs = 200
+# via-IR shrinks CoverPool runtime 13.2 KB -> 11.2 KB. Without it, deployment costs ~3.11M gas, above the
+# HyperEVM small-block gas limit (3M; docs/research/hyperliquid.md §Networks).
+via_ir = true
 remappings = [
   "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
   "forge-std/=lib/forge-std/src/",
