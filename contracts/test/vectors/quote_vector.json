@@ -1,0 +1,9 @@
+{
+  "digest": "0xb64deeac85b31816d065df08e8a58e2599ce7db2ab635ea6311435d8fbf330d5",
+  "domainSeparator": "0x50563e9a4cf74a8fb9d3424fadf4a17aef1acb97e64d217a75848497e1954da5",
+  "signature": "0xf6261bad1c888348b33a4a795509a520b0bde8f976d05d9d07fe8dfc4473b77c56a9d4dc3f1ec2f6b2de500ed2db24ad6bc669e0fb21fb1eba5fde2fc1ba56a21c",
+  "signer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "structHash": "0xe2fdd7e240513456198c4db5cea2d1160f844d43836888dfff69bb74022bfdf5",
+  "typeHash": "0x2fc972523a96344d9eb60b26b88bbc92be427a5003bdb91cf955c0ccf8462517",
+  "typeString": "Quote(address buyer,uint32 perpIndex,bool isLong,uint64 level,uint256 payout,uint256 premium,uint64 expiry,uint64 spotRef,uint64 deadline,uint256 nonce)"
+}
