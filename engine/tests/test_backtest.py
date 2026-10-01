@@ -11,9 +11,13 @@ from numera_engine.backtest import (
     Series,
     aggregate,
     fit_tail,
+    fit_z,
     observations,
     simulate_pool,
+    v1_priced,
+    v2_priced,
     wilson,
+    z_table,
 )
 from numera_engine.pricing import touch_prob
 
@@ -95,14 +99,14 @@ def test_gbm_data_is_calibrated():
     assert b.n > 3000 and 0.3 < b.realized / b.mean_p < 3
 
 
-def test_aggregate_passes_in_sample_and_uses_external_fit():
+def test_aggregate_passes_in_sample_and_uses_external_pricing():
     s = synthetic(n=24 * 100, sigma_h=0.012, seed=3)
     hz = next(h for h in HORIZONS if h.name == "1h")
     ob = observations(s, hz)
     bs = aggregate("SYN", "1h", ob)
     assert all(b.passes for b in bs if b.k is not None)
     fit = {(b.direction, b.distance): (1.0, 0.5) for b in bs}
-    bs2 = aggregate("SYN", "1h", ob, fit=fit)
+    bs2 = aggregate("SYN", "1h", ob, priced=v1_priced(ob, fit))
     assert all(b.priced >= 0.5 - 1e-12 for b in bs2 if b.n)
 
 
@@ -110,16 +114,39 @@ def test_simulate_pool_accounting():
     s = synthetic(n=24 * 60, seed=11)
     hz = next(h for h in HORIZONS if h.name == "4h")
     ob = observations(s, hz)
-    res = simulate_pool("t", hz, {"SYN": ob}, {})
+    res = simulate_pool("t", hz, {"SYN": ob})
     assert res.sold + res.refused == 10 * res.steps  # 5 distances x 2 directions per window
     assert res.ret == pytest.approx(res.premium - res.paid)
     assert 0 <= res.max_dd < 1 and res.worst_step <= 0
     assert math.isfinite(res.loss_ratio)
-    # a floor of 0.6 > pMax refuses everything
-    res2 = simulate_pool(
-        "t",
-        hz,
-        {"SYN": ob},
-        {"SYN": {(d, x): (1.0, 0.6) for d in ("down", "up") for x in (0.02, 0.03, 0.05, 0.075, 0.10)}},
-    )
+    res2 = simulate_pool("t", hz, {"SYN": ob}, {"SYN": np.full(len(ob), 0.6)})  # > pMax: refuse all
     assert res2.sold == 0 and res2.ret == 0
+
+
+def test_z_column_matches_definition():
+    s = synthetic(n=24 * 60, seed=5)
+    hz = next(h for h in HORIZONS if h.name == "4h")
+    ob = observations(s, hz)
+    T = 4 / (24 * 365)
+    for i in (0, 7, 33):
+        sign = -1 if ob.direction[i] == "down" else 1
+        expected = math.log(1 + sign * ob.distance[i]) / (ob.sigma[i] * math.sqrt(T))
+        assert ob.z[i] == pytest.approx(expected)
+        assert (ob.z[i] < 0) == (ob.direction[i] == "down")
+
+
+def test_fit_z_pools_and_table_prices_like_lookup():
+    parts = []
+    for seed, n in ((1, 24 * 80), (2, 24 * 80)):
+        ob = observations(synthetic(n=n, seed=seed), next(h for h in HORIZONS if h.name == "1h"))
+        parts.append((ob, np.ones(len(ob), dtype=bool)))
+    zbs = fit_z(parts)
+    total = sum(len(o) for o, _ in parts)
+    assert sum(b.n for b in zbs) == total  # every row lands in exactly one bucket
+    assert sum(b.hits for b in zbs) == sum(int(o.hit.sum()) for o, _ in parts)
+    table = z_table(zbs)
+    ob = parts[0][0]
+    pr = v2_priced(ob, table)
+    for i in (0, 5, 100):
+        a = table.kq(ob.direction[i] == "down", abs(ob.z[i]))
+        assert pr[i] == pytest.approx(max(ob.p[i] * a.k, a.q))

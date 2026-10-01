@@ -4,7 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from numera_engine.data import InfoApiError
-from numera_engine.pricing import SECONDS_PER_YEAR, TailAdj, TailTable, premium, touch_prob
+from numera_engine.pricing import (
+    SECONDS_PER_YEAR,
+    TailAdj,
+    TailTable,
+    premium,
+    touch_prob,
+)
 from numera_engine.quote import Quote, recover_signer
 from numera_engine.quote_api import Settings, UnknownPerpError, create_app
 
@@ -47,7 +53,8 @@ def body(**kw):
 def test_health():
     r = make_client().get("/health")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "env": "local", "signer": SIGNER, "chainId": 31337, "pool": POOL}
+    assert r.json() == {"ok": True, "env": "local", "signer": SIGNER, "chainId": 31337, "pool": POOL,
+                        "pools": [POOL.lower()]}  # fmt: skip
 
 
 def test_health_without_signer_is_not_ok():

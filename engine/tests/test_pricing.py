@@ -10,7 +10,9 @@ the estimate is its mean over paths: unbiased for continuous monitoring with low
 the crossings.
 """
 
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,10 +22,13 @@ from numera_engine.pricing import (
     QuoteRefusedError,
     TailAdj,
     TailTable,
+    ZTailTable,
+    load_tail_table,
     premium,
     priced_prob,
     touch_prob,
     touch_prob_directional,
+    z_score,
 )
 
 DAY = 1 / 365
@@ -211,3 +216,69 @@ def test_tail_lookup_horizon_rounds_up_and_missing_cells():
 def test_tail_lookup_unknown_coin_takes_max_over_coins():
     t = _table()
     assert t.lookup("DOGE", True, 3600, 0.05) == TailAdj(3.0, 0.01)
+
+
+def test_v1_table_still_loads(tmp_path):
+    blob = {
+        "horizons_s": [3600],
+        "distances": [0.05],
+        "default": {"k": 1.0, "q": 0.0},
+        "coins": {"BTC": {"down": {"3600": {"0.050": {"k": 2.0, "q": 0.01}}}}},
+    }
+    p = tmp_path / "t.json"
+    p.write_text(json.dumps(blob))
+    t = load_tail_table(p)
+    assert isinstance(t, TailTable)
+    assert t.adjust("BTC", True, 3600, 100.0, 95.0, 0.5) == TailAdj(2.0, 0.01)
+
+
+# -- v2 pooled z table ------------------------------------------------------------------------------
+
+
+def _ztable():
+    edges = (0.0, 1.0, 2.0, 3.0, math.inf)
+    cells = {
+        "down": [
+            {"k": 1.0, "q": 0.20},
+            {"k": 1.5, "q": 0.02},
+            None,  # < 30 windows: borrows the nearer-the-money neighbour
+            {"k": 10.0, "q": 0.03},  # above the previous bucket: q is made non-increasing in |z|
+        ],
+        "up": [None, None, None, None],
+    }
+    return ZTailTable(edges, cells, TailAdj(2.0, 0.05))
+
+
+def test_z_score_sign_and_scale():
+    assert z_score(100, 90, 0.5, DAY) == pytest.approx(math.log(0.9) / (0.5 * math.sqrt(DAY)))
+    assert z_score(100, 110, 0.5, DAY) > 0 > z_score(100, 90, 0.5, DAY)
+
+
+def test_ztable_k_step_and_q_monotone_interpolated():
+    t = _ztable()
+    assert t.kq(True, 0.2) == TailAdj(1.0, pytest.approx(0.20))  # below the first mid-point: clamp
+    assert t.kq(True, 1.5) == TailAdj(1.5, pytest.approx(0.03))  # q of bucket 1 lifted to 0.03 (monotone)
+    assert t.kq(True, 2.5).k == 1.5  # empty bucket borrows its nearer-the-money neighbour
+    assert t.kq(True, 50.0) == TailAdj(10.0, pytest.approx(0.03))  # beyond the grid: clamp
+    assert t.kq(True, 1.0).q == pytest.approx(math.sqrt(0.20 * 0.03))  # log-linear between mids 0.5, 1.5
+    qs = [t.kq(True, z).q for z in np.linspace(0, 6, 61)]
+    assert all(a >= b - 1e-15 for a, b in zip(qs, qs[1:], strict=False))  # never rises with distance
+    assert t.kq(False, 1.0) == TailAdj(2.0, 0.05)  # no data for that direction: default
+
+
+def test_ztable_adjust_uses_z_of_the_quote():
+    t = _ztable()
+    S, H, sigma, dur = 100.0, 97.0, 0.6, 3600
+    z = abs(z_score(S, H, sigma, dur / (365 * 24 * 3600)))
+    assert t.adjust("ANY", True, dur, S, H, sigma) == t.kq(True, z)
+
+
+def test_published_table_loads_and_is_sane():
+    t = load_tail_table(Path(__file__).parent.parent / "reports" / "tail_multipliers.json")
+    assert isinstance(t, ZTailTable)
+    for is_long in (True, False):
+        prev = 1.0
+        for z in (0.1, 1.0, 2.0, 3.0, 4.0, 6.0, 10.0, 40.0):
+            a = t.kq(is_long, z)
+            assert 1.0 <= a.k <= 10.0 and 0 < a.q <= prev + 1e-15
+            prev = a.q

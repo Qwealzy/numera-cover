@@ -177,6 +177,122 @@ class TailTable:
     def k(self, coin: str, is_long: bool, duration_s: float, distance: float) -> float:
         return self.lookup(coin, is_long, duration_s, distance).k
 
+    def adjust(
+        self, coin: str, is_long: bool, duration_s: float, S: float, H: float, sigma: float
+    ) -> TailAdj:
+        return self.lookup(coin, is_long, duration_s, abs(H / S - 1))
+
 
 def _dkey(d: float) -> str:
     return f"{d:.3f}"
+
+
+# -- v2: pooled standardized-distance table (decision D9) ------------------------------------------
+
+Z_EDGES: tuple[float, ...] = tuple(i * 0.25 for i in range(17)) + (5.0, 7.0, math.inf)
+
+
+def z_score(S: float, H: float, sigma: float, T: float) -> float:
+    """Standardized, direction-signed distance z = ln(H/S) / (sigma sqrt(T)); < 0 for a down level.
+
+    Under the model p depends on z (plus a small drift term in sigma sqrt(T)), so windows with equal z are
+    exchangeable across coins and horizons and can be pooled.
+    """
+    if sigma <= 0 or T <= 0:
+        return -math.inf if H < S else math.inf
+    return math.log(H / S) / (sigma * math.sqrt(T))
+
+
+@dataclass
+class ZTailTable:
+    """k(direction, |z| bucket) and floor q(direction, |z|) pooled over coins and horizons.
+
+    ``cells[direction]`` is a list aligned with the buckets [edges[i], edges[i+1]); each entry is
+    {"k", "q", "n", "hits", "mean_p"} or None (< 30 windows). Lookup:
+    - k: the bucket containing |z| (empty bucket: nearest populated bucket, nearer-the-money first);
+    - q: first made non-increasing in |z| (q_i = max over buckets at or beyond i, conservative), then
+      interpolated log-linearly between bucket mid-points and clamped at the ends, so the price is
+      continuous in the level and never rises as the level moves further away.
+    """
+
+    edges: tuple[float, ...]
+    cells: dict[str, list[dict[str, float] | None]]
+    default: TailAdj = TailAdj(1.0, 0.0)
+
+    def __post_init__(self) -> None:
+        e = self.edges
+        self._mids = [
+            (e[i] + e[i + 1]) / 2 if math.isfinite(e[i + 1]) else e[i] + 1.0 for i in range(len(e) - 1)
+        ]
+        self._k: dict[str, list[float]] = {}
+        self._logq: dict[str, list[float]] = {}
+        for direction, cells in self.cells.items():
+            if len(cells) != len(e) - 1:
+                raise ValueError("cells do not match edges")
+            filled = [_nearest_populated(cells, i) for i in range(len(cells))]
+            if all(c is None for c in filled):
+                continue
+            ks = [max(1.0, float(c["k"])) for c in filled]  # type: ignore[index]
+            qs = [float(c["q"]) for c in filled]  # type: ignore[index]
+            for i in range(len(qs) - 2, -1, -1):  # non-increasing in |z|
+                qs[i] = max(qs[i], qs[i + 1])
+            self._k[direction] = ks
+            self._logq[direction] = [math.log(max(q, 1e-12)) for q in qs]
+
+    @staticmethod
+    def from_blob(blob: dict[str, Any]) -> ZTailTable:
+        edges = tuple(math.inf if x is None else float(x) for x in blob["z_edges"])
+        d = blob.get("default", {"k": 1.0, "q": 0.0})
+        return ZTailTable(
+            edges, {k: blob["cells"][k] for k in ("down", "up")}, TailAdj(float(d["k"]), float(d["q"]))
+        )
+
+    def kq(self, is_long: bool, zabs: float) -> TailAdj:
+        direction = "down" if is_long else "up"
+        if direction not in self._k:
+            return self.default
+        i = max(0, min(len(self._mids) - 1, _bisect_right(self.edges, zabs) - 1))
+        mids, lq = self._mids, self._logq[direction]
+        if zabs <= mids[0]:
+            logq = lq[0]
+        elif zabs >= mids[-1]:
+            logq = lq[-1]
+        else:
+            j = _bisect_right(mids, zabs) - 1
+            w = (zabs - mids[j]) / (mids[j + 1] - mids[j])
+            logq = (1 - w) * lq[j] + w * lq[j + 1]
+        return TailAdj(self._k[direction][i], math.exp(logq))
+
+    def adjust(
+        self, coin: str, is_long: bool, duration_s: float, S: float, H: float, sigma: float
+    ) -> TailAdj:
+        return self.kq(is_long, abs(z_score(S, H, sigma, duration_s / SECONDS_PER_YEAR)))
+
+
+def _nearest_populated(cells: list, i: int) -> dict | None:
+    if cells[i] is not None:
+        return cells[i]
+    for step in range(1, len(cells)):
+        for j in (i - step, i + step):  # nearer-the-money first: higher touch frequency, conservative
+            if 0 <= j < len(cells) and cells[j] is not None:
+                return cells[j]
+    return None
+
+
+def _bisect_right(xs, x: float) -> int:
+    lo, hi = 0, len(xs)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if x < xs[mid]:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def load_tail_table(path: str | Path) -> TailTable | ZTailTable:
+    """Load tail_multipliers.json in either schema (v2 z-buckets, or v1 per coin/horizon/distance)."""
+    blob: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    if blob.get("schema") == "z-pooled-v2":
+        return ZTailTable.from_blob(blob)
+    return TailTable.load(path)
