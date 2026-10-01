@@ -51,5 +51,34 @@
       "depositHypercore": "0x24d0072c6bb278f698e5e894415f835e787aae49a070f4579abb4e95b99298b7",
       "depositMock": "0x3bc7f32dac340bc7394ecb0d99f8857d753354bfbc32d9244c492f608f1ed5aa"
     }
+  },
+  "e2e": {
+    "F7_F9_mockPool_2026-10-01": {
+      "note": "MOCK pool. Engine /quote API (chain 998, verifyingContract=mock pool) signed; deployer bought cover 1; keeper triggered after staged price drop",
+      "setup": {
+        "mintDeployer100": "0x19d3a4e0730a0ea056d09331b683d3031fb2036c6a2294b3db9db880c0612962",
+        "setPricePerp3_84833900000": "0x67495ff9df2a76995b2945cf192e4b31abae9dd20d3c4dcd34880cbde07058c7",
+        "setPositionDeployerPerp3": "0x6de2131ea8bb5542db83d515df63fe65c2904975193fa5c016de9838399b7a2e"
+      },
+      "approvePremium": "0xa4cd41e5a9c8d9c9477be1abd01e985fbd77ef67edceb100652f375f3d0d75c4",
+      "buyCover": "0x0b31d95e91c9cccc5e9d48054a7cee1125fb9aca0f19e5e8c5484809e6340f7d",
+      "coverPurchased": {
+        "coverId": 1,
+        "perpIndex": 3,
+        "isLong": true,
+        "level": 83137000000,
+        "payout": 20000000,
+        "premium": 7739522,
+        "expiry": 1790963878
+      },
+      "setPriceCrash_83000000000": "0xc5572d131eefbb00b7a3bd8c256aec42b8ec3c9bf144b36d389740a0dfbb388e",
+      "trigger": "0x89f61dbc6cfcbafab3df8ff8d63e7f2ca5f2d6494ba1e9afa70648ff3f3a84e0",
+      "coverTriggered": {
+        "coverId": 1,
+        "oraclePx": 83000000000,
+        "caller": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B"
+      },
+      "crashToTriggerSeconds": 5
+    }
   }
 }
