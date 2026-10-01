@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DURATIONS, LEVEL_BUFFER, USE_QUOTE_FIXTURE, hyperEvmTestnet } from '../config';
+import { DURATIONS, LEVEL_BUFFER, POLL_MS, USE_QUOTE_FIXTURE, hyperEvmTestnet } from '../config';
+import { cached } from '../lib/rpc';
 import { useApp } from '../state';
 import { useNow, usePoll } from '../hooks';
 import { loadPositions, type PositionRow } from '../lib/positions';
@@ -27,9 +28,9 @@ const fmtUsd = (x: number | undefined, dp = 2) =>
 export function Protect() {
   const { pool, poolKind, subject, market, oracle } = useApp();
   const positions = usePoll(
-    (s) => (subject ? loadPositions(pool, subject, market.data, s) : Promise.resolve([])),
+    () => (subject ? cached(`positions:${pool.pool}:${subject}:${!!market.data}`, 5_000, () => loadPositions(pool, subject, market.data)) : Promise.resolve([])),
     [pool.pool, subject, !!market.data],
-    5000,
+    POLL_MS,
     !!subject,
   );
   const [selected, setSelected] = useState<string>();

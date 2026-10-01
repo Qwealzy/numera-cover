@@ -11,6 +11,10 @@ export const USE_QUOTE_FIXTURE = env.VITE_USE_QUOTE_FIXTURE === '1' || env.VITE_
 export const WAITLIST_URL = env.VITE_WAITLIST_URL || '';
 const ENGINE_DEFAULT = (env.VITE_ENGINE_URL || 'http://localhost:8000').replace(/\/$/, '');
 
+export const MULTICALL3: Address = '0xcA11bde05977b3631167028862bE2a173976CA11';
+/** Poll interval for on-chain reads (pool stats, oracle, positions). The public RPC is shared by every judge. */
+export const POLL_MS = 15_000;
+
 /** Chain 998. Mainnet (999) is deliberately not defined anywhere in the app. */
 export const hyperEvmTestnet = defineChain({
   id: testnet.chainId,
@@ -18,7 +22,8 @@ export const hyperEvmTestnet = defineChain({
   nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
   rpcUrls: { default: { http: [RPC_URL] } },
   blockExplorers: { default: { name: 'HyperEVM testnet explorer', url: EXPLORER_URL } },
-  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
+  // Multicall3 is deployed on 998 (eth_getCode checked 2026-10-01); all polled reads go through it.
+  contracts: { multicall3: { address: MULTICALL3 } },
   testnet: true,
 });
 

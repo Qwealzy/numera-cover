@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getAddress, isAddress, type Address } from 'viem';
-import { PERPS, POOLS, type PoolConfig, type PoolKind } from './config';
+import { PERPS, POLL_MS, POOLS, type PoolConfig, type PoolKind } from './config';
 import { currentChainId, ensureTestnet, hasInjectedWallet, requestAccounts } from './lib/chain';
 import { describeError } from './lib/errors';
 import { fetchMarket, type Market } from './lib/info';
-import { readOraclePxs, readPoolStats, type PoolStats, type PxResult } from './lib/pool';
+import { readSnapshot, type PoolStats, type PxResult } from './lib/pool';
+import { cached, invalidate } from './lib/rpc';
 import { usePoll, type Polled } from './hooks';
 
 export type Tab = 'about' | 'protect' | 'covers' | 'pool' | 'model';
@@ -116,19 +117,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const viewAs = isAddress(viewAsInput.trim()) ? getAddress(viewAsInput.trim()) : undefined;
   const subject = account ?? viewAs;
 
-  const market = usePoll((s) => fetchMarket(s), [], 5000);
-  const stats = usePoll(() => readPoolStats(pool, account), [pool.pool, account], 6000);
-  const oracle = usePoll(
-    () => readOraclePxs(pool.priceSource, PERPS.map((p) => p.index)),
-    [pool.priceSource],
-    3000,
+  // Poll only what the visible screen shows (usePoll also pauses while the browser tab is hidden).
+  // One snapshot = one Multicall3 eth_call: pool stats + user balances + oracle price of every perp.
+  const needsChain = tab !== 'model';
+  const needsMarket = tab === 'protect' || tab === 'covers' || tab === 'pool';
+  const market = usePoll(() => cached('market', 10_000, () => fetchMarket()), [], POLL_MS, needsMarket);
+  const perps = useMemo(() => PERPS.map((p) => p.index), []);
+  const snap = usePoll(
+    () => cached(`snap:${pool.pool}:${account ?? ''}`, 5_000, () => readSnapshot(pool, account, perps)),
+    [pool.pool, account],
+    POLL_MS,
+    needsChain,
   );
+  const stats: Polled<PoolStats> = useMemo(() => ({ ...snap, data: snap.data?.stats }), [snap]);
+  const oracle: Polled<Map<number, PxResult>> = useMemo(() => ({ ...snap, data: snap.data?.oracle }), [snap]);
 
+  /** After the user's own transaction: drop cached reads and re-read now. */
   const refreshAll = useCallback(() => {
-    stats.reload();
-    oracle.reload();
+    invalidate();
+    snap.reload();
     market.reload();
-  }, [stats.reload, oracle.reload, market.reload]);
+  }, [snap.reload, market.reload]);
 
   const setTab = useCallback((t: Tab) => {
     setTabState(t);

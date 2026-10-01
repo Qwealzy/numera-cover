@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { marked } from 'marked';
 import calibrationMd from '../generated/calibration.md?raw';
+import { modelText } from '../lib/calibration';
 
 /**
  * Calibration evidence from the engine backtest (engine/reports/, copied by `npm run sync`).
@@ -8,6 +9,12 @@ import calibrationMd from '../generated/calibration.md?raw';
  */
 export function Model() {
   const html = useMemo(() => (calibrationMd.trim() ? (marked.parse(calibrationMd, { async: false }) as string) : ''), []);
+  // Formula and method text come from the synced calibration report, so they follow the engine (D11, D13…).
+  const m = useMemo(() => {
+    const t = modelText(calibrationMd);
+    const md = (x: string) => (x ? (marked.parseInline(x, { async: false }) as string) : '');
+    return { ...t, lookupHtml: md(t.lookup), adoptedHtml: md(t.adopted), perBucketHtml: md(t.perBucket) };
+  }, []);
   const [svgOk, setSvgOk] = useState(true);
   return (
     <>
@@ -28,7 +35,7 @@ export function Model() {
           </div>
           {svgOk ? (
             <div className="figure">
-              <img src="/calibration.svg" alt="Calibration: predicted touch probability against realized touch frequency per bucket" onError={() => setSvgOk(false)} />
+              <img src="/calibration.svg" alt="Calibration: priced touch probability against realized touch frequency" onError={() => setSvgOk(false)} />
             </div>
           ) : (
             <p className="empty">No calibration plot found. Run the engine backtest, then `npm --prefix app run sync`.</p>
@@ -37,24 +44,18 @@ export function Model() {
         <section className="panel">
           <div className="panel__head">
             <h2>Formula (ARCHITECTURE §7)</h2>
+            <span className="meta">{m.title ? `engine/reports/calibration.md · ${m.title}` : 'engine/reports/calibration.md'}</span>
           </div>
-          <div className="formula">
-            {`S  = pool price source oraclePx6 (= spotRef)
-σ  = max(EWMA λ=0.94 of 1h log returns,
-         30-day realized), annualized
-T  = duration in years;  b = ln(L/S);  s = σ√T
-p  = one-touch probability, driftless GBM
-     down: N((b + s²/2)/s) + (S/L)·N((b − s²/2)/s)
-z  = b / s                  (distance in σ)
-k, q = backtest table at |z|  (pooled buckets)
-priced  = max(p·k, q);  refuse if > 0.5
-premium = ceil(payout × priced × (1 + θ)) + fee
-θ = 0.20`}
-          </div>
+          {m.formula ? (
+            <div className="formula">{m.formula}</div>
+          ) : (
+            <p className="empty">No pricing formula in the bundled report. Run the engine backtest, then `npm --prefix app run sync`.</p>
+          )}
+          {m.adoptedHtml && <p className="small soft" style={{ marginTop: 10 }} dangerouslySetInnerHTML={{ __html: m.adoptedHtml }} />}
+          {m.perBucketHtml && <p className="small soft" style={{ marginTop: 10 }} dangerouslySetInnerHTML={{ __html: m.perBucketHtml }} />}
+          {m.lookupHtml && <p className="small soft" style={{ marginTop: 10 }} dangerouslySetInnerHTML={{ __html: m.lookupHtml }} />}
           <p className="small soft" style={{ marginTop: 10 }}>
-            k ≥ 1 scales the model where history shows more touches than it predicts; q is an empirical floor (a 95 % upper bound on the realized touch
-            frequency at that distance in σ), so far-away levels never price at zero. Every quote shows its own S, σ, z, p, k and q, and the app recomputes
-            the premium from them.
+            Every quote shows its own S, σ, z, p, k and q, and the app recomputes the premium from them.
           </p>
         </section>
       </div>

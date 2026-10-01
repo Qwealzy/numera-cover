@@ -1,10 +1,12 @@
 // On-chain reads for one CoverPool (ARCHITECTURE §5). All reads go through the public RPC.
-import { parseAbiItem, zeroAddress, type Address, type Hex } from 'viem';
+import { parseAbi, parseAbiItem, zeroAddress, type Address, type Hex } from 'viem';
 import { publicClient } from './chain';
 import { coverPoolAbi, iPriceSourceAbi, mockPositionSourceAbi, mockUSDCAbi, mockPriceSourceAbi } from '../generated/abi';
-import { USDC, type PoolConfig } from '../config';
+import { MULTICALL3, USDC, type PoolConfig } from '../config';
 import { decodeRevert, contractErrorMessage } from './errors';
 
+// viem's bundled multicall3Abi has no getBlockNumber; Multicall3 does (selector 0x42cbb15c, checked on 998).
+const multicall3BlockAbi = parseAbi(['function getBlockNumber() view returns (uint256 blockNumber)']);
 const ONE_SHARE = 10n ** 12n; // pool shares have 12 decimals (§5 implementation notes)
 
 export interface PoolStats {
@@ -27,76 +29,98 @@ export interface PoolStats {
   block: bigint;
 }
 
-export async function readPoolStats(p: PoolConfig, user?: Address): Promise<PoolStats> {
+/** The bits of a viem PublicClient these reads use (injectable for unit tests). */
+export type ReadClient = Pick<typeof publicClient, 'multicall' | 'readContract'>;
+
+export interface Snapshot {
+  stats: PoolStats;
+  oracle: Map<number, PxResult>;
+}
+
+type Call = { address: Address; abi: readonly unknown[]; functionName: string; args?: readonly unknown[] };
+type CallResult = { status: 'success'; result: unknown } | { status: 'failure'; error: Error };
+
+/** Last seen LP share balance per pool:user, so convertToAssets(shares) rides in the same multicall. */
+const lastShares = new Map<string, bigint>();
+
+/**
+ * Everything a screen polls, in ONE eth_call through Multicall3: block number, pool stats, the user's
+ * balances and the pool price source's oracle price for every configured perp. One RPC request per poll.
+ */
+export async function readSnapshot(p: PoolConfig, user: Address | undefined, perps: number[], client: ReadClient = publicClient): Promise<Snapshot> {
   const c = { address: p.pool, abi: coverPoolAbi } as const;
   const u = user ?? zeroAddress;
-  const [block, r] = await Promise.all([
-    publicClient.getBlockNumber(),
-    publicClient.multicall({
-      allowFailure: false,
-      contracts: [
-        { ...c, functionName: 'totalAssets' },
-        { ...c, functionName: 'lockedAssets' },
-        { ...c, functionName: 'freeAssets' },
-        { ...c, functionName: 'totalSupply' },
-        { ...c, functionName: 'convertToAssets', args: [ONE_SHARE] },
-        { ...c, functionName: 'coverCount' },
-        { ...c, functionName: 'paused' },
-        { ...c, functionName: 'quoteSigner' },
-        { ...c, functionName: 'maxUtilizationBps' },
-        { ...c, functionName: 'perPerpCapBps' },
-        { ...c, functionName: 'maxDuration' },
-        { ...c, functionName: 'maxSpotDeviationBps' },
-        { ...c, functionName: 'minPayout' },
-        { ...c, functionName: 'priceSource' },
-        { ...c, functionName: 'positionSource' },
-        { ...c, functionName: 'balanceOf', args: [u] },
-        { ...c, functionName: 'maxWithdraw', args: [u] },
-        { address: USDC, abi: mockUSDCAbi, functionName: 'balanceOf', args: [u] },
-        { address: USDC, abi: mockUSDCAbi, functionName: 'allowance', args: [u, p.pool] },
-      ],
-    }),
-  ]);
-  const shares = r[15] as bigint;
-  const assets = shares === 0n ? 0n : await publicClient.readContract({ ...c, functionName: 'convertToAssets', args: [shares] });
-  return {
-    totalAssets: r[0] as bigint,
-    lockedAssets: r[1] as bigint,
-    freeAssets: r[2] as bigint,
-    totalSupply: r[3] as bigint,
-    sharePrice: r[4] as bigint,
-    coverCount: r[5] as bigint,
-    paused: r[6] as boolean,
-    quoteSigner: r[7] as Address,
-    maxUtilizationBps: Number(r[8]),
-    perPerpCapBps: Number(r[9]),
-    maxDuration: r[10] as bigint,
-    maxSpotDeviationBps: Number(r[11]),
-    minPayout: r[12] as bigint,
-    priceSource: r[13] as Address,
-    positionSource: r[14] as Address,
-    user: user ? { shares, assets, maxWithdraw: r[16] as bigint, usdc: r[17] as bigint, allowance: r[18] as bigint } : undefined,
-    block,
+  const sk = `${p.pool}:${u}`;
+  const guess = user ? lastShares.get(sk) : undefined;
+  const required: Call[] = [
+    { address: MULTICALL3, abi: multicall3BlockAbi, functionName: 'getBlockNumber' },
+    { ...c, functionName: 'totalAssets' },
+    { ...c, functionName: 'lockedAssets' },
+    { ...c, functionName: 'freeAssets' },
+    { ...c, functionName: 'totalSupply' },
+    { ...c, functionName: 'convertToAssets', args: [ONE_SHARE] },
+    { ...c, functionName: 'coverCount' },
+    { ...c, functionName: 'paused' },
+    { ...c, functionName: 'quoteSigner' },
+    { ...c, functionName: 'maxUtilizationBps' },
+    { ...c, functionName: 'perPerpCapBps' },
+    { ...c, functionName: 'maxDuration' },
+    { ...c, functionName: 'maxSpotDeviationBps' },
+    { ...c, functionName: 'minPayout' },
+    { ...c, functionName: 'priceSource' },
+    { ...c, functionName: 'positionSource' },
+    { ...c, functionName: 'balanceOf', args: [u] },
+    { ...c, functionName: 'maxWithdraw', args: [u] },
+    { address: USDC, abi: mockUSDCAbi, functionName: 'balanceOf', args: [u] },
+    { address: USDC, abi: mockUSDCAbi, functionName: 'allowance', args: [u, p.pool] },
+  ];
+  if (guess) required.push({ ...c, functionName: 'convertToAssets', args: [guess] });
+  const oracleCalls: Call[] = perps.map((i) => ({ address: p.priceSource, abi: iPriceSourceAbi, functionName: 'oraclePx6', args: [i] }));
+  const res = (await client.multicall({
+    allowFailure: true,
+    contracts: [...required, ...oracleCalls] as Parameters<ReadClient['multicall']>[0]['contracts'],
+  })) as unknown as CallResult[];
+  const r = res.slice(0, required.length).map((x) => {
+    if (x.status !== 'success') throw x.error;
+    return x.result;
+  });
+  const shares = r[16] as bigint;
+  const assets =
+    shares === 0n
+      ? 0n
+      : guess === shares
+        ? (r[20] as bigint)
+        : await client.readContract({ ...c, functionName: 'convertToAssets', args: [shares] });
+  if (user) lastShares.set(sk, shares);
+  const oracle = new Map<number, PxResult>();
+  res.slice(required.length).forEach((x, k) => {
+    oracle.set(perps[k], x.status === 'success' ? { ok: true, px6: x.result as bigint } : { ok: false, error: revertText(x.error) });
+  });
+  const stats: PoolStats = {
+    block: r[0] as bigint,
+    totalAssets: r[1] as bigint,
+    lockedAssets: r[2] as bigint,
+    freeAssets: r[3] as bigint,
+    totalSupply: r[4] as bigint,
+    sharePrice: r[5] as bigint,
+    coverCount: r[6] as bigint,
+    paused: r[7] as boolean,
+    quoteSigner: r[8] as Address,
+    maxUtilizationBps: Number(r[9]),
+    perPerpCapBps: Number(r[10]),
+    maxDuration: r[11] as bigint,
+    maxSpotDeviationBps: Number(r[12]),
+    minPayout: r[13] as bigint,
+    priceSource: r[14] as Address,
+    positionSource: r[15] as Address,
+    user: user ? { shares, assets, maxWithdraw: r[17] as bigint, usdc: r[18] as bigint, allowance: r[19] as bigint } : undefined,
   };
+  return { stats, oracle };
 }
 
 // ---------------------------------------------------------------- prices and positions
 
 export type PxResult = { ok: true; px6: bigint } | { ok: false; error: string };
-
-/** Oracle px6 per perp from the pool's own price source — exactly what trigger() will read. */
-export async function readOraclePxs(priceSource: Address, perps: number[]): Promise<Map<number, PxResult>> {
-  const res = await publicClient.multicall({
-    allowFailure: true,
-    contracts: perps.map((i) => ({ address: priceSource, abi: iPriceSourceAbi, functionName: 'oraclePx6', args: [i] }) as const),
-  });
-  const m = new Map<number, PxResult>();
-  res.forEach((r, k) => {
-    if (r.status === 'success') m.set(perps[k], { ok: true, px6: r.result as bigint });
-    else m.set(perps[k], { ok: false, error: revertText(r.error) });
-  });
-  return m;
-}
 
 function revertText(e: unknown): string {
   const data = findData(e);
@@ -168,11 +192,11 @@ export interface Cover {
 }
 
 /** Most recent `limit` covers (ids coverCount down to coverCount−limit+1), via getCover. */
-export async function readCovers(p: PoolConfig, coverCount: bigint, limit = 200): Promise<Cover[]> {
+export async function readCovers(p: PoolConfig, coverCount: bigint, limit = 200, client: ReadClient = publicClient): Promise<Cover[]> {
   const ids: bigint[] = [];
   for (let id = coverCount; id >= 1n && ids.length < limit; id--) ids.push(id);
   if (!ids.length) return [];
-  const res = await publicClient.multicall({
+  const res = await client.multicall({
     allowFailure: false,
     contracts: ids.map((id) => ({ address: p.pool, abi: coverPoolAbi, functionName: 'getCover', args: [id] }) as const),
   });
@@ -208,14 +232,11 @@ export async function scanRecentEvents(pool: Address, latest: bigint, chunks = 8
     if (to < 0n) break;
     ranges.push([from < 0n ? 0n : from, to]);
   }
-  const results = await Promise.allSettled(
-    ranges.map(([fromBlock, toBlock]) =>
-      publicClient.getLogs({ address: pool, events: [evPurchased, evTriggered, evExpired], fromBlock, toBlock }),
-    ),
-  );
-  for (const r of results) {
-    if (r.status !== 'fulfilled') continue;
-    for (const log of r.value) mergeLog(out, log);
+  // Sequential, newest window first, stop at the first failure: under a rate limit an attempt costs one
+  // request instead of `chunks`, and a failed window never silently drops tx links (the caller retries).
+  for (const [fromBlock, toBlock] of ranges) {
+    const logs = await publicClient.getLogs({ address: pool, events: [evPurchased, evTriggered, evExpired], fromBlock, toBlock });
+    for (const log of logs) mergeLog(out, log);
   }
   return out;
 }
@@ -240,11 +261,34 @@ function mergeLog(out: Map<string, CoverEvents>, log: AnyLog) {
  * Locate a cover's CoverPurchased log from its `start` timestamp: estimate the block from the average
  * block rate, then search 1000-block windows outward. Returns undefined if not found in `tries` windows.
  */
+let blockClock: Promise<{ number: bigint; timestamp: bigint; rate: number }> | undefined;
+/** Latest block + average block rate, measured once per page load (2 requests). */
+function getBlockClock() {
+  blockClock ??= (async () => {
+    const latest = await publicClient.getBlock();
+    const anchorBack = 100_000n;
+    const old = await publicClient.getBlock({ blockNumber: latest.number - anchorBack });
+    return { number: latest.number, timestamp: latest.timestamp, rate: Number(anchorBack) / Number(latest.timestamp - old.timestamp) };
+  })().catch((e) => {
+    blockClock = undefined;
+    throw e;
+  });
+  return blockClock;
+}
+
+let purchaseQueue: Promise<unknown> = Promise.resolve();
+/** findPurchase calls run one at a time, so a list of old covers never bursts the RPC. */
+export function findPurchaseQueued(...a: Parameters<typeof findPurchase>): ReturnType<typeof findPurchase> {
+  const next = purchaseQueue.then(() => findPurchase(...a));
+  purchaseQueue = next.catch(() => undefined);
+  return next;
+}
+
 export async function findPurchase(pool: Address, coverId: bigint, start: bigint, tries = 4): Promise<CoverEvents['purchased']> {
-  const latest = await publicClient.getBlock();
-  const anchorBack = 100_000n;
-  const old = await publicClient.getBlock({ blockNumber: latest.number - anchorBack });
-  const rate = Number(anchorBack) / Number(latest.timestamp - old.timestamp); // blocks per second
+  // A cover bought after the clock was read is inside the recent-events window, so the clock's block is
+  // a safe upper bound here.
+  const latest = await getBlockClock();
+  const rate = latest.rate; // blocks per second
   const est = latest.number - BigInt(Math.round(Number(latest.timestamp - start) * rate));
   const offsets = [0n, -LOG_RANGE, LOG_RANGE, -2n * LOG_RANGE, 2n * LOG_RANGE].slice(0, tries + 1);
   for (const off of offsets) {

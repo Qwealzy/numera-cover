@@ -9,10 +9,24 @@ import {
 } from 'viem';
 import { hyperEvmTestnet } from '../config';
 
+/**
+ * Reads for the polling UI. No transport-level retries: viem would retry a -32005 after 150–600 ms and
+ * spend more of the per-IP budget; usePoll backs off instead (4 s … 60 s). No JSON-RPC batching: the
+ * testnet RPC accepts batches but counts every call inside one against the limit (measured 2026-10-01),
+ * so Multicall3 (one eth_call for many reads) is the lever; readContract calls are folded into it.
+ */
 export const publicClient = createPublicClient({
   chain: hyperEvmTestnet,
-  transport: http(undefined, { batch: false, retryCount: 2 }),
-  batch: { multicall: true },
+  transport: http(undefined, { batch: false, retryCount: 0 }),
+  // viem splits a multicall into 1 kB-calldata chunks (one eth_call each) by default; keep it to one call
+  batch: { multicall: { batchSize: 16_384 } },
+});
+
+/** Reads on the user's own transaction path (simulate, receipt wait): a few spaced retries. */
+export const txPublicClient = createPublicClient({
+  chain: hyperEvmTestnet,
+  transport: http(undefined, { batch: false, retryCount: 3, retryDelay: 1500 }),
+  pollingInterval: 2000,
 });
 
 declare global {
