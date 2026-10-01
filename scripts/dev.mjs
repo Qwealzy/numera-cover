@@ -4,13 +4,15 @@
 //
 //   node scripts/dev.mjs [--env <path>] [--engine-only | --app-only] [--port <engine port, default 8000>]
 //                        [--app-port <default 5173>] [--timeout <readiness seconds, default 90>] [--smoke]
+//                        [--allow-unverified-rpc]
 //
 // --env     .env file to load (default <repo root>/.env). KEY=VALUE lines; values already set in the shell win.
 // --smoke   start, wait until both answer HTTP, make one request to each, stop everything, exit 0/1.
 //
 // Ctrl-C (or either child exiting) stops both; on Windows the whole child tree is killed with taskkill /T /F so
 // no uvicorn/vite process is left behind. Testnet only: refuses CHAIN_ID / NUMERA_CHAIN_ID 999 and an RPC that
-// is a mainnet host or answers chain id 999. Secret values are never printed.
+// is a mainnet host, and refuses to start unless every configured RPC answers chain id 998 (31337 local);
+// --allow-unverified-rpc lets an unreachable RPC through with a WARN. Secret values are never printed.
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -19,7 +21,9 @@ import path from 'node:path';
 import { venvPython } from './venv.mjs';
 import { repoRoot, mainCheckout } from './lib/tools.mjs';
 import { readDotenv } from './lib/env.mjs';
-import { probe, looksLikeMainnetRpc, host, MAINNET_CHAIN_ID } from './lib/rpc.mjs';
+import { makeClient, looksLikeMainnetRpc, host, MAINNET_CHAIN_ID, TESTNET_CHAIN_ID } from './lib/rpc.mjs';
+
+const LOCAL_CHAIN_ID = 31337; // anvil (network `local`)
 
 const isWin = process.platform === 'win32';
 const argv = process.argv.slice(2);
@@ -40,12 +44,14 @@ const envPath = path.resolve(opt('--env', path.join(repoRoot, '.env')));
 const enginePort = Number(opt('--port', '8000'));
 const readyTimeoutS = Number(opt('--timeout', '90'));
 const SMOKE = flag('--smoke');
+const ALLOW_UNVERIFIED_RPC = flag('--allow-unverified-rpc'); // escape hatch: start even if an RPC does not answer (999 is still refused)
 const runEngine = !flag('--app-only');
 const runApp = !flag('--engine-only');
 const APP_PORT = Number(opt('--app-port', '5173')); // app/vite.config.ts default 5173 (strictPort); passed as --port
 const children = [];
 
 // Kill a child and everything it started (Windows: taskkill /T /F; POSIX: its process group).
+// POSIX: children run detached in their own group, so a SIGKILL of dev itself leaves them running (accepted; Windows is the target).
 function killTree(c) {
   if (c.exited || !c.child.pid) return;
   if (isWin) spawnSync('taskkill', ['/pid', String(c.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
@@ -86,14 +92,32 @@ async function main() {
   })();
 
   // ---- mainnet guard (before anything starts) ------------------------------------------------------
+  // The chain-id probe is the real guard: every configured RPC must answer 998 (or 31337 for a local node).
+  // Host-name checks only catch the obvious mainnet URLs early. URLs are printed as host only (API keys).
+  const appDir = path.join(repoRoot, 'app');
+  const APP_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.development.local'];
+  const rpcs = new Map(); // url -> labels
+  const addRpc = (label, url) => url && rpcs.set(url, [...(rpcs.get(url) ?? []), label]);
+  for (const k of ['NUMERA_RPC_URL', 'RPC_URL', 'VITE_RPC_URL']) addRpc(k, env[k]);
+  for (const f of APP_ENV_FILES) addRpc(`app/${f} VITE_RPC_URL`, readDotenv(path.join(appDir, f))?.VITE_RPC_URL);
+  addRpc('deployments rpc', deployments?.rpc);
   for (const k of ['CHAIN_ID', 'NUMERA_CHAIN_ID']) if (Number(env[k]) === MAINNET_CHAIN_ID) die(`${k}=999 is mainnet. Numera runs on testnet (998) only.`);
-  for (const k of ['RPC_URL', 'NUMERA_RPC_URL', 'VITE_RPC_URL']) if (env[k] && looksLikeMainnetRpc(env[k])) die(`${k} points at a mainnet host (${host(env[k])}). Testnet only.`);
-  const rpcToCheck = env.NUMERA_RPC_URL || env.RPC_URL || deployments?.rpc;
-  if (rpcToCheck) {
-    const p = await probe(rpcToCheck, 'eth_chainId', { timeoutMs: 6000 });
-    if (p.ok && parseInt(p.result, 16) === MAINNET_CHAIN_ID) die(`RPC ${rpcToCheck} answers chain id 999 (mainnet). Testnet only.`);
-    if (p.ok) say(`RPC ${host(rpcToCheck)} chain id ${parseInt(p.result, 16)}`);
-    else say(`WARN: RPC ${host(rpcToCheck)} chain id not confirmed (${p.limited ? 'rate-limited' : p.error}); continuing`);
+  for (const [url, labels] of rpcs) if (looksLikeMainnetRpc(url)) die(`${labels.join(', ')} points at a mainnet host (${host(url)}). Testnet only.`);
+  const ALLOWED_CHAIN_IDS = [TESTNET_CHAIN_ID, LOCAL_CHAIN_ID];
+  for (const [url, labels] of rpcs) {
+    const label = `${labels.join(' + ')} (${host(url)})`;
+    let id = null;
+    try {
+      const { result } = await makeClient([url], { retries: 2, timeoutMs: 6000 }).call('eth_chainId');
+      id = parseInt(result, 16);
+    } catch (e) {
+      if (!ALLOW_UNVERIFIED_RPC) die(`${label}: chain id not verified (${e.message}). Refusing to start; fix the RPC or pass --allow-unverified-rpc.`);
+      say(`WARN: ${label}: chain id NOT verified (${e.message}); continuing because of --allow-unverified-rpc`);
+      continue;
+    }
+    if (id === MAINNET_CHAIN_ID) die(`${label} answers chain id 999 (mainnet). Testnet only.`);
+    if (!ALLOWED_CHAIN_IDS.includes(id)) die(`${label} answers chain id ${id}; expected ${ALLOWED_CHAIN_IDS.join(' or ')}.`);
+    say(`RPC ${label} chain id ${id}`);
   }
 
   if (runEngine && !(env.QUOTE_SIGNER_KEY ?? '').trim())
@@ -129,9 +153,8 @@ async function main() {
   // App: point VITE_ENGINE_URL at the local engine unless app/.env* or the shell sets it.
   const engineUrl = `http://localhost:${enginePort}`;
   const appEnv = { ...env };
-  const appDir = path.join(repoRoot, 'app');
   const exampleHasEngineUrl = /^VITE_ENGINE_URL=/m.test(existsSync(path.join(appDir, '.env.example')) ? readFileSync(path.join(appDir, '.env.example'), 'utf8') : '');
-  const appFileSets = ['.env', '.env.local', '.env.development', '.env.development.local'].find((f) => readDotenv(path.join(appDir, f))?.VITE_ENGINE_URL);
+  const appFileSets = APP_ENV_FILES.find((f) => readDotenv(path.join(appDir, f))?.VITE_ENGINE_URL);
   if (runApp && exampleHasEngineUrl && !appFileSets && !process.env.VITE_ENGINE_URL) appEnv.VITE_ENGINE_URL = engineUrl;
   const appEngineUrl = appEnv.VITE_ENGINE_URL ?? (appFileSets ? `(from app/${appFileSets})` : '(app default)');
 
