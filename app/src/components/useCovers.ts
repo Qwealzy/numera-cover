@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePoll } from '../hooks';
 import { findPurchaseQueued, type Cover, type CoverEvents } from '../lib/pool';
 import { loadCovers, loadEvents } from '../lib/covers';
+import { backoffMs, isRateLimited } from '../lib/rpc';
 import { useApp } from '../state';
 
 /**
@@ -39,16 +40,28 @@ const purchaseCache = new Map<string, CoverEvents['purchased'] | null>();
 export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean) {
   const key = `${pool}:${c.id}`;
   const [tx, setTx] = useState(known ?? purchaseCache.get(key) ?? undefined);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (known) return setTx(known);
     if (!enabled || purchaseCache.has(key)) return setTx(purchaseCache.get(key) ?? undefined);
     purchaseCache.set(key, null);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     findPurchaseQueued(pool, c.id, c.start)
       .then((r) => {
         purchaseCache.set(key, r ?? null);
-        setTx(r);
+        if (alive) setTx(r);
       })
-      .catch(() => purchaseCache.delete(key));
-  }, [key, known, enabled, pool, c.id, c.start]);
+      .catch((e) => {
+        // Not silent: log it and try again later (eth_getLogs is the first call the public RPC throttles).
+        purchaseCache.delete(key);
+        console.warn(`[numera] purchase tx lookup for cover #${c.id} failed${isRateLimited(e) ? ' (rate-limited)' : ''}; retrying`, e);
+        if (alive) timer = setTimeout(() => setAttempt((n) => n + 1), backoffMs(attempt + 1, 15_000));
+      });
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [key, known, enabled, pool, c.id, c.start, attempt]);
   return tx;
 }
