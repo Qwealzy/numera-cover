@@ -159,7 +159,20 @@ function CoverRow({
           )}
         </td>
         <td className="small">
-          {purchase ? <TxLink hash={purchase.tx} label="buy" /> : <span className="faint">buy</span>}
+          {purchase.tx ? (
+            <TxLink hash={purchase.tx.tx} label="buy" />
+          ) : purchase.error ? (
+            <span className="ref">
+              <span className="faint">buy</span>
+              <button type="button" className="linkish cap-unavailable" title={`Purchase tx not located: ${purchase.error}. Click to look it up again.`} onClick={purchase.retry}>
+                retry
+              </button>
+            </span>
+          ) : (
+            <span className="faint" title={purchase.pending ? 'Looking up the purchase tx…' : undefined}>
+              buy
+            </span>
+          )}
           {ev?.triggered && (
             <>
               {' · '}

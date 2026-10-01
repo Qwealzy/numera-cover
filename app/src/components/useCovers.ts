@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePoll } from '../hooks';
-import { findPurchaseQueued, type Cover, type CoverEvents } from '../lib/pool';
-import { loadCovers, loadEvents } from '../lib/covers';
-import { backoffMs, isRateLimited } from '../lib/rpc';
+import type { Cover, CoverEvents } from '../lib/pool';
+import { loadCovers, loadEvents, lookupPurchase, purchaseLookupState, type PurchaseLookup } from '../lib/covers';
 import { useApp } from '../state';
 
 /**
@@ -34,34 +33,39 @@ export function useCovers(withEvents: boolean | ((covers: Cover[]) => boolean) =
   return { covers, events };
 }
 
-/** Purchase tx for covers older than the recent-events window, located from `start` (cached). */
-const purchaseCache = new Map<string, CoverEvents['purchased'] | null>();
+export interface PurchaseTx {
+  tx: CoverEvents['purchased'];
+  /** Lookup gave up (non-rate-limit error, or the attempt cap): the reason, for the Tx cell tooltip. */
+  error?: string;
+  pending: boolean;
+  retry: () => void;
+}
 
-export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean) {
-  const key = `${pool}:${c.id}`;
-  const [tx, setTx] = useState(known ?? purchaseCache.get(key) ?? undefined);
-  const [attempt, setAttempt] = useState(0);
+/** Purchase tx for covers older than the recent-events window, located from `start` (once per page). */
+export function usePurchaseTx(pool: `0x${string}`, c: Cover, known: CoverEvents['purchased'] | undefined, enabled: boolean): PurchaseTx {
+  const [st, setSt] = useState<PurchaseLookup | undefined>(() => purchaseLookupState(pool, c.id));
+  const [force, setForce] = useState(0);
   useEffect(() => {
-    if (known) return setTx(known);
-    if (!enabled || purchaseCache.has(key)) return setTx(purchaseCache.get(key) ?? undefined);
-    purchaseCache.set(key, null);
+    if (known || !enabled) return;
     let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    findPurchaseQueued(pool, c.id, c.start)
-      .then((r) => {
-        purchaseCache.set(key, r ?? null);
-        if (alive) setTx(r);
-      })
-      .catch((e) => {
-        // Not silent: log it and try again later (eth_getLogs is the first call the public RPC throttles).
-        purchaseCache.delete(key);
-        console.warn(`[numera] purchase tx lookup for cover #${c.id} failed${isRateLimited(e) ? ' (rate-limited)' : ''}; retrying`, e);
-        if (alive) timer = setTimeout(() => setAttempt((n) => n + 1), backoffMs(attempt + 1, 15_000));
+    const entry = lookupPurchase(pool, c, { force: force > 0 });
+    setSt(entry);
+    if (entry.state === 'pending')
+      entry.done.then(() => {
+        if (alive) setSt(purchaseLookupState(pool, c.id));
       });
     return () => {
       alive = false;
-      clearTimeout(timer);
     };
-  }, [key, known, enabled, pool, c.id, c.start, attempt]);
-  return tx;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, c.id, c.start, known, enabled, force]);
+  const retry = useCallback(() => setForce((n) => n + 1), []);
+  if (known) return { tx: known, pending: false, retry };
+  return {
+    tx: st?.state === 'done' ? st.tx : undefined,
+    error: st?.state === 'failed' ? st.error : undefined,
+    pending: st?.state === 'pending',
+    retry,
+  };
 }
+

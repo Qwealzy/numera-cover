@@ -3,8 +3,8 @@ import { getAddress } from 'viem';
 import { POOLS, perpIndexOf } from '../config';
 import { fmtUsdc } from './format';
 import type { ApiAccount } from './liq';
-import { capView, loadPositions, readCaps, type LoadDeps } from './positions';
-import { retryRateLimited } from './rpc';
+import { POLLED_CAP_RETRY_MS, capView, loadPositions, readCaps, type LoadDeps, type PositionRow } from './positions';
+import { PartialData, isRateLimited, retryRateLimited } from './rpc';
 
 // Founder wallet test 2026-10-02: Info API BTC long 0.00117 @ 85065, 10x cross; position source
 // position(wallet, BTC) -> (117, 99526050, 10), cap 9.952605 (backlog.md checkpoint).
@@ -72,12 +72,16 @@ describe('max payout (cap) read', () => {
     expect(capView(rows[0], fmtUsdc).text).toBe(fmtUsdc(9952605n));
   });
 
-  it('when the read keeps failing: rows still load, cap shows "unavailable (retry)" with the reason, error is logged', async () => {
+  it('polled path makes ONE retry by default, then hands the rate limit to usePoll as PartialData (rows kept)', async () => {
+    expect(POLLED_CAP_RETRY_MS).toHaveLength(1);
     const c = client([rateLimited]);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0, 0] });
-    expect(c.multicall).toHaveBeenCalledTimes(3);
+    const e = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0] }).catch((x) => x);
+    expect(c.multicall).toHaveBeenCalledTimes(2); // 1 + one retry: at most 2 eth_calls per poll under a sustained limit
+    expect(e).toBeInstanceOf(PartialData);
+    expect(isRateLimited(e)).toBe(true); // usePoll: busy hint + backoff
+    const rows = (e as PartialData<PositionRow[]>).partial;
     expect(rows).toHaveLength(1);
     expect(rows[0].cap).toBeUndefined();
     expect(rows[0].capError).toMatch(/rate-limited/);
@@ -99,17 +103,30 @@ describe('max payout (cap) read', () => {
 
     const c2 = client([perEntryLimited]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const rows2 = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c2, fetchAccount, retryDelaysMs: [0, 0] });
+    const e2 = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c2, fetchAccount, retryDelaysMs: [0, 0] }).catch((x) => x);
     expect(c2.multicall).toHaveBeenCalledTimes(3);
-    expect(rows2[0].capError).toBe('RPC rate-limited (-32005/429) after retries');
+    expect((e2 as PartialData<PositionRow[]>).partial[0].capError).toBe('RPC rate-limited (-32005/429); retrying with backoff');
   });
 
-  it('a non-rate-limit failure is not retried and its message is the tooltip', async () => {
+  it('a non-rate-limit failure is not retried, is not PartialData, and its message is the tooltip', async () => {
     const c = client([() => new Error('fetch failed: ECONNRESET')]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await readCaps(POOLS.hypercore.positionSource, WALLET, [BTC], { client: c, retryDelaysMs: [0, 0] });
     expect(c.multicall).toHaveBeenCalledTimes(1);
-    expect(r).toEqual({ error: 'fetch failed: ECONNRESET' });
+    expect(r).toMatchObject({ error: 'fetch failed: ECONNRESET', rateLimited: false });
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: client([() => new Error('boom')]), fetchAccount });
+    expect(rows[0].capError).toBe('boom');
+  });
+
+  it('an abort (user clicked retry) stops a chain waiting on a rate-limit retry: no further eth_call', async () => {
+    const c = client([rateLimited, () => [okResult]]);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ctrl = new AbortController();
+    const p = readCaps(POOLS.hypercore.positionSource, WALLET, [BTC], { client: c, retryDelaysMs: [5_000] }, ctrl.signal);
+    await new Promise((r) => setTimeout(r, 10));
+    ctrl.abort();
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    expect(c.multicall).toHaveBeenCalledTimes(1);
   });
 
   it('a reverted entry inside the multicall becomes the row error', async () => {

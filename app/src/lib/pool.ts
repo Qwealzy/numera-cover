@@ -159,7 +159,8 @@ export async function readPositions(
   perps: number[],
   client: Pick<ReadClient, 'multicall'> = publicClient,
   retryDelaysMs?: number[],
-): Promise<Map<number, OnchainPosition | { error: string }>> {
+  signal?: AbortSignal,
+):Promise<Map<number, OnchainPosition | { error: string }>> {
   // One eth_call; a rate-limited answer is retried with spaced delays (the public RPC limits per IP).
   // With allowFailure, viem does NOT throw when the whole eth_call fails: it marks every entry
   // `failure` with the RPC error (seen in the browser 2026-10-02: -32005 "Request exceeds defined limit"
@@ -175,7 +176,7 @@ export async function readPositions(
       if (limited && limited.status !== 'success') throw limited.error;
       return r;
     },
-    { delaysMs: retryDelaysMs, onRetry: (n, e) => console.warn(`[numera] position read rate-limited, retry ${n}`, e) },
+    { delaysMs: retryDelaysMs, signal, onRetry: (n, e) => console.warn(`[numera] position read rate-limited, retry ${n}`, e) },
   );
   const m = new Map<number, OnchainPosition | { error: string }>();
   res.forEach((r, k) => {

@@ -2,9 +2,9 @@
 import type { Address } from 'viem';
 import { PERPS, perpIndexOf, type PoolConfig } from '../config';
 import { fetchAccount, type Market } from './info';
-import { mockPositionLiq, positionLiq, type LiqResult, type Side } from './liq';
+import { mockPositionLiq, positionLiq, type ApiAccount, type LiqResult, type Side } from './liq';
 import { firstLine, readPositions, type OnchainPosition, type ReadClient } from './pool';
-import { isRateLimited } from './rpc';
+import { PartialData, isRateLimited } from './rpc';
 
 export interface PositionRow {
   coin: string;
@@ -34,6 +34,17 @@ export interface LoadDeps {
   retryDelaysMs?: number[];
 }
 
+/**
+ * Polled path: ONE short retry inside a poll. A longer throttle is handed to usePoll (PartialData), whose
+ * backoff (15 s … 60 s) and "RPC busy" hint take over, so a sustained limit costs ≤ 2 eth_calls per poll.
+ */
+export const POLLED_CAP_RETRY_MS = [1_500];
+
+/**
+ * Info API rows + the position-source caps. When the cap read is rate-limited the rows are still
+ * returned, inside a PartialData error (cap "unavailable (retry)"), so usePoll shows them and backs off.
+ * `signal` aborts a pending retry (usePoll aborts the previous run on reload/unmount).
+ */
 export async function loadPositions(
   pool: PoolConfig,
   user: Address,
@@ -41,25 +52,25 @@ export async function loadPositions(
   signal?: AbortSignal,
   deps: LoadDeps = {},
 ): Promise<PositionRow[]> {
-  return pool.kind === 'mock' ? loadMock(pool, user, market, deps) : loadReal(pool, user, market, signal, deps);
+  return pool.kind === 'mock' ? loadMock(pool, user, market, signal, deps) : loadReal(pool, user, market, signal, deps);
 }
+
+export type CapsResult = Map<number, OnchainPosition | { error: string }> | { error: string; rateLimited: boolean; cause: unknown };
 
 /**
  * The position-source reads behind "Max payout". The Info API rows are still shown when this fails, so the
  * failure is returned (and logged), never swallowed: the row then says "unavailable" with the reason.
+ * An abort is rethrown (a newer read replaced this one).
  */
-export async function readCaps(
-  positionSource: Address,
-  user: Address,
-  perps: number[],
-  deps: LoadDeps = {},
-): Promise<Map<number, OnchainPosition | { error: string }> | { error: string }> {
+export async function readCaps(positionSource: Address, user: Address, perps: number[], deps: LoadDeps = {}, signal?: AbortSignal): Promise<CapsResult> {
   if (!perps.length) return new Map();
   try {
-    return await readPositions(positionSource, user, perps, deps.client, deps.retryDelaysMs);
+    return await readPositions(positionSource, user, perps, deps.client, deps.retryDelaysMs ?? POLLED_CAP_RETRY_MS, signal);
   } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw e;
     console.error('[numera] position source read failed (max payout unavailable)', e);
-    return { error: isRateLimited(e) ? 'RPC rate-limited (-32005/429) after retries' : firstLine(e) };
+    const rateLimited = isRateLimited(e);
+    return { error: rateLimited ? 'RPC rate-limited (-32005/429); retrying with backoff' : firstLine(e), rateLimited, cause: e };
   }
 }
 
@@ -67,7 +78,13 @@ async function loadReal(pool: PoolConfig, user: Address, market: Market | undefi
   const acct = await (deps.fetchAccount ?? fetchAccount)(user, signal);
   const positions = acct.assetPositions.map((a) => a.position);
   const idxs = positions.map((p) => perpIndexOf(p.coin)).filter((x): x is number => x !== undefined);
-  const caps = await readCaps(pool.positionSource, user, idxs, deps);
+  const caps = await readCaps(pool.positionSource, user, idxs, deps, signal);
+  const rows = buildRealRows(positions, acct, market, caps);
+  if (!(caps instanceof Map) && caps.rateLimited) throw new PartialData(rows, caps.cause);
+  return rows;
+}
+
+function buildRealRows(positions: ApiAccount['assetPositions'][number]['position'][], acct: ApiAccount, market: Market | undefined, caps: CapsResult): PositionRow[] {
   const onchain = caps instanceof Map ? caps : undefined;
   const readError = caps instanceof Map ? undefined : caps.error;
   return positions.map((p) => {
@@ -99,9 +116,9 @@ async function loadReal(pool: PoolConfig, user: Address, market: Market | undefi
   });
 }
 
-async function loadMock(pool: PoolConfig, user: Address, market: Market | undefined, deps: LoadDeps): Promise<PositionRow[]> {
+async function loadMock(pool: PoolConfig, user: Address, market: Market | undefined, signal: AbortSignal | undefined, deps: LoadDeps): Promise<PositionRow[]> {
   // MOCK rows come only from the position source, so a failed read fails the whole load (usePoll shows it).
-  const res = await readPositions(pool.positionSource, user, PERPS.map((p) => p.index), deps.client, deps.retryDelaysMs);
+  const res = await readPositions(pool.positionSource, user, PERPS.map((p) => p.index), deps.client, deps.retryDelaysMs ?? POLLED_CAP_RETRY_MS, signal);
   const rows: PositionRow[] = [];
   for (const { coin, index } of PERPS) {
     const oc = res.get(index);

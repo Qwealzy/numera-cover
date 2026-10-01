@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DURATIONS, LEVEL_BUFFER, POLL_MS, USE_QUOTE_FIXTURE, hyperEvmTestnet } from '../config';
 import { cached, invalidate } from '../lib/rpc';
 import { useApp } from '../state';
@@ -27,8 +27,10 @@ const fmtUsd = (x: number | undefined, dp = 2) =>
 
 export function Protect() {
   const { pool, poolKind, subject, market, oracle } = useApp();
+  // Aborted only when the user clicks "retry" (a fresh read replaces the pending one).
+  const capCtrl = useRef(new AbortController());
   const positions = usePoll(
-    () => (subject ? cached(`positions:${pool.pool}:${subject}:${!!market.data}`, 5_000, () => loadPositions(pool, subject, market.data)) : Promise.resolve([])),
+    () => (subject ? cached(`positions:${pool.pool}:${subject}:${!!market.data}`, 5_000, () => loadPositions(pool, subject, market.data, capCtrl.current.signal)) : Promise.resolve([])),
     [pool.pool, subject, !!market.data],
     POLL_MS,
     !!subject,
@@ -82,6 +84,9 @@ export function Protect() {
                 onSelect={setSelected}
                 oracle={oracle.data}
                 onRetry={() => {
+                  if (positions.loading) return; // in-flight guard: never two read chains at once
+                  capCtrl.current.abort(); // stop a chain still waiting on a rate-limit retry
+                  capCtrl.current = new AbortController();
                   invalidate('positions:');
                   positions.reload();
                 }}
