@@ -58,7 +58,74 @@ export const testnet = {
       "depositMock": "0xcaa8b141d648b09bbcf974bb26fad985afda28839601ba5f2a276d0d028aadb7"
     }
   },
-  "e2e": {},
+  "e2e": {
+    "F7_F9_mockPool_2026-10-02": {
+      "note": "New MOCK pool (D16). Engine /quote API (chain 998, pool=mock pool, verifyingContract=mock pool, spotSource pool) signed; deployer bought cover 1; keeper (deployments file, --pool mock, --rpc https://rpcs.chain.link/hyperevm/testnet because the official RPC rate-limited eth_getLogs from this IP) triggered after staged price drop",
+      "setup": {
+        "mintDeployer100": "0xe05df80a65406be56da294f32224ca72ad31be496546b16d60927ad04edae905",
+        "setPricePerp3_84813000000": "0x2a5c7dcf9680c2632dbc6f27bf973fc5ee24860adb97844a6ad10553fd7ad7b2",
+        "setPositionDeployerPerp3": "0xe59ce55993f5288347e21ac2b4acf1e7e40483c2caddbd29734275081154f609"
+      },
+      "quote": {
+        "spotRef": 84813000000,
+        "level": 83117000000,
+        "payout": 20000000,
+        "durationSec": 86400,
+        "premium": 6845262,
+        "touchProb": 0.2852192227104958,
+        "tailFloor": 0.24593624655930665,
+        "pricedProb": 0.2852192227104958,
+        "tailMultiplier": 1,
+        "z": -1.0750331083689357,
+        "spotSource": "pool"
+      },
+      "approvePremium": "0x581d08d4b84bd30584bb1405346f1222958cb8ebd6df6d6dd42916ecc734accf",
+      "buyCover": "0xe94df21d42af54d1f25913a7692b860a5e9df26c7133046adfd53d608fcddf60",
+      "coverPurchased": {
+        "coverId": 1,
+        "perpIndex": 3,
+        "isLong": true,
+        "level": 83117000000,
+        "payout": 20000000,
+        "premium": 6845262,
+        "expiry": 1790968677
+      },
+      "setPriceCrash_83000000000": "0xbb2dd023c05bcd2930b6b004d8382021df8a4424c1f3018243c05643f8e6bc88",
+      "trigger": "0x0791fb7d627b5218e6e786ba81a9484b2018fad48ddd9b38e57c8148f6bf8465",
+      "coverTriggered": {
+        "coverId": 1,
+        "oraclePx": 83000000000,
+        "caller": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B"
+      },
+      "payoutTransfer": {
+        "from": "0x1b1bfb83f2100c95a7460ed1a746170cbdeccbae",
+        "to": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+        "amount": 20000000
+      },
+      "crashToTriggerSeconds": 5,
+      "after": {
+        "lockedAssets": 0,
+        "lockedByPerp3": 0,
+        "totalAssets": 9986845262,
+        "buyerBalance": 113154738
+      }
+    }
+  },
+  "verification": {
+    "verifier": "sourcify",
+    "match": "exact_match (runtime; creationMatch null)",
+    "verifiedAt": "2026-10-01T19:21Z",
+    "repo": "https://repo.sourcify.dev/998/",
+    "contracts": {
+      "usdc": "https://repo.sourcify.dev/998/0x8675c05f2403f220e19057f3f60c6c91bb14462a",
+      "hypercorePool": "https://repo.sourcify.dev/998/0xda611e1a07260005ea5641e9fe633cd4d10c341e",
+      "hypercorePriceSource": "https://repo.sourcify.dev/998/0xf8323c267ef0516651c1cc2f94f984d50f597f44",
+      "hypercorePositionSource": "https://repo.sourcify.dev/998/0xcd44735b5640ab54777d31caf88d8ebb19730645",
+      "mockPool": "https://repo.sourcify.dev/998/0x1b1bfb83f2100c95a7460ed1a746170cbdeccbae",
+      "mockPriceSource": "https://repo.sourcify.dev/998/0x08d24f21bcd9fdf690499456e90b9712b31bbc13",
+      "mockPositionSource": "https://repo.sourcify.dev/998/0x728159ab10146beffdc15ec8fbb4ce4bb44a3425"
+    }
+  },
   "previous": {
     "reason": "compiled with SPDX MIT; superseded by AGPL redeploy (D16)",
     "deployedAt": "2026-10-01",
