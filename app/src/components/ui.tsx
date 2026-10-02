@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Hex } from 'viem';
 import { addrUrl, txUrl } from '../config';
@@ -6,6 +6,7 @@ import { describeError } from '../lib/errors';
 import { shortAddr } from '../lib/format';
 import { fetchReceipt, type ReceiptView } from '../lib/receipt';
 import { isRateLimited } from '../lib/rpc';
+import { createGate, type Gate } from '../lib/txflow';
 
 export function Stat({ label, value, sub, children }: { label: ReactNode; value: ReactNode; sub?: ReactNode; children?: ReactNode }) {
   return (
@@ -228,22 +229,45 @@ export interface TxState {
   error?: string;
 }
 
-/** Run one write at a time; tracks wallet → pending → done/error with the tx hash. */
+/** A write step inside a flow: `label` for the status line, `fn` gets the tx-hash callback. */
+export type TxStep = <T>(label: string, fn: (onHash: (h: Hex) => void) => Promise<T>) => Promise<T>;
+
+/**
+ * Run one write (or one multi-step flow) at a time; tracks wallet → pending → done/error with the tx hash.
+ * The guard is a synchronous gate held for the whole flow, from the click to the last receipt: React's
+ * `busy` disables a button only after a re-render, so without the gate a second click (or a click during a
+ * slow pre-read) would start a second flow and a second wallet prompt.
+ */
 export function useTx() {
   const [st, setSt] = useState<TxState>({ phase: 'idle' });
-  const run = useCallback(async <T,>(label: string, fn: (onHash: (h: Hex) => void) => Promise<T>): Promise<T | undefined> => {
-    setSt({ phase: 'wallet', label });
-    try {
-      const r = await fn((hash) => setSt({ phase: 'pending', label, hash }));
-      setSt((s) => ({ phase: 'done', label, hash: (r as { hash?: Hex })?.hash ?? s.hash }));
+  const [held, setHeld] = useState(false);
+  const gate = useRef<Gate | null>(null);
+  if (!gate.current) gate.current = createGate(setHeld);
+  /** Several steps under one guard; undefined when another flow is running or a step failed. */
+  const flow = useCallback(async <T,>(label: string, fn: (step: TxStep) => Promise<T>): Promise<T | undefined> => {
+    let current = label;
+    const step: TxStep = async (l, f) => {
+      current = l;
+      setSt({ phase: 'wallet', label: l });
+      const r = await f((hash) => setSt({ phase: 'pending', label: l, hash }));
+      setSt((s) => ({ phase: 'done', label: l, hash: (r as { hash?: Hex })?.hash ?? s.hash }));
       return r;
-    } catch (e) {
-      setSt((s) => ({ phase: 'error', label, hash: s.hash, error: describeError(e) }));
-      return undefined;
-    }
+    };
+    return gate.current!.with(async () => {
+      try {
+        return await fn(step);
+      } catch (e) {
+        setSt((s) => ({ phase: 'error', label: current, hash: s.label === current ? s.hash : undefined, error: describeError(e) }));
+        return undefined;
+      }
+    });
   }, []);
+  const run = useCallback(
+    <T,>(label: string, fn: (onHash: (h: Hex) => void) => Promise<T>): Promise<T | undefined> => flow(label, (step) => step(label, fn)),
+    [flow],
+  );
   const reset = useCallback(() => setSt({ phase: 'idle' }), []);
-  return { st, run, reset, busy: st.phase === 'wallet' || st.phase === 'pending' };
+  return { st, run, flow, reset, busy: held || st.phase === 'wallet' || st.phase === 'pending' };
 }
 
 export function TxStatus({ st }: { st: TxState }) {
