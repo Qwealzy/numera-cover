@@ -581,7 +581,11 @@ Steps 2 and 4 are `python scripts/big-blocks.py on|off|status` (official SDK, `D
   fetches from the Info API) **before** `vm.startBroadcast`. `deploy()` never etches, and nothing calls a
   stand-in inside the broadcast window, so no transaction to a precompile address is recorded (a test
   checks the broadcast list). The stand-ins only let the local pass finish.
-- The wrapper broadcasts with `--skip-simulation --slow`: forge still calls `eth_estimateGas` for each
+- The wrapper first runs the same forge command without `--broadcast` against the real testnet RPC (a
+  preflight that sends nothing; `--fork` rehearses the full deploy on a local anvil fork of 998), then
+  broadcasts with `--skip-simulation --slow --disable-block-gas-limit`. The last flag is required: forge's
+  local pass forks the latest block, usually a 3M small block, and otherwise caps the ~4.85M pool creation at
+  that limit (it fails as "Failed to decode return value: 0x"). Forge still calls `eth_estimateGas` for each
   transaction, so on 998 the node runs the real precompiles, and an invalid perp aborts the deploy at that
   transaction's estimation, before it is sent (contracts already deployed, such as the price source, stay; the
   wrapper lists them). On anvil the hypercore route aborts there by design.
