@@ -5,13 +5,14 @@ import { useApp } from '../state';
 import { useNow, usePoll } from '../hooks';
 import { capView, loadPositions, type PositionRow } from '../lib/positions';
 import { ACCOUNT_MODE_LABEL, defaultLevel, liqExplain } from '../lib/liq';
-import { fmtDuration, fmtFixed, fmtPct, fmtProb, fmtPx6, fmtTime, fmtUsdc, px6ToNumber, shortAddr } from '../lib/format';
+import { fmtBps, fmtDuration, fmtFixed, fmtPct, fmtProb, fmtPx6, fmtTime, fmtUsdc, px6ToNumber, shortAddr } from '../lib/format';
 import {
   buildQuoteRequest,
   buyBlocker,
   engineServesPool,
   expectedPremium,
   fetchHealth,
+  floorPremium,
   fixtureQuote,
   premiumMatches,
   recoverQuoteSigner,
@@ -399,7 +400,7 @@ function ProtectPanel({ row }: { row: PositionRow }) {
       setQuote(res.value);
       const signer = await recoverQuoteSigner(res.value.quote, res.value.signature, hyperEvmTestnet.id, pool.pool);
       setSignerCheck(signer ?? null);
-      if (account) setAllowance(await readAllowance(account, pool.pool));
+      if (account) setAllowance(await readAllowance(account, pool.pool, pool.usdc));
     } finally {
       setQuoting(false);
     }
@@ -417,8 +418,8 @@ function ProtectPanel({ row }: { row: PositionRow }) {
 
   async function approve() {
     if (!account || premium === undefined) return;
-    const r = await approveTx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, premium, h));
-    if (r) setAllowance(await readAllowance(account, pool.pool));
+    const r = await approveTx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, premium, h, pool.usdc));
+    if (r) setAllowance(await readAllowance(account, pool.pool, pool.usdc));
   }
   async function buy() {
     if (!account || !quote) return;
@@ -430,7 +431,8 @@ function ProtectPanel({ row }: { row: PositionRow }) {
   }
 
   const b = quote?.breakdown;
-  const premOk = quote && b ? premiumMatches(quote.quote, b) : false;
+  const minPremiumBps = stats.data?.v2?.limits.minPremiumBps;
+  const premOk = quote && b ? premiumMatches(quote.quote, b, minPremiumBps) : false;
   // audit L3: never send a quote the app could not verify (signature -> pool signer, premium -> breakdown)
   const blocked = quote ? buyBlocker({ signerCheck, poolSigner, premOk }) : undefined;
 
@@ -558,6 +560,20 @@ function ProtectPanel({ row }: { row: PositionRow }) {
               <dt>Payout if triggered</dt>
               <dd>{fmtUsdc(BigInt(quote.quote.payout))} mUSDC</dd>
             </div>
+            {b.floorApplied !== undefined && (
+              <div>
+                <dt>On-chain premium floor{minPremiumBps !== undefined ? ` (${fmtBps(minPremiumBps)} of payout)` : ''}</dt>
+                <dd>
+                  {b.floorApplied ? (
+                    <>
+                      <span className="chip chip--alert">applied</span> model premium {fmtUsdc(BigInt(expectedPremium(quote.quote.payout, b)), 6)} raised to the floor
+                    </>
+                  ) : (
+                    'not needed (model premium is above it)'
+                  )}
+                </dd>
+              </div>
+            )}
             <div className="total">
               <dt>Premium</dt>
               <dd>
@@ -571,7 +587,12 @@ function ProtectPanel({ row }: { row: PositionRow }) {
             <div className="formula">
               {`premium = ceil(payout × max(p·k, q) × (1 + θ)) + fee
         = ceil(${quote.quote.payout} × ${(b.pricedProb ?? b.touchProb).toPrecision(6)} × ${1 + b.loading}) + ${b.fee ?? 0}
-        = ${expectedPremium(quote.quote.payout, b)}  (engine: ${quote.quote.premium}) ${premOk ? '✓' : '✗ mismatch'}
+        = ${expectedPremium(quote.quote.payout, b)}  (engine: ${quote.quote.premium}) ${b.floorApplied ? '' : premOk ? '✓' : '✗ mismatch'}${
+          b.floorApplied
+            ? `
+floor   = ceil(payout × minPremiumBps / 10000) = ceil(${quote.quote.payout} × ${minPremiumBps ?? '…'} / 10000) = ${minPremiumBps !== undefined ? floorPremium(quote.quote.payout, minPremiumBps) : '…'}  (engine: ${quote.quote.premium}) ${premOk ? '✓' : '✗ mismatch'}`
+            : ''
+        }
 signer  = ${signerCheck ?? 'unrecoverable'}
 pool.quoteSigner = ${poolSigner ?? '…'} ${signerOk ? '✓' : '✗'}
 nonce   = ${quote.quote.nonce}`}

@@ -200,3 +200,5 @@ export const testnet = {
     }
   }
 } as const;
+
+export const testnetV2: unknown = null;

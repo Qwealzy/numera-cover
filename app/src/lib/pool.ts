@@ -2,12 +2,16 @@
 import { parseAbi, parseAbiItem, zeroAddress, type Address, type Hex } from 'viem';
 import { publicClient } from './chain';
 import { coverPoolAbi, iPriceSourceAbi, mockPositionSourceAbi, mockUSDCAbi, mockPriceSourceAbi } from '../generated/abi';
-import { MULTICALL3, USDC, type PoolConfig } from '../config';
+import { MULTICALL3, detectVersion, type PoolConfig, type PoolVersion } from '../config';
+import { toLimits, type V2Stats, type V2User } from './v2';
 import { decodeRevert, contractErrorMessage } from './errors';
 import { isRateLimited, retryRateLimited } from './rpc';
 
 // viem's bundled multicall3Abi has no getBlockNumber; Multicall3 does (selector 0x42cbb15c, checked on 998).
-const multicall3BlockAbi = parseAbi(['function getBlockNumber() view returns (uint256 blockNumber)']);
+const multicall3BlockAbi = parseAbi([
+  'function getBlockNumber() view returns (uint256 blockNumber)',
+  'function getCurrentBlockTimestamp() view returns (uint256 timestamp)',
+]);
 const ONE_SHARE = 10n ** 12n; // pool shares have 12 decimals (§5 implementation notes)
 
 export interface PoolStats {
@@ -26,8 +30,12 @@ export interface PoolStats {
   minPayout: bigint;
   priceSource: Address;
   positionSource: Address;
-  user?: { shares: bigint; assets: bigint; maxWithdraw: bigint; usdc: bigint; allowance: bigint };
+  user?: { shares: bigint; assets: bigint; maxWithdraw: bigint; usdc: bigint; allowance: bigint; v2?: V2User };
   block: bigint;
+  /** 'v2' from the config or the on-chain probe (minPremiumBps + limits answered). */
+  version: PoolVersion;
+  /** CoverPool v2 state; undefined on a v1 pool. */
+  v2?: V2Stats;
 }
 
 /** The bits of a viem PublicClient these reads use (injectable for unit tests). */
@@ -72,19 +80,24 @@ export async function readSnapshot(p: PoolConfig, user: Address | undefined, per
     { ...c, functionName: 'positionSource' },
     { ...c, functionName: 'balanceOf', args: [u] },
     { ...c, functionName: 'maxWithdraw', args: [u] },
-    { address: USDC, abi: mockUSDCAbi, functionName: 'balanceOf', args: [u] },
-    { address: USDC, abi: mockUSDCAbi, functionName: 'allowance', args: [u, p.pool] },
+    { address: p.usdc, abi: mockUSDCAbi, functionName: 'balanceOf', args: [u] },
+    { address: p.usdc, abi: mockUSDCAbi, functionName: 'allowance', args: [u, p.pool] },
   ];
   if (guess) required.push({ ...c, functionName: 'convertToAssets', args: [guess] });
+  // CoverPool v2 reads (§5.3–5.5), in the same eth_call. They revert on a v1 pool (allowFailure): a successful
+  // minPremiumBps() + limits() is the version probe (config.detectVersion), so v1 pools keep working unchanged.
+  const optional: Call[] = p.version === 'v1' ? [] : v2Calls(p, u);
   const oracleCalls: Call[] = perps.map((i) => ({ address: p.priceSource, abi: iPriceSourceAbi, functionName: 'oraclePx6', args: [i] }));
   const res = (await client.multicall({
     allowFailure: true,
-    contracts: [...required, ...oracleCalls] as Parameters<ReadClient['multicall']>[0]['contracts'],
+    contracts: [...required, ...optional, ...oracleCalls] as Parameters<ReadClient['multicall']>[0]['contracts'],
   })) as unknown as CallResult[];
   const r = res.slice(0, required.length).map((x) => {
     if (x.status !== 'success') throw x.error;
     return x.result;
   });
+  const opt = res.slice(required.length, required.length + optional.length);
+  const { version, v2, v2User } = decodeV2(p, opt, !!user);
   const shares = r[16] as bigint;
   const assets =
     shares === 0n
@@ -94,7 +107,7 @@ export async function readSnapshot(p: PoolConfig, user: Address | undefined, per
         : await client.readContract({ ...c, functionName: 'convertToAssets', args: [shares] });
   if (user) lastShares.set(sk, shares);
   const oracle = new Map<number, PxResult>();
-  res.slice(required.length).forEach((x, k) => {
+  res.slice(required.length + optional.length).forEach((x, k) => {
     oracle.set(perps[k], x.status === 'success' ? { ok: true, px6: x.result as bigint } : { ok: false, error: revertText(x.error) });
   });
   const stats: PoolStats = {
@@ -114,9 +127,89 @@ export async function readSnapshot(p: PoolConfig, user: Address | undefined, per
     minPayout: r[13] as bigint,
     priceSource: r[14] as Address,
     positionSource: r[15] as Address,
-    user: user ? { shares, assets, maxWithdraw: r[17] as bigint, usdc: r[18] as bigint, allowance: r[19] as bigint } : undefined,
+    user: user ? { shares, assets, maxWithdraw: r[17] as bigint, usdc: r[18] as bigint, allowance: r[19] as bigint, v2: v2User && { ...v2User, maxWithdraw: r[17] as bigint } } : undefined,
+    version,
+    v2,
   };
   return { stats, oracle };
+}
+
+const V2_POOL_VIEWS = [
+  'minPremiumBps',
+  'limits',
+  'capacityBase',
+  'unearnedPremium',
+  'owedAssets',
+  'windowStart',
+  'windowAssets',
+  'soldInWindow',
+  'paidWindowStart',
+  'paidWindowAssets',
+  'paidInWindow',
+  'totalEscrowedShares',
+  'withdrawDelay',
+  'claimWindow',
+  'configDelay',
+  'guardian',
+  'strict',
+] as const;
+const V2_USER_VIEWS = ['owed', 'redeemRequestOf', 'maxRedeem', 'buyerWindow'] as const;
+
+function v2Calls(p: PoolConfig, u: Address): Call[] {
+  const c = { address: p.pool, abi: coverPoolAbi } as const;
+  return [
+    { address: MULTICALL3, abi: multicall3BlockAbi, functionName: 'getCurrentBlockTimestamp' },
+    ...V2_POOL_VIEWS.map((functionName) => ({ ...c, functionName })),
+    ...V2_USER_VIEWS.map((functionName) => ({ ...c, functionName, args: [u] })),
+  ];
+}
+
+/**
+ * v2 results -> version + typed state. The pool is v2 when its config says so or minPremiumBps() and a
+ * well-formed limits() answered (the probe). A configured-v2 pool with a failed read throws (no half-filled
+ * numbers); an unknown pool whose v2 reads fail is v1.
+ */
+export function decodeV2(p: PoolConfig, opt: CallResult[], withUser: boolean): { version: PoolVersion; v2?: V2Stats; v2User?: V2User } {
+  if (!opt.length) return { version: 'v1' };
+  const ok = (i: number) => opt[i]?.status === 'success';
+  const val = (i: number) => (opt[i] as { result: unknown }).result;
+  const limits = ok(2) ? toLimits(val(2)) : undefined;
+  const version = detectVersion(p.version, ok(1) && limits !== undefined);
+  if (version === 'v1') return { version };
+  const failed = opt.findIndex((x, i) => x.status !== 'success' && (withUser || i <= V2_POOL_VIEWS.length));
+  if (failed >= 0 || !limits) throw (opt[failed] as { error: Error } | undefined)?.error ?? new Error('limits() is malformed');
+  const g = (name: (typeof V2_POOL_VIEWS)[number]) => val(1 + V2_POOL_VIEWS.indexOf(name));
+  const v2: V2Stats = {
+    limits,
+    capacityBase: g('capacityBase') as bigint,
+    unearnedPremium: g('unearnedPremium') as bigint,
+    owedAssets: g('owedAssets') as bigint,
+    windowStart: BigInt(g('windowStart') as bigint),
+    windowAssets: g('windowAssets') as bigint,
+    soldInWindow: g('soldInWindow') as bigint,
+    paidWindowStart: BigInt(g('paidWindowStart') as bigint),
+    paidWindowAssets: g('paidWindowAssets') as bigint,
+    paidInWindow: g('paidInWindow') as bigint,
+    totalEscrowedShares: g('totalEscrowedShares') as bigint,
+    withdrawDelay: BigInt(g('withdrawDelay') as bigint),
+    claimWindow: BigInt(g('claimWindow') as bigint),
+    configDelay: BigInt(g('configDelay') as bigint),
+    guardian: g('guardian') as string,
+    strict: g('strict') as boolean,
+    blockTimestamp: val(0) as bigint,
+  };
+  if (!withUser) return { version, v2 };
+  const base = 1 + V2_POOL_VIEWS.length;
+  const [shares, claimableAt, claimDeadline, state] = val(base + 1) as readonly [bigint, bigint, bigint, number];
+  const [bwStart, bwSold] = val(base + 3) as readonly [bigint, bigint];
+  const v2User: V2User = {
+    owed: val(base) as bigint,
+    request: { shares, claimableAt: BigInt(claimableAt), claimDeadline: BigInt(claimDeadline), state: Number(state) },
+    maxRedeem: val(base + 2) as bigint,
+    maxWithdraw: 0n, // filled by readSnapshot from the shared maxWithdraw read
+    buyerWindow: { start: BigInt(bwStart), sold: bwSold },
+  };
+  return { version, v2, v2User };
 }
 
 // ---------------------------------------------------------------- prices and positions

@@ -1,5 +1,5 @@
 import { defineChain, getAddress, type Address } from 'viem';
-import { testnet } from './generated/deployments';
+import { testnet, testnetV2 } from './generated/deployments';
 import { fallbackUrls } from './lib/transport';
 
 const env = (import.meta.env ?? {}) as Record<string, string | undefined>;
@@ -50,35 +50,100 @@ export const hyperEvmTestnet = defineChain({
 });
 
 export type PoolKind = 'hypercore' | 'mock';
+/** CoverPool contract version (ARCHITECTURE §5 v2, §5.11 v1). Undefined in a config = detect on chain. */
+export type PoolVersion = 'v1' | 'v2';
 
 export interface PoolConfig {
+  /** Switch key and URL value: 'hypercore' | 'mock' (v1, deployments/testnet.json) or '<mode>-v2'. */
+  key: string;
   kind: PoolKind;
+  /** 'v2' when deployments/testnet-v2.json lists the pool; else detected per snapshot (minPremiumBps probe). */
+  version: PoolVersion | undefined;
   label: string;
   short: string;
   pool: Address;
   priceSource: Address;
   positionSource: Address;
+  /** The pool's asset (mUSDC). The same token for every testnet pool; a v2 entry records its own. */
+  usdc: Address;
   engineUrl: string;
-  deployTx: `0x${string}`;
+  deployTx: `0x${string}` | undefined;
 }
+
+export const USDC: Address = getAddress(testnet.usdc.address);
 
 function pool(kind: PoolKind): PoolConfig {
   const p = testnet.pools[kind];
   const override = kind === 'mock' ? env.VITE_ENGINE_URL_MOCK : env.VITE_ENGINE_URL_HYPERCORE;
   return {
+    key: kind,
     kind,
+    version: undefined,
     label: p.label,
     short: kind === 'mock' ? 'MOCK demo' : 'Real (HyperCore oracle)',
     pool: getAddress(p.pool),
     priceSource: getAddress(p.priceSource),
     positionSource: getAddress(p.positionSource),
+    usdc: USDC,
     engineUrl: (override || ENGINE_DEFAULT).replace(/\/$/, ''),
     deployTx: p.txs.pool as `0x${string}`,
   };
 }
 
-export const POOLS: Record<PoolKind, PoolConfig> = { hypercore: pool('hypercore'), mock: pool('mock') };
-export const USDC: Address = getAddress(testnet.usdc.address);
+const ADDR = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * Pools of deployments/testnet-v2.json (scripts/deploy-v2.mjs, mergeV2 shape: {contract, pools: {mode: {chainId,
+ * mode, pool, priceSource, positionSource, usdc, txs: [{name, function, hash}]}}}). Entries on another chain,
+ * with an unknown mode or a malformed address are skipped. Pure; unit-tested.
+ */
+export function parseV2Pools(raw: unknown, chainId: number, engineUrl: string, fallbackUsdc: Address): PoolConfig[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const pools = (raw as { pools?: unknown }).pools;
+  if (!pools || typeof pools !== 'object') return [];
+  const out: PoolConfig[] = [];
+  for (const [mode, v] of Object.entries(pools as Record<string, unknown>)) {
+    const p = v as Record<string, unknown> | null;
+    if (!p || typeof p !== 'object' || (mode !== 'hypercore' && mode !== 'mock')) continue;
+    if (p.chainId !== undefined && Number(p.chainId) !== chainId) continue;
+    const addrs = [p.pool, p.priceSource, p.positionSource];
+    if (!addrs.every((a) => typeof a === 'string' && ADDR.test(a))) continue;
+    const usdc = typeof p.usdc === 'string' && ADDR.test(p.usdc) ? getAddress(p.usdc) : fallbackUsdc;
+    const txs = Array.isArray(p.txs) ? (p.txs as { name?: string; function?: string | null; hash?: string }[]) : [];
+    const deploy = txs.find((t) => t?.name === 'CoverPool' && (t.function === 'create' || t.function == null))?.hash;
+    out.push({
+      key: `${mode}-v2`,
+      kind: mode,
+      version: 'v2',
+      label: `${mode === 'mock' ? 'MOCK sources' : 'Real HyperCore sources'} (CoverPool v2)`,
+      short: mode === 'mock' ? 'MOCK v2' : 'Real v2',
+      pool: getAddress(p.pool as string),
+      priceSource: getAddress(p.priceSource as string),
+      positionSource: getAddress(p.positionSource as string),
+      usdc,
+      engineUrl,
+      deployTx: typeof deploy === 'string' && /^0x[0-9a-fA-F]{64}$/.test(deploy) ? (deploy as `0x${string}`) : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * Version a pool actually serves: the deployments file's word when it has one, else the on-chain probe
+ * (minPremiumBps() and limits() answer only on v2). Pure; unit-tested.
+ */
+export function detectVersion(configured: PoolVersion | undefined, probeOk: boolean | undefined): PoolVersion {
+  if (configured) return configured;
+  return probeOk ? 'v2' : 'v1';
+}
+
+/** Every pool the switch offers: the two v1 pools, then the v2 pools when deployments/testnet-v2.json exists. */
+export const POOLS: Record<string, PoolConfig> & { hypercore: PoolConfig; mock: PoolConfig } = {
+  hypercore: pool('hypercore'),
+  mock: pool('mock'),
+  ...Object.fromEntries(parseV2Pools(testnetV2, testnet.chainId, ENGINE_DEFAULT, USDC).map((p) => [p.key, p])),
+};
+export const DEFAULT_POOL_KEY = 'hypercore';
 export const DEPLOYER: Address = getAddress(testnet.deployer);
 export const QUOTE_SIGNER: Address = getAddress(testnet.quoteSigner);
 /** Testnet perp indices from deployments/testnet.json — never hardcoded (indices differ per network). */

@@ -60,7 +60,7 @@ def test_triggers_ordered_by_payout_then_expires():
 
 def test_cover_from_get_cover_tuple():
     t = ("0xB", 3, False, 5, 9, 1, T0 - 10, T0, 3)
-    assert cover_from_tuple(7, t) == Cover(7, "0xB", 3, False, 5, 9, T0, Status.EXPIRED)
+    assert cover_from_tuple(7, t) == Cover(7, "0xB", 3, False, 5, 9, T0, Status.EXPIRED, premium=1)
     assert cover_from_tuple(7, None) is None
     assert cover_from_tuple(7, ("0xB", 3, False, 5, 9, 1, 0, T0, 9)) is None  # unknown enum value
 

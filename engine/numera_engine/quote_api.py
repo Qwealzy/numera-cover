@@ -52,6 +52,16 @@ from .data import (
 )
 from .deployments import Deployment, default_path
 from .deployments import load as load_deployment
+from .poolv2 import (
+    DEFAULT_STATE_CACHE_S,
+    V2ReadError,
+    V2State,
+    V2StateReader,
+    capacity_refusal,
+    level_distance_bps,
+    level_too_close,
+    raise_to_floor,
+)
 from .pricing import (
     P_MAX,
     SECONDS_PER_YEAR,
@@ -123,6 +133,7 @@ class Settings:
     rate_burst: int = DEFAULT_RATE_BURST
     trusted_proxies: tuple[str, ...] = ()  # NUMERA_TRUSTED_PROXIES: peers whose X-Forwarded-For is believed
     spot_cache_s: float = DEFAULT_SPOT_CACHE_S  # pool spot reused per (pool, perp) for this long
+    v2_cache_s: float = DEFAULT_STATE_CACHE_S  # v2 pool state reused per (pool, perp, buyer) for this long
 
     def __post_init__(self) -> None:
         if self.signer_key:
@@ -167,6 +178,7 @@ class Settings:
                 x.strip() for x in (e.get("NUMERA_TRUSTED_PROXIES") or "").split(",") if x.strip()
             ),
             spot_cache_s=float(e.get("NUMERA_SPOT_CACHE_S", str(DEFAULT_SPOT_CACHE_S))),
+            v2_cache_s=float(e.get("NUMERA_V2_CACHE_S", str(DEFAULT_STATE_CACHE_S))),
         )
 
 
@@ -476,6 +488,45 @@ def _err(status: int, code: str, reason: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": code, "reason": reason})
 
 
+def read_v2_state(reader: V2StateReader | None, pool: str, req: QuoteRequest, listed_v2: bool,
+                  warn: Callable[..., Any]) -> V2State | None:  # fmt: skip
+    """The pool's v2 state, or None for a v1 pool. Refuses (503) a pool known to be v2 whose state cannot
+    be read: signing blind could miss the floor or the caps. An unknown pool whose probe fails is quoted as
+    v1 (the contract still enforces its own checks). 400 ``perp_not_allowed`` when ``perpAllowed`` is
+    false."""
+    v2 = None
+    if reader is not None:
+        try:
+            v2 = reader.read(pool, req.perpIndex, req.buyer)
+        except V2ReadError as exc:
+            if listed_v2 or reader.version(pool) == "v2":
+                raise ApiError(503, "market_data_unavailable", f"v2 pool state unavailable: {exc}") from None
+            warn(f"v2:{pool.lower()}", "[engine] pool %s: v2 probe failed (%s); quoting it as v1", pool, exc)
+    elif listed_v2:
+        raise ApiError(503, "market_data_unavailable", f"pool {pool} is v2; no RPC is configured to read it")
+    if v2 is not None and not v2.perp_allowed:
+        reason = f"perpIndex {req.perpIndex} is not allowed on pool {pool} (perpAllowed is false on chain)"
+        raise ApiError(400, "perp_not_allowed", reason)
+    return v2
+
+
+def check_v2_sale(v2: V2State, spot6: int, req: QuoteRequest, now: int) -> None:
+    """Refuse what buyCover would reject on the v2 level floor (check 3) or capacity (checks 5, 6)."""
+    lim = v2.limits
+    bps = level_distance_bps(lim)
+    if level_too_close(spot6, req.level, bps):
+        raise ApiError(
+            422,
+            "level_too_close",
+            f"level {req.level} is within {bps} bps of spot {spot6}: the pool requires "
+            f"{lim.minLevelDistanceBps} bps from the oracle at purchase (minLevelDistanceBps) and the oracle "
+            f"may move {lim.maxSpotDeviationBps} bps from the quoted spot (maxSpotDeviationBps)",
+        )
+    refusal = capacity_refusal(v2, req.payout, now)
+    if refusal is not None:
+        raise ApiError(422, "capacity", refusal.reason)
+
+
 def create_app(
     settings: Settings | None = None,
     market: MarketData | None = None,
@@ -486,9 +537,13 @@ def create_app(
     deployment: Deployment | None = None,
     block_time: Callable[[], int] | None = None,
     rate_limiter: RateLimiter | None = None,
+    v2_reader: V2StateReader | None = None,
 ) -> FastAPI:
     """``clock`` is the wall-clock fallback for `now`; ``block_time`` (latest block timestamp) is preferred
-    and is built from the RPC when the pool reader is (tests pass their own or none)."""
+    and is built from the RPC when the pool reader is (tests pass their own or none). ``v2_reader`` reads a
+    CoverPool v2's floors, allowlist and capacity state (§6 v2 follow-up); built from the same RPC when the
+    pool reader is. Without it every pool is quoted as v1, except a pool the deployments file lists as v2,
+    which is refused (503) rather than quoted blind."""
     settings = settings or Settings.from_env()
     if market is None:
         market = LiveMarketData(
@@ -519,6 +574,9 @@ def create_app(
             rpc = FailoverRpc(urls, timeout_s=5.0, max_wait_s=ENGINE_RPC_MAX_WAIT_S, label="engine")
             live = PoolSpotReader(rpc, deployment)
             spot_reader = live
+            if v2_reader is None:
+                known = {p.pool: p.version for p in deployment.pools if p.version} if deployment else {}
+                v2_reader = V2StateReader(rpc, known, ttl_s=settings.v2_cache_s)
             if block_time is None:
                 block_time = BlockClock(live.block_timestamp)
             log.info("[engine] rpcs: %s", " > ".join(host(u) for u in urls))
@@ -620,6 +678,8 @@ def create_app(
                 f"perpIndex {req.perpIndex} is not one of the perps this deployment quotes "
                 f"({', '.join(f'{c}={i}' for c, i in sorted(deployment.perps.items()))})",
             )
+        listed_v2 = bool(deployment and deployment.version_of(pool) == "v2")
+        v2 = read_v2_state(v2_reader, pool, req, listed_v2, warn_once)
         spot6, spot_source = None, "info_api"
         if spot_reader is not None:
             try:
@@ -665,6 +725,9 @@ def create_app(
                 f"level {req.level} is within {min_dist:.4%} of spot {spot6} "
                 f"({settings.level_k_sigma:g} sigma over the {settings.quote_ttl_s} s quote lifetime)",
             )
+        now = now_s()
+        if v2 is not None:
+            check_v2_sale(v2, spot6, req, now)
         T = req.durationSec / SECONDS_PER_YEAR
         p = touch_prob(S, H, sigma, T)
         adj = tail.adjust(coin, req.isLong, req.durationSec, S, H, sigma)
@@ -672,7 +735,9 @@ def create_app(
             prem = premium(req.payout, p, adj.k, settings.theta, settings.p_max, settings.fee, adj.q)
         except QuoteRefusedError as exc:
             raise ApiError(422, exc.code, exc.reason) from None
-        now = now_s()
+        floor_applied = False
+        if v2 is not None:  # §6 v2: raise the model premium to the on-chain floor
+            prem, floor_applied = raise_to_floor(prem, req.payout, v2.limits.minPremiumBps)
         q = Quote(
             buyer=req.buyer,
             perpIndex=req.perpIndex,
@@ -689,10 +754,11 @@ def create_app(
             sig = sign_quote(q, settings.chain_id, pool, settings.signer)
         except ChainNotAllowedError as exc:
             raise ApiError(403, "chain_not_allowed", str(exc)) from None
+        extra = {"floorApplied": floor_applied} if v2 is not None else {}
         return {
             "quote": q.to_dict(),
             "signature": sig,
-            "breakdown": {
+            "breakdown": extra | {
                 "sigma": sigma,
                 "touchProb": p,
                 "loading": settings.theta,

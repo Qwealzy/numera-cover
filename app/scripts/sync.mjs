@@ -43,9 +43,15 @@ if (existsSync(outDir)) {
 // ---------------------------------------------------------------- deployments
 const depFile = path.join(repo, 'deployments', 'testnet.json');
 const dep = JSON.parse(readFileSync(depFile, 'utf8'));
+// CoverPool v2 pools (scripts/deploy-v2.mjs writes deployments/testnet-v2.json); null until deployed.
+// Typed `unknown` on purpose: src/config.ts validates its shape (parseV2Pools) before using it.
+const v2File = path.join(repo, 'deployments', 'testnet-v2.json');
+const depV2 = existsSync(v2File) ? JSON.parse(readFileSync(v2File, 'utf8')) : null;
 writeFileSync(
   path.join(outGen, 'deployments.ts'),
-  header + `export const testnet = ${JSON.stringify(dep, null, 2)} as const;\n`,
+  header +
+    `export const testnet = ${JSON.stringify(dep, null, 2)} as const;\n` +
+    `\nexport const testnetV2: unknown = ${JSON.stringify(depV2, null, 2)};\n`,
 );
 console.log('[sync] deployments.ts');
 

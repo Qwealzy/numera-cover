@@ -18,6 +18,12 @@ Tx hygiene (audit L4): EIP-1559 fees under a maxFeePerGas ceiling (``--max-fee-g
 ``--max-tx-per-poll`` txs per poll (triggers first), a resend after 30 s replaces our still-pending tx on the
 same nonce with bumped fees (RBF) instead of queueing behind it, and the keeper's HYPE balance is logged at
 startup and every ``--balance-every`` seconds, with a WARNING below ``--min-balance``.
+
+CoverPool v2 pools (ARCHITECTURE §5.10): the trigger/expire loop is unchanged. A pool is v2 when the
+deployments file says so or ``minPremiumBps()`` answers at startup; for those the keeper logs ``ALERT``
+lines (alerts.py): breaker tripped, sale cap reached, floor-priced sale, deferred payout, queued and
+ready-but-unexecuted config ops. The state reads ride in the same per-poll multicall; the timelock events
+cost one ``eth_getLogs`` per ``--alert-logs-every`` seconds (0 disables the log scan).
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from enum import IntEnum
 from typing import Any
 
 from . import multicall as mc
+from .alerts import DEFAULT_LOG_EVERY_S, DEFAULT_LOOKBACK_BLOCKS, LogScanner, PoolWatch, emit
 from .rpc import FailoverRpc, host, resolve_rpcs  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
 
 log = logging.getLogger("numera.keeper")
@@ -68,6 +75,7 @@ class Cover:
     payout: int
     expiry: int  # unix s
     status: Status = Status.ACTIVE
+    premium: int = 0
 
 
 @dataclass(frozen=True)
@@ -114,12 +122,13 @@ def cover_from_tuple(cover_id: int, t: Sequence[Any] | None) -> Cover | None:
     """``getCover`` return tuple (buyer, perpIndex, isLong, level, payout, premium, start, expiry, status)."""
     if t is None:
         return None
-    buyer, perp, is_long, level, payout, _premium, _start, expiry, status = t
+    buyer, perp, is_long, level, payout, premium, _start, expiry, status = t
     try:
         st = Status(int(status))
     except ValueError:
         return None
-    return Cover(cover_id, str(buyer), int(perp), bool(is_long), int(level), int(payout), int(expiry), st)
+    return Cover(cover_id, str(buyer), int(perp), bool(is_long), int(level), int(payout), int(expiry), st,
+                 int(premium))  # fmt: skip
 
 
 @dataclass
@@ -217,6 +226,7 @@ class PoolPlan:
     pool: str
     label: str
     price_source: str | None = None  # from the deployments file (only used to cross-check the chain)
+    version: str | None = None  # "v2" from the deployments file; None = probe at startup
 
 
 def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
@@ -228,9 +238,8 @@ def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
     out = []
     for addr in pools:
         info = deployment.find(addr) if deployment is not None else None
-        out.append(
-            PoolPlan(addr.lower(), info.name if info else addr.lower(), info.price_source if info else None)
-        )
+        out.append(PoolPlan(addr.lower(), info.name if info else addr.lower(),
+                            info.price_source if info else None, info.version if info else None))  # fmt: skip
     return out
 
 
@@ -322,6 +331,8 @@ class Keeper:
         balance_address: str | None = None,
         min_balance_wei: int = int(DEFAULT_MIN_BALANCE_HYPE * WEI_PER_HYPE),
         balance_every_s: float = DEFAULT_BALANCE_EVERY_S,
+        alert_logs_every_s: float = DEFAULT_LOG_EVERY_S,
+        alert_lookback_blocks: int = DEFAULT_LOOKBACK_BLOCKS,
     ) -> None:
         if sender is None and not dry_run:
             raise ValueError("a Sender is needed unless dry_run")
@@ -344,6 +355,10 @@ class Keeper:
         self.balance_every_s = balance_every_s
         self._balance_at: float | None = None
         self.last_balance: int | None = None
+        self.watches: dict[str, PoolWatch] = {}  # v2 pools, filled by start()
+        self.scanner = LogScanner(rpc, self.watches, alert_logs_every_s, alert_lookback_blocks)
+        self.alerts: list[Any] = []  # every alert emitted (tests, summary)
+        self._block: int | None = None  # latest block number of the last poll (v2 pools only)
 
     # -- startup --------------------------------------------------------------------------------------
 
@@ -357,8 +372,18 @@ class Keeper:
                 raise ValueError("a price-source override needs exactly one pool")
             self.books[0].source = self.override.lower()
         listed = {p.pool: p.price_source for p in self.plans}
+        versions = {p.pool: p.version for p in self.plans}
         todo = [b for b in self.books if b.source is None]
-        for b, src in zip(todo, mc.aggregate(self.rpc, [mc.price_source(b.pool) for b in todo]), strict=True):
+        probe = [b for b in self.books if versions.get(b.pool) is None]  # v2 probe: minPremiumBps()
+        calls = [mc.price_source(b.pool) for b in todo]
+        calls += [mc.call(b.pool, "minPremiumBps()", [], [], ["uint16"], ("probe", b.pool)) for b in probe]
+        res = mc.aggregate(self.rpc, calls) if calls else []
+        for b, ok in zip(probe, res[len(todo):], strict=True):
+            versions[b.pool] = "v2" if ok is not None else "v1"
+        for b in self.books:
+            if versions.get(b.pool) == "v2":
+                self.watches[b.pool] = PoolWatch(b.pool, b.label)
+        for b, src in zip(todo, res[: len(todo)], strict=True):
             if src is None:
                 raise RuntimeError(f"[{b.label}] cannot read pool.priceSource() at {b.pool}")
             b.source = str(src).lower()
@@ -366,7 +391,8 @@ class Keeper:
                 log.warning("[keeper] %s: on-chain priceSource %s differs from the deployments file %s",
                             b.label, b.source, listed[b.pool])  # fmt: skip
         for b in self.books:
-            log.info("[keeper] watching %s pool=%s priceSource=%s", b.label, b.pool, b.source)
+            log.info("[keeper] watching %s pool=%s priceSource=%s version=%s", b.label, b.pool, b.source,
+                     versions.get(b.pool))  # fmt: skip
         self.check_balance(self.clock())
 
     def check_balance(self, t: float) -> int | None:
@@ -407,9 +433,16 @@ class Keeper:
             calls += [mc.get_cover(b.pool, cid, ("cover", i, cid)) for cid in b.ids_to_read()]
         price_keys = self._price_keys()
         calls += [mc.oracle_px6(s, p, ("px", s, p)) for s, p in price_keys]
+        if self.watches:  # v2 alert state, same eth_call
+            calls.append(mc.block_number("bn"))
+            for w in self.watches.values():
+                calls += w.calls()
         out = dict(zip((c.key for c in calls), mc.aggregate(self.rpc, calls), strict=True))
         if out["ts"] is None:
             raise RuntimeError("Multicall3.getCurrentBlockTimestamp() failed")
+        self._block = out.get("bn")
+        for w in self.watches.values():
+            self.alerts += emit(w.update(out, int(out["ts"])))
         prices: dict[str, dict[int, int | None]] = {}
         for s, p in price_keys:
             prices.setdefault(s, {})[p] = out[("px", s, p)]
@@ -417,6 +450,7 @@ class Keeper:
         for i, b in enumerate(self.books):
             covers = {k[2]: cover_from_tuple(k[2], v) for k, v in out.items()
                       if isinstance(k, tuple) and k[0] == "cover" and k[1] == i}  # fmt: skip
+            self._alert_new_covers(b, covers)
             missing[i] = b.apply(out[("count", i)], covers)[:BACKFILL_MAX]
         self._backfill(missing, prices)
         return int(out["ts"]), prices
@@ -430,6 +464,7 @@ class Keeper:
             res = dict(zip((c.key for c in calls), mc.aggregate(self.rpc, calls), strict=True))
             for i in {i for i, _ in chunk}:
                 covers = {k[2]: cover_from_tuple(k[2], v) for k, v in res.items() if k[1] == i}
+                self._alert_new_covers(self.books[i], covers)
                 self.books[i].apply(None, covers)
         # prices for perps first seen in the backfill
         new = [(s, p) for s, p in self._price_keys() if p not in prices.get(s, {})]
@@ -438,12 +473,23 @@ class Keeper:
             for (s, p), v in zip(new, mc.aggregate(self.rpc, calls), strict=True):
                 prices.setdefault(s, {})[p] = v
 
+    def _alert_new_covers(self, b: PoolBook, covers: Mapping[int, Cover | None]) -> None:
+        """Floor-priced sale alert for covers read for the first time (ids beyond ``b.known``)."""
+        w = self.watches.get(b.pool)
+        if w is None:
+            return
+        for cid, c in covers.items():
+            if c is not None and cid > b.known:
+                self.alerts += emit(w.check_cover(cid, c.payout, c.premium, c.status == Status.ACTIVE))
+
     def poll(self) -> list[tuple[str, Action, str]]:
         r0 = self.rpc.requests
         if self._balance_at is not None and self.clock() - self._balance_at >= self.balance_every_s:
             self.check_balance(self.clock())
         now, prices = self.read()
         t = self.clock()
+        if self._block is not None and self.scanner.due(t):
+            self.alerts += emit(self.scanner.scan(int(self._block), t))
         done = []
         todo: list[tuple[PoolBook, Action]] = []
         for b in self.books:
@@ -537,6 +583,12 @@ def main(argv: list[str] | None = None) -> None:
                     help=f"warn below this HYPE balance (default {DEFAULT_MIN_BALANCE_HYPE:g})")  # fmt: skip
     ap.add_argument("--balance-every", type=float, default=DEFAULT_BALANCE_EVERY_S,
                     help=f"seconds between balance checks (default {DEFAULT_BALANCE_EVERY_S:g})")  # fmt: skip
+    ap.add_argument("--alert-logs-every", type=float, default=DEFAULT_LOG_EVERY_S,
+                    help="seconds between v2 alert log scans (eth_getLogs over v2 pools; 0 = off; "
+                         f"default {DEFAULT_LOG_EVERY_S:g})")  # fmt: skip
+    ap.add_argument("--alert-lookback-blocks", type=int, default=DEFAULT_LOOKBACK_BLOCKS,
+                    help="blocks before startup that the first v2 alert scan covers "
+                         f"(default {DEFAULT_LOOKBACK_BLOCKS})")  # fmt: skip
     ap.add_argument("--keeper-address", default=None,
                     help="address whose balance a --dry-run reports (default: KEEPER_KEY's, else the "
                          "deployments file `keeper`)")  # fmt: skip
@@ -571,7 +623,8 @@ def main(argv: list[str] | None = None) -> None:
                     dry_run=args.dry_run, price_source_override=args.price_source,
                     max_tx_per_poll=args.max_tx_per_poll, balance_address=balance_addr,
                     min_balance_wei=int(args.min_balance * WEI_PER_HYPE),
-                    balance_every_s=args.balance_every)  # fmt: skip
+                    balance_every_s=args.balance_every, alert_logs_every_s=args.alert_logs_every,
+                    alert_lookback_blocks=args.alert_lookback_blocks)  # fmt: skip
     keeper.start()
     keeper.run(args.poll, args.duration)
 

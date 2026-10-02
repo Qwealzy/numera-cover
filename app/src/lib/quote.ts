@@ -45,6 +45,8 @@ export interface Breakdown {
   /** Where S / spotRef came from: the pool's own price source, or the Info API fallback. */
   spotSource?: 'pool' | 'info_api';
   pool?: string;
+  /** v2 pools (§6): the model premium was below the on-chain floor ceil(payout × minPremiumBps / 1e4) and was raised to it. */
+  floorApplied?: boolean;
 }
 
 export interface QuoteOk {
@@ -122,8 +124,22 @@ export function expectedPremium(payout: number, b: Breakdown): number {
 /** Quote lifetime the engine signs (how-it-works §6: deadline = issue + 30 s); used by the fixture only. */
 export const QUOTE_TTL_S = 30;
 
-/** Premium the UI accepts: the §7 formula over the shown breakdown, ±1 base unit of rounding. */
-export const premiumMatches = (q: QuoteJson, b: Breakdown) => Math.abs(expectedPremium(q.payout, b) - q.premium) <= 1;
+/** ceilDiv(payout × minPremiumBps, 10000): a v2 pool's on-chain premium floor (§5.3 check 2). */
+export const floorPremium = (payout: number, minPremiumBps: number): number => Number((BigInt(payout) * BigInt(minPremiumBps) + 9999n) / 10000n);
+
+/**
+ * Premium the UI accepts: the §7 formula over the shown breakdown, ±1 base unit of rounding. When the engine
+ * says it raised the premium to a v2 pool's floor (`floorApplied`), the premium must equal that floor computed
+ * from the pool's own on-chain minPremiumBps, and the formula must indeed be below it.
+ */
+export function premiumMatches(q: QuoteJson, b: Breakdown, minPremiumBps?: number): boolean {
+  if (b.floorApplied) {
+    if (minPremiumBps === undefined) return false;
+    const floor = floorPremium(q.payout, minPremiumBps);
+    return q.premium === floor && expectedPremium(q.payout, b) <= floor;
+  }
+  return Math.abs(expectedPremium(q.payout, b) - q.premium) <= 1;
+}
 
 /**
  * Why Buy must stay disabled for this quote (audit L3), or undefined when the app has verified it: the signature

@@ -1,31 +1,44 @@
 import { useState } from 'react';
-import { coinOf, USDC } from '../config';
+import { coinOf } from '../config';
 import { useApp } from '../state';
+import { useNow } from '../hooks';
+import { exitView, pauseCause, saleWindow } from '../lib/v2';
 import { Status, type Cover } from '../lib/pool';
-import { fmtBps, fmtDuration, fmtFixed, fmtPx6, fmtRatio, fmtShares, fmtTime, fmtUsdc, parseDecimal } from '../lib/format';
-import { approveUsdc, deposit, readAllowance, withdraw } from '../lib/tx';
+import { SHARE_DECIMALS, fmtBps, fmtDuration, fmtFixed, fmtPx6, fmtRatio, fmtShares, fmtTime, fmtUsdc, parseDecimal } from '../lib/format';
+import { approveUsdc, cancelRedeem, claimAssets, claimShares, deposit, readAllowance, requestRedeem, withdraw } from '../lib/tx';
 import { Addr, MockTag, Notice, Stat, TxLink, TxStatus, useTx } from '../components/ui';
 import { Faucet } from '../components/Faucet';
 import { useCovers } from '../components/useCovers';
 
 export function Pool() {
   const { pool, poolKind, stats } = useApp();
+  const now = useNow(1000);
   const s = stats.data;
-  const util = s && s.totalAssets > 0n ? Number((s.lockedAssets * 10000n) / s.totalAssets) / 100 : 0;
+  const v2 = s?.v2;
+  // v2 sizes covers on the capacity base B (totalAssets minus requested exits, §5.3); v1 on totalAssets
+  const base = s ? (v2 ? v2.capacityBase : s.totalAssets) : 0n;
+  const util = s && base > 0n ? Number((s.lockedAssets * 10000n) / base) / 100 : 0;
   // the log scan is only needed for "paid" tx links in the recent list
   const { covers, events } = useCovers((list) => list.slice(0, RECENT).some((c) => c.status === Status.Paid));
   const all = covers.data ?? [];
   const sold = all.reduce((a, c) => a + c.premium, 0n);
   const paid = all.filter((c) => c.status === Status.Paid).reduce((a, c) => a + c.payout, 0n);
+  const win = v2 ? saleWindow(v2, now) : undefined;
+  const cause = s ? pauseCause(s.paused, v2) : 'running';
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Underwriter pool {poolKind === 'mock' && <MockTag inline />}</h1>
+          <h1>
+            Underwriter pool {poolKind === 'mock' && <MockTag inline />} {s && <span className="chip">{s.version}</span>}
+          </h1>
           <p>
             LPs deposit mUSDC and earn every premium; payouts come out of the pool. Each cover’s payout is locked when it is sold, so the pool can always
-            pay what it owes. Only free (unlocked) assets can be withdrawn.
+            pay what it owes.{' '}
+            {v2
+              ? 'Exits are queued: request, wait the withdraw delay, then claim inside the claim window. A premium counts for LPs once its cover settles.'
+              : 'Only free (unlocked) assets can be withdrawn.'}
           </p>
         </div>
         <span className="small soft">
@@ -34,11 +47,32 @@ export function Pool() {
       </div>
 
       {stats.error && !s && !stats.busy && <Notice kind="error">Could not read the pool: {stats.error}</Notice>}
+      {cause === 'breaker' && v2 && (
+        <Notice kind="error">
+          Paused by the payout breaker (LossBreakerTripped): {fmtUsdc(v2.paidInWindow)} mUSDC paid in this window, above the{' '}
+          {fmtBps(v2.limits.maxPaidPerWindowBps, 0)} cap of {fmtUsdc((v2.paidWindowAssets * BigInt(v2.limits.maxPaidPerWindowBps)) / 10000n)}. New covers and
+          deposits are off until the owner unpauses; payouts, payout claims and LP exits still work.
+        </Notice>
+      )}
+      {cause === 'owner' && (
+        <Notice>
+          The pool is paused{v2 ? ' (by the owner or the guardian)' : ''}: new covers and deposits are off; {v2 ? 'payouts, payout claims and LP exits' : 'withdrawals of free assets'}{' '}
+          still work.
+        </Notice>
+      )}
       <div className="stats">
-        <Stat label="Total assets" value={s ? fmtUsdc(s.totalAssets) : '…'} sub="mUSDC held by the pool" />
+        <Stat
+          label="Total assets"
+          value={s ? fmtUsdc(s.totalAssets) : '…'}
+          sub={v2 ? 'pool money: mUSDC balance − owed payouts − unearned premiums' : 'mUSDC held by the pool'}
+        />
         <Stat label="Locked for covers" value={s ? fmtUsdc(s.lockedAssets) : '…'} sub="sum of active payouts" />
-        <Stat label="Free" value={s ? fmtUsdc(s.freeAssets) : '…'} sub="withdrawable by LPs" />
-        <Stat label="Utilization" value={s ? fmtRatio(s.lockedAssets, s.totalAssets) : '…'} sub={s ? `max ${fmtBps(s.maxUtilizationBps, 0)}` : ''}>
+        <Stat label="Free" value={s ? fmtUsdc(s.freeAssets) : '…'} sub={v2 ? 'what claimable exits can take' : 'withdrawable by LPs'} />
+        <Stat
+          label="Utilization"
+          value={s ? fmtRatio(s.lockedAssets, base) : '…'}
+          sub={s ? `${v2 ? 'locked ÷ capacity base · ' : ''}max ${fmtBps(s.maxUtilizationBps, 0)}` : ''}
+        >
           {s && (
             <div className="bar" aria-hidden>
               <div className="bar__fill" style={{ width: `${Math.min(100, util)}%` }} />
@@ -48,6 +82,24 @@ export function Pool() {
         </Stat>
         <Stat label="Share price" value={s ? fmtFixed(s.sharePrice, 6, 6) : '…'} sub="mUSDC per pool share (nmUSDC)" />
         <Stat label="Covers sold" value={s ? s.coverCount.toString() : '…'} sub={covers.data ? `premiums ${fmtUsdc(sold)} · paid ${fmtUsdc(paid)}` : ''} />
+        {v2 && (
+          <>
+            <Stat label="Capacity base" value={fmtUsdc(v2.capacityBase)} sub="total assets − assets of requested exits" />
+            <Stat label="Unearned premium" value={fmtUsdc(v2.unearnedPremium)} sub="premiums of active covers; pool money once they settle" />
+            <Stat label="Owed payouts" value={fmtUsdc(v2.owedAssets)} sub="triggered payouts the token refused; buyers claim them" />
+            {win && (
+              <Stat
+                label="Sale window"
+                value={`${fmtUsdc(win.sold)} / ${fmtUsdc(win.cap)}`}
+                sub={win.reset ? `window ${fmtDuration(v2.limits.saleWindow)}; the next sale opens a new one` : `sold / cap · resets in ${fmtDuration(win.resetsIn ?? 0)}`}
+              >
+                <div className="bar" aria-hidden>
+                  <div className="bar__fill" style={{ width: `${win.cap > 0n ? Math.min(100, Number((win.sold * 10000n) / win.cap) / 100) : 0}%` }} />
+                </div>
+              </Stat>
+            )}
+          </>
+        )}
       </div>
 
       <div className="grid grid--2" style={{ marginTop: 16 }}>
@@ -67,6 +119,7 @@ export function Pool() {
 function LpPanel() {
   const { account, pool, stats, refreshAll } = useApp();
   const u = stats.data?.user;
+  const v2 = stats.data?.v2;
   const [dep, setDep] = useState('');
   const [wd, setWd] = useState('');
   const tx = useTx();
@@ -87,9 +140,9 @@ function LpPanel() {
 
   async function doDeposit() {
     if (!account || !depAmt) return;
-    const allowance = await readAllowance(account, pool.pool);
+    const allowance = await readAllowance(account, pool.pool, pool.usdc);
     if (allowance < depAmt) {
-      const ok = await tx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, depAmt!, h));
+      const ok = await tx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, depAmt!, h, pool.usdc));
       if (!ok) return;
     }
     if (await tx.run('Deposit', (h) => deposit(account, pool.pool, depAmt!, h))) {
@@ -125,7 +178,7 @@ function LpPanel() {
               <dd>{u ? fmtUsdc(u.assets) : '…'} mUSDC</dd>
             </div>
             <div>
-              <dt>Max withdraw now (maxWithdraw)</dt>
+              <dt>{v2 ? 'Claimable now (maxWithdraw)' : 'Max withdraw now (maxWithdraw)'}</dt>
               <dd>{u ? fmtUsdc(u.maxWithdraw) : '…'} mUSDC</dd>
             </div>
             <div>
@@ -143,30 +196,196 @@ function LpPanel() {
             </button>
           </div>
           {depErr && <p className="small soft">{depErr}</p>}
-          <div className="row" style={{ marginTop: 10 }}>
-            <div className="field">
-              <label htmlFor="wd">Withdraw (mUSDC)</label>
-              <div className="input-suffix">
-                <input id="wd" type="text" inputMode="decimal" value={wd} onChange={(e) => setWd(e.target.value)} placeholder="0" />
-                {u && (
-                  <button className="btn btn--small suffix" onClick={() => setWd(fmtFixed(u.maxWithdraw, 6, 6, false))}>
-                    max
-                  </button>
-                )}
+          {v2 ? (
+            <ExitPanel />
+          ) : (
+            <>
+              <div className="row" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <label htmlFor="wd">Withdraw (mUSDC)</label>
+                  <div className="input-suffix">
+                    <input id="wd" type="text" inputMode="decimal" value={wd} onChange={(e) => setWd(e.target.value)} placeholder="0" />
+                    {u && (
+                      <button className="btn btn--small suffix" onClick={() => setWd(fmtFixed(u.maxWithdraw, 6, 6, false))}>
+                        max
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button className="btn" disabled={!wdAmt || !!wdErr || tx.busy} onClick={doWithdraw}>
+                  Withdraw
+                </button>
               </div>
-            </div>
-            <button className="btn" disabled={!wdAmt || !!wdErr || tx.busy} onClick={doWithdraw}>
-              Withdraw
-            </button>
-          </div>
-          {wdErr && <p className="small soft">{wdErr}</p>}
-          {stats.data?.paused && <Notice>The pool is paused: deposits and new covers are off; withdrawals of free assets still work.</Notice>}
+              {wdErr && <p className="small soft">{wdErr}</p>}
+            </>
+          )}
           <div style={{ marginTop: 10 }}>
             <TxStatus st={tx.st} />
           </div>
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * v2 LP exit (ARCHITECTURE §5.4): request -> pending countdown -> claimable window -> claim (all or part) ->
+ * lapsed -> re-queue; cancel at any time. State from redeemRequestOf, recomputed every second (lib/v2.exitView).
+ */
+function ExitPanel() {
+  const { account, pool, stats, refreshAll } = useApp();
+  const now = useNow(1000);
+  const s = stats.data;
+  const u = s?.user;
+  const v2 = s?.v2;
+  const req = u?.v2?.request;
+  const view = exitView(req, now, u?.v2?.maxRedeem ?? 0n, u?.shares ?? 0n);
+  const [amt, setAmt] = useState('');
+  const [claim, setClaim] = useState('');
+  const tx = useTx();
+  if (!account || !u || !v2) return null;
+
+  let reqShares: bigint | undefined, reqErr: string | undefined;
+  try {
+    if (amt) reqShares = parseDecimal(amt, SHARE_DECIMALS);
+  } catch (e) {
+    reqErr = (e as Error).message;
+  }
+  if (reqShares !== undefined && reqShares > u.shares) reqErr = 'More than the shares in your wallet.';
+  let claimAmt: bigint | undefined, claimErr: string | undefined;
+  try {
+    if (claim) claimAmt = parseDecimal(claim, 6);
+  } catch (e) {
+    claimErr = (e as Error).message;
+  }
+  const maxW = u.v2?.maxWithdraw ?? 0n;
+  if (claimAmt !== undefined && claimAmt > maxW) claimErr = `Above what can be claimed now (${fmtUsdc(maxW)} mUSDC, limited to free assets).`;
+  const reqValue = s && reqShares ? (reqShares * s.sharePrice) / 10n ** 12n : undefined;
+  const slotValue = s ? (view.shares * s.sharePrice) / 10n ** 12n : 0n;
+
+  const done = (ok: unknown) => {
+    if (ok) {
+      setAmt('');
+      setClaim('');
+      refreshAll();
+    }
+  };
+  const request = async (shares: bigint) => done(await tx.run(shares === 0n ? 'Re-queue request' : 'Request exit', (h) => requestRedeem(account, pool.pool, shares, h)));
+  const cancel = async () => done(await tx.run('Cancel request', (h) => cancelRedeem(account, pool.pool, h)));
+  const claimMax = async () => done(await tx.run('Claim', (h) => claimShares(account, pool.pool, u.v2!.maxRedeem, h)));
+  const claimPart = async () => claimAmt && done(await tx.run('Claim', (h) => claimAssets(account, pool.pool, claimAmt!, h)));
+
+  const phaseChip = {
+    none: <span className="chip">no request</span>,
+    pending: <span className="chip">pending</span>,
+    claimable: <span className="chip chip--green">claimable</span>,
+    lapsed: <span className="chip chip--alert">lapsed</span>,
+  }[view.phase];
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="panel__head" style={{ padding: 0 }}>
+        <h3 className="small">Exit (queued redeem) {phaseChip}</h3>
+        <span className="meta">
+          delay {fmtDuration(Number(v2.withdrawDelay))} · claim window {fmtDuration(Number(v2.claimWindow))}
+        </span>
+      </div>
+      {view.phase !== 'none' && (
+        <dl className="kv">
+          <div>
+            <dt>Requested</dt>
+            <dd>
+              {fmtShares(view.shares)} shares ≈ {fmtUsdc(slotValue)} mUSDC <span className="faint small">(priced at claim time)</span>
+            </dd>
+          </div>
+          {view.phase === 'pending' && (
+            <div>
+              <dt>Claimable in</dt>
+              <dd className="tnum">
+                {fmtDuration(view.secondsLeft)} <span className="faint small">at {fmtTime(view.claimableAt)}</span>
+              </dd>
+            </div>
+          )}
+          {view.phase === 'claimable' && (
+            <div>
+              <dt>Claim window closes in</dt>
+              <dd className="tnum">
+                {fmtDuration(view.secondsLeft)} <span className="faint small">at {fmtTime(view.claimDeadline)}</span>
+              </dd>
+            </div>
+          )}
+          {view.phase === 'lapsed' && (
+            <div>
+              <dt>Claim window closed</dt>
+              <dd>{fmtTime(view.claimDeadline)}: re-queue to wait the delay again, or cancel to get the shares back.</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      {view.phase === 'claimable' && (
+        <>
+          {view.partialOnly && (
+            <Notice>
+              Free assets cover only part of your request now ({fmtUsdc(maxW)} mUSDC). Claim that part; the rest stays claimable until the window closes
+              while covers settle.
+            </Notice>
+          )}
+          {!view.canClaim && <Notice>Nothing can be claimed right now (no free assets, or the slot matured after the last read). It refreshes shortly.</Notice>}
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn btn--primary" disabled={!view.canClaim || tx.busy} onClick={claimMax}>
+              Claim {view.partialOnly ? 'available' : 'all'} ({fmtUsdc(maxW)} mUSDC)
+            </button>
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <div className="field">
+              <label htmlFor="claim">Claim part (mUSDC)</label>
+              <input id="claim" type="text" inputMode="decimal" value={claim} onChange={(e) => setClaim(e.target.value)} placeholder="0" />
+            </div>
+            <button className="btn" disabled={!claimAmt || !!claimErr || tx.busy} onClick={claimPart}>
+              Claim part
+            </button>
+          </div>
+          {claimErr && <p className="small soft">{claimErr}</p>}
+        </>
+      )}
+      {(view.phase === 'none' || view.phase === 'pending' || view.phase === 'lapsed') && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <div className="field">
+            <label htmlFor="req">{view.phase === 'none' ? 'Request exit (shares)' : 'Add shares to the request'}</label>
+            <div className="input-suffix">
+              <input id="req" type="text" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="0" />
+              <button className="btn btn--small suffix" onClick={() => setAmt(fmtFixed(u.shares, SHARE_DECIMALS, SHARE_DECIMALS, false))}>
+                max
+              </button>
+            </div>
+            {reqValue !== undefined && <span className="hint">≈ {fmtUsdc(reqValue)} mUSDC at today’s share price</span>}
+          </div>
+          <button className="btn" disabled={!reqShares || !!reqErr || tx.busy || !view.canRequest} onClick={() => reqShares && request(reqShares)}>
+            Request
+          </button>
+        </div>
+      )}
+      {reqErr && <p className="small soft">{reqErr}</p>}
+      {view.phase === 'pending' && amt && <p className="small soft">Adding shares restarts the delay for the whole request.</p>}
+      <div className="row" style={{ marginTop: 10 }}>
+        {view.canRequeue && (
+          <button className="btn btn--primary" disabled={tx.busy} onClick={() => request(0n)}>
+            Re-queue request
+          </button>
+        )}
+        {view.canCancel && (
+          <button className="btn" disabled={tx.busy} onClick={cancel}>
+            Cancel request
+          </button>
+        )}
+      </div>
+      <p className="faint small" style={{ marginTop: 8 }}>
+        Requested shares keep bearing payouts until claimed and no longer back new covers. Requests, claims and cancels work while the pool is paused.
+      </p>
+      <div style={{ marginTop: 10 }}>
+        <TxStatus st={tx.st} />
+      </div>
+    </div>
   );
 }
 
@@ -265,7 +484,7 @@ function Limits() {
       ) : (
         <dl className="kv">
           <div>
-            <dt>Max utilization (locked ÷ total)</dt>
+            <dt>Max utilization (locked ÷ {s.v2 ? 'capacity base' : 'total'})</dt>
             <dd>{fmtBps(s.maxUtilizationBps, 0)}</dd>
           </div>
           <div>
@@ -305,19 +524,54 @@ function Limits() {
           <div>
             <dt>Asset</dt>
             <dd>
-              <Addr a={USDC} />
+              <Addr a={pool.usdc} />
             </dd>
           </div>
           <div>
             <dt>Paused</dt>
-            <dd>{s.paused ? 'yes' : 'no'}</dd>
+            <dd>{s.paused ? (pauseCause(true, s.v2) === 'breaker' ? 'yes, by the payout breaker' : 'yes') : 'no'}</dd>
           </div>
-          <div>
-            <dt>Deployed in</dt>
-            <dd>
-              <TxLink hash={pool.deployTx} />
-            </dd>
-          </div>
+          {s.v2 && (
+            <>
+              <div>
+                <dt>Min premium (on-chain floor)</dt>
+                <dd>{fmtBps(s.v2.limits.minPremiumBps)} of payout</dd>
+              </div>
+              <div>
+                <dt>Min level distance from the oracle</dt>
+                <dd>{fmtBps(s.v2.limits.minLevelDistanceBps)}</dd>
+              </div>
+              <div>
+                <dt>Sale window · max sold per window · one buyer’s share</dt>
+                <dd>
+                  {fmtDuration(s.v2.limits.saleWindow)} · {fmtBps(s.v2.limits.maxSoldPerWindowBps, 0)} of capacity · {fmtBps(s.v2.limits.maxBuyerWindowShareBps, 0)}
+                </dd>
+              </div>
+              <div>
+                <dt>Payout breaker (pauses above, per window)</dt>
+                <dd>{fmtBps(s.v2.limits.maxPaidPerWindowBps, 0)} of capacity</dd>
+              </div>
+              <div>
+                <dt>Exit delay · claim window · config timelock</dt>
+                <dd>
+                  {fmtDuration(Number(s.v2.withdrawDelay))} · {fmtDuration(Number(s.v2.claimWindow))} · {fmtDuration(Number(s.v2.configDelay))}
+                  {s.v2.strict ? ' (strict)' : ' (testnet, non-strict)'}
+                </dd>
+              </div>
+              <div>
+                <dt>Guardian (can pause, never unpause)</dt>
+                <dd>{/^0x0+$/.test(s.v2.guardian) ? 'none' : <Addr a={s.v2.guardian} />}</dd>
+              </div>
+            </>
+          )}
+          {pool.deployTx && (
+            <div>
+              <dt>Deployed in</dt>
+              <dd>
+                <TxLink hash={pool.deployTx} />
+              </dd>
+            </div>
+          )}
         </dl>
       )}
     </section>
