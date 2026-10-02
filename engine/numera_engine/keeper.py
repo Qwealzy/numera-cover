@@ -23,7 +23,8 @@ CoverPool v2 pools (ARCHITECTURE §5.10): the trigger/expire loop is unchanged. 
 deployments file says so or ``minPremiumBps()`` answers at startup; for those the keeper logs ``ALERT``
 lines (alerts.py): breaker tripped, sale cap reached, floor-priced sale, deferred payout, queued and
 ready-but-unexecuted config ops. The state reads ride in the same per-poll multicall; the timelock events
-cost one ``eth_getLogs`` per ``--alert-logs-every`` seconds (0 disables the log scan).
+cost one ``eth_getLogs`` per ``--alert-logs-every`` seconds (0 disables the log scan), after a bounded
+startup catch-up of ``ConfigQueued`` logs over ``configDelay + CONFIG_GRACE`` (alerts.py docstring).
 """
 
 from __future__ import annotations
@@ -227,6 +228,7 @@ class PoolPlan:
     label: str
     price_source: str | None = None  # from the deployments file (only used to cross-check the chain)
     version: str | None = None  # "v2" from the deployments file; None = probe at startup
+    deploy_tx: str | None = None  # pool creation tx (deployments file): bounds the v2 alert catch-up
 
 
 def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
@@ -239,7 +241,8 @@ def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
     for addr in pools:
         info = deployment.find(addr) if deployment is not None else None
         out.append(PoolPlan(addr.lower(), info.name if info else addr.lower(),
-                            info.price_source if info else None, info.version if info else None))  # fmt: skip
+                            info.price_source if info else None, info.version if info else None,
+                            info.deploy_tx if info else None))  # fmt: skip
     return out
 
 
@@ -380,9 +383,14 @@ class Keeper:
         res = mc.aggregate(self.rpc, calls) if calls else []
         for b, ok in zip(probe, res[len(todo):], strict=True):
             versions[b.pool] = "v2" if ok is not None else "v1"
+        logs_on = self.scanner.every_s > 0
+        deploy_txs = {p.pool: p.deploy_tx for p in self.plans}
         for b in self.books:
             if versions.get(b.pool) == "v2":
-                self.watches[b.pool] = PoolWatch(b.pool, b.label)
+                w = PoolWatch(b.pool, b.label, logs_on=logs_on)
+                if logs_on and deploy_txs.get(b.pool):
+                    w.deploy_block = self._deploy_block(b.pool, str(deploy_txs[b.pool]))
+                self.watches[b.pool] = w
         for b, src in zip(todo, res[: len(todo)], strict=True):
             if src is None:
                 raise RuntimeError(f"[{b.label}] cannot read pool.priceSource() at {b.pool}")
@@ -394,6 +402,19 @@ class Keeper:
             log.info("[keeper] watching %s pool=%s priceSource=%s version=%s", b.label, b.pool, b.source,
                      versions.get(b.pool))  # fmt: skip
         self.check_balance(self.clock())
+
+    def _deploy_block(self, pool: str, tx_hash: str) -> int | None:
+        """Block of the pool's creation tx (one request, once): nothing is logged before it, so the alert
+        catch-up stops there. None when the receipt cannot be read or created another address."""
+        try:
+            r = self.rpc.call("eth_getTransactionReceipt", [tx_hash])
+        except Exception as exc:  # noqa: BLE001 - only narrows the catch-up; without it the scan is longer
+            log.warning("[keeper] deploy receipt %s unreadable: %s", tx_hash, exc)
+            return None
+        if not isinstance(r, dict) or str(r.get("contractAddress") or "").lower() != pool.lower():
+            log.warning("[keeper] deploy tx %s did not create %s; catch-up not bounded by it", tx_hash, pool)
+            return None
+        return int(str(r["blockNumber"]), 16)
 
     def check_balance(self, t: float) -> int | None:
         """Log the keeper's HYPE balance; WARNING when below ``min_balance_wei`` (audit L4). Runs at startup
@@ -442,7 +463,7 @@ class Keeper:
             raise RuntimeError("Multicall3.getCurrentBlockTimestamp() failed")
         self._block = out.get("bn")
         for w in self.watches.values():
-            self.alerts += emit(w.update(out, int(out["ts"])))
+            self.alerts += emit(w.update(out, int(out["ts"]), self._block))
         prices: dict[str, dict[int, int | None]] = {}
         for s, p in price_keys:
             prices.setdefault(s, {})[p] = out[("px", s, p)]

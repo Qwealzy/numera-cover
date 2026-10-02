@@ -694,6 +694,18 @@ v2 contract follow-up (specified 2026-10-02, §5.10; applies once a v2 pool is i
 - v1 pools (no such getters) keep today's behaviour; the engine detects v2 by a successful `minPremiumBps()`
   call.
 
+Added 2026-10-02 (v2 review; engine-side only, contracts unchanged):
+- 503 `pool_paused`: the target pool is paused (`paused()`), so `buyCover` would revert with `EnforcedPause`.
+  v2 reads it with the pool state; v1 pools are read for `paused()` and `minPayout()` too (one cached
+  Multicall3 `eth_call`; if that read fails the quote is still signed, the contract enforces both).
+- 422 `payout_too_small`: `payout < minPayout` (v2 `limits().minPayout`, v1 `minPayout()`), which
+  `buyCover` rejects with `PayoutTooSmall`.
+- `capacity` (422) is checked over the whole quote lifetime, not only at issue: when the sale window ends
+  before the deadline (`windowStart + saleWindow ≤ now + TTL`), `buyCover` may run after the reset, when
+  the cap is taken on the current `capacityBase()`, which can be smaller than `windowAssets`. The payout
+  must then pass both the open-window and the reset check (property-tested against a contract model at
+  every second of the TTL in `engine/tests/test_poolv2.py`).
+
 ## 7. Pricing model (engine, v4 — final, D13)
 
 Evidence and compared methods: [`engine/reports/calibration.md`](../engine/reports/calibration.md).

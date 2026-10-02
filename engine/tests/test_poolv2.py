@@ -13,6 +13,7 @@ from numera_engine import multicall as mc
 from numera_engine.poolv2 import (
     LIMITS_TUPLE,
     Limits,
+    V1Gate,
     V2ReadError,
     V2State,
     V2StateReader,
@@ -25,6 +26,7 @@ from numera_engine.poolv2 import (
     raise_to_floor,
     sale_window,
     state_calls,
+    v1_calls,
 )
 
 TESTNET = Limits(8000, 5000, 604_800, 30, 1_000_000, 20, 25, 3600, 2500, 2500, 1500)  # §5.2 testnet column
@@ -295,3 +297,89 @@ def test_rpc_failure_caches_nothing_and_listed_v2_with_failed_probe_raises():
 
 def test_decode_state_v1_is_none():
     assert decode_state({"probe": None, "ts": 1}) is None
+
+
+# -- the quote lifetime: buyCover may run at any block time in [now, deadline] -------------------------
+
+
+def test_reviewer_repro_window_ends_inside_the_quote_lifetime():
+    """Review 2026-10-02, testnet Limits: B 400, window opened at 1000 on 1,000 USDC, nothing sold, payout
+    50. Open (t < 4600): cap 250, buyer cap 62.5 -> passes. Reset (t >= 4600): cap 100, buyer cap 25."""
+    s = V2State(TESTNET, True, 400 * 10**6, 0, 0, window_start=1000, window_assets=1000 * 10**6,
+                sold_in_window=0, buyer_start=0, buyer_sold=0, paused=False, block_ts=4590)  # fmt: skip
+    assert capacity_refusal(s, 50 * 10**6, 4590) is None  # the old check: at quote time only
+    r = capacity_refusal(s, 50 * 10**6, 4600)
+    assert (r.check, r.after, r.cap) == ("buyer_window", 50_000_000, 25_000_000)
+    r = capacity_refusal(s, 50 * 10**6, 4590, 4590 + 30)  # TTL 30 s: deadline 4620 is past the reset
+    assert r is not None and (r.check, r.after, r.cap) == ("buyer_window", 50_000_000, 25_000_000)
+    assert capacity_refusal(s, 50 * 10**6, 4569, 4599) is None  # window still open at the deadline
+    assert capacity_refusal(s, 50 * 10**6, 4570, 4600) is not None  # deadline == window end: reset reachable
+    assert capacity_refusal(s, 25 * 10**6, 4590, 4620) is None  # fits both regimes
+
+
+def test_lifetime_verdict_matches_the_contract_model_at_every_second():
+    """Property: ``capacity_refusal(s, payout, now, now + ttl)`` is None exactly when the contract model
+    accepts the sale at every block time t in [now, now + ttl] (state frozen over the lifetime), and
+    otherwise names a check the model fails at some t. Random states around window boundaries, B both
+    above and below the window snapshot."""
+    rng = random.Random(4600)
+    seen = {"ok": 0, "refused": 0, "refused_only_after_reset": 0, "refused_only_before_reset": 0}
+    buyer, ws = "0x" + "11" * 20, 1_790_000_000
+    for _ in range(4000):
+        window, ttl = rng.choice([60, 3600]), rng.choice([1, 30, 60, 120])
+        lim = Limits(9000, 9000, 604_800, 30, 1, 20, 25, window, rng.choice([2500, 1000]),
+                     rng.choice([2500, 10_000]), 100)  # fmt: skip
+        wa = rng.randint(100, 5_000) * 10**6
+        b = max(1, wa + rng.randint(-wa + 1, wa))  # B shrank or grew since the window opened
+        sold = rng.randint(0, wa * lim.maxSoldPerWindowBps // 10_000)
+        b_start, b_sold = rng.choice([ws, ws - 1]), rng.randint(0, sold)
+        now = ws + window + rng.randint(-ttl - 5, 5)
+        payout = rng.randint(1, max(2, b * lim.maxSoldPerWindowBps // 10_000))
+        st = V2State(lim, True, b, 0, 0, ws, wa, sold, b_start, b_sold, False, now)
+
+        def model(t, lim=lim, b=b, wa=wa, sold=sold, b_start=b_start, b_sold=b_sold, payout=payout):
+            m = ContractModel(lim, b)
+            m.window_start, m.window_assets, m.sold_in_window = ws, wa, sold
+            m.buyer_window[buyer] = (b_start, b_sold)
+            return m.buy(buyer, 3, payout, t)
+
+        verdicts = {t: model(t) for t in range(now, now + ttl + 1)}
+        got = capacity_refusal(st, payout, now, now + ttl)
+        fails = {v for v in verdicts.values() if v is not True}
+        if not fails:
+            assert got is None, (st, payout, got)
+            seen["ok"] += 1
+        else:
+            assert got is not None and got.check in fails, (st, payout, got, verdicts)
+            seen["refused"] += 1
+            if verdicts[now] is True:
+                seen["refused_only_after_reset"] += 1
+            elif verdicts[now + ttl] is True:
+                seen["refused_only_before_reset"] += 1
+    assert all(v > 20 for v in seen.values()), seen
+
+
+# -- v1 pause flag and minPayout ------------------------------------------------------------------------
+
+
+def _encode_v1(paused=False, min_payout=10**6, fail=()):
+    vals = {"paused": (["bool"], [paused]), "minPayout": (["uint256"], [min_payout])}
+    items = [(c.key not in fail, encode(*vals[c.key]) if c.key not in fail else b"") for c in v1_calls(POOL)]
+    return "0x" + encode(["(bool,bytes)[]"], [items]).hex()
+
+
+def test_v1_gate_read_cache_and_failures():
+    sel = {c.key: c.data[:4].hex() for c in v1_calls(POOL)}
+    assert sel == {"paused": "5c975abb", "minPayout": "6ff28c1b"}  # cast sig
+    clock = [0.0]
+    r = V2StateReader(FakeRpc([_encode_v1(paused=True, min_payout=2 * 10**6)]), clock=lambda: clock[0])
+    assert r.read_v1(POOL) == V1Gate(True, 2 * 10**6)
+    r.read_v1(POOL)
+    assert r.rpc.calls == 1  # cached within the TTL
+    clock[0] = 2.5
+    r.read_v1(POOL)
+    assert r.rpc.calls == 2
+    assert V2StateReader(FakeRpc([_encode_v1(fail=("minPayout",))])).read_v1(POOL) is None
+    bad = V2StateReader(FakeRpc([RuntimeError("rpc down")]))
+    with pytest.raises(V2ReadError):
+        bad.read_v1(POOL)

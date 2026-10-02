@@ -504,14 +504,38 @@ def read_v2_state(reader: V2StateReader | None, pool: str, req: QuoteRequest, li
             warn(f"v2:{pool.lower()}", "[engine] pool %s: v2 probe failed (%s); quoting it as v1", pool, exc)
     elif listed_v2:
         raise ApiError(503, "market_data_unavailable", f"pool {pool} is v2; no RPC is configured to read it")
-    if v2 is not None and not v2.perp_allowed:
-        reason = f"perpIndex {req.perpIndex} is not allowed on pool {pool} (perpAllowed is false on chain)"
-        raise ApiError(400, "perp_not_allowed", reason)
+    if v2 is not None:
+        check_pool_gate(pool, req, v2.paused, v2.limits.minPayout, v2.perp_allowed)
+    elif reader is not None and reader.version(pool) == "v1":
+        try:
+            gate = reader.read_v1(pool)
+        except V2ReadError as exc:  # the contract still enforces both; do not fail the quote on it
+            warn(f"v1:{pool.lower()}", "[engine] pool %s: paused/minPayout read failed (%s)", pool, exc)
+            gate = None
+        if gate is not None:
+            check_pool_gate(pool, req, gate.paused, gate.min_payout, True)
     return v2
 
 
-def check_v2_sale(v2: V2State, spot6: int, req: QuoteRequest, now: int) -> None:
-    """Refuse what buyCover would reject on the v2 level floor (check 3) or capacity (checks 5, 6)."""
+def check_pool_gate(pool: str, req: QuoteRequest, paused: bool, min_payout: int, perp_allowed: bool) -> None:
+    """What buyCover rejects before pricing, in the contract's order: ``whenNotPaused`` (503
+    ``pool_paused``), then check 2's ``perpAllowed`` (400 ``perp_not_allowed``, v2 only) and ``minPayout``
+    (422 ``payout_too_small``)."""
+    if paused:
+        raise ApiError(503, "pool_paused", f"pool {pool} is paused: buyCover is disabled until the owner "
+                       "unpauses it")  # fmt: skip
+    if not perp_allowed:
+        reason = f"perpIndex {req.perpIndex} is not allowed on pool {pool} (perpAllowed is false on chain)"
+        raise ApiError(400, "perp_not_allowed", reason)
+    if req.payout < min_payout:
+        raise ApiError(422, "payout_too_small", f"payout {req.payout} is below the pool's minPayout "
+                       f"{min_payout} (USDC 6 dec)")  # fmt: skip
+
+
+def check_v2_sale(v2: V2State, spot6: int, req: QuoteRequest, now: int, deadline: int | None = None) -> None:
+    """Refuse what buyCover would reject on the v2 level floor (check 3) or capacity (checks 5, 6), at any
+    block time from ``now`` to the quote's ``deadline`` (a sale window that ends inside the quote lifetime
+    must allow the sale both open and reset)."""
     lim = v2.limits
     bps = level_distance_bps(lim)
     if level_too_close(spot6, req.level, bps):
@@ -522,7 +546,7 @@ def check_v2_sale(v2: V2State, spot6: int, req: QuoteRequest, now: int) -> None:
             f"{lim.minLevelDistanceBps} bps from the oracle at purchase (minLevelDistanceBps) and the oracle "
             f"may move {lim.maxSpotDeviationBps} bps from the quoted spot (maxSpotDeviationBps)",
         )
-    refusal = capacity_refusal(v2, req.payout, now)
+    refusal = capacity_refusal(v2, req.payout, now, deadline)
     if refusal is not None:
         raise ApiError(422, "capacity", refusal.reason)
 
@@ -726,8 +750,9 @@ def create_app(
                 f"({settings.level_k_sigma:g} sigma over the {settings.quote_ttl_s} s quote lifetime)",
             )
         now = now_s()
+        deadline = now + settings.quote_ttl_s
         if v2 is not None:
-            check_v2_sale(v2, spot6, req, now)
+            check_v2_sale(v2, spot6, req, now, deadline)
         T = req.durationSec / SECONDS_PER_YEAR
         p = touch_prob(S, H, sigma, T)
         adj = tail.adjust(coin, req.isLong, req.durationSec, S, H, sigma)
@@ -747,7 +772,7 @@ def create_app(
             premium=prem,
             expiry=now + req.durationSec,
             spotRef=spot6,
-            deadline=now + settings.quote_ttl_s,
+            deadline=deadline,
             nonce=nonce_fn(),
         )
         try:
