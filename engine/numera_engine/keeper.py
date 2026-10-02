@@ -187,9 +187,10 @@ def bump(x: int) -> int:
 
 
 def choose_nonce(latest: int, pending: int, prev: SentTx | None) -> int:
-    """Our previous tx for this cover still unmined (its nonce >= the latest count): reuse its nonce and
-    replace it (RBF) instead of queueing behind it. Otherwise (mined, e.g. reverted, or none) the next one."""
-    if prev is not None and prev.nonce >= latest:
+    """Reuse our previous tx's nonce (replace-by-fee) only while that tx is really pending in the node:
+    ``latest <= prev.nonce < pending``. Otherwise ``pending``: the tx was mined (e.g. reverted), or it was
+    dropped together with a lower nonce, and reusing its nonce would sit behind a gap forever."""
+    if prev is not None and latest <= prev.nonce < pending:
         return prev.nonce
     return pending
 
@@ -256,6 +257,8 @@ class Sender:
         chain_id = int(rpc.call("eth_chainId"), 16)
         if chain_id == MAINNET_CHAIN_ID:
             raise RuntimeError("keeper refuses to send on chainId 999 (mainnet)")
+        if max_fee_wei <= 0:
+            raise ValueError("max_fee_wei must be > 0")
         self.rpc = rpc
         self.w3 = Web3(failover_provider(rpc))
         self.account = Account.from_key(private_key)
@@ -462,9 +465,15 @@ class Keeper:
                 done.append((b.label, a, "dry-run"))
                 continue
             assert self.sender is not None
+            prev = self.txs[b.pool].get(a.cover_id)
             try:
-                tx = self.sender.send(b.pool, a, prev=self.txs[b.pool].get(a.cover_id))
-            except Exception as exc:  # noqa: BLE001 - e.g. reverted because the price moved back, gas cap
+                tx = self.sender.send(b.pool, a, prev=prev)
+            except GasCapError as exc:
+                if prev is None:  # nothing went out: not "sent", so the next poll retries it
+                    del self.sent[b.pool][a.cover_id]
+                log.warning("[keeper] %s(%s) on %s held: %s", a.kind, a.cover_id, b.label, exc)
+                continue
+            except Exception as exc:  # noqa: BLE001 - e.g. reverted because the price moved back
                 log.warning("[keeper] %s(%s) on %s failed: %s", a.kind, a.cover_id, b.label, exc)
                 continue
             self.txs[b.pool][a.cover_id] = tx
@@ -532,6 +541,10 @@ def main(argv: list[str] | None = None) -> None:
                     help="address whose balance a --dry-run reports (default: KEEPER_KEY's, else the "
                          "deployments file `keeper`)")  # fmt: skip
     args = ap.parse_args(argv)
+    if not args.max_fee_gwei > 0:  # also rejects NaN
+        ap.error("--max-fee-gwei must be > 0")
+    if args.max_tx_per_poll < 1:
+        ap.error("--max-tx-per-poll must be >= 1")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     key = os.environ.get("KEEPER_KEY", "").strip()
     if not key and not args.dry_run:

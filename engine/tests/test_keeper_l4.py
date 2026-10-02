@@ -47,6 +47,16 @@ def test_replacement_bumps_both_fees_by_more_than_ten_percent():
         choose_fees(BASE, 0, CAP, SentTx("0xaa", 7, CAP, 0))  # a valid replacement would exceed the cap
 
 
+def test_nonce_after_a_dropped_lower_nonce_is_not_reused():
+    # triggers went out at nonces 5 and 6; tx 5 was dropped (A no longer due), so 6 can never be mined
+    assert choose_nonce(5, 5, SentTx("0xb", 6, 2 * BASE, 0)) == 5
+
+
+def test_nonce_rbf_reuses_a_tx_that_is_really_pending():
+    assert choose_nonce(5, 7, SentTx("0xb", 6, 2 * BASE, 0)) == 6  # latest <= 6 < pending
+    assert choose_nonce(5, 6, SentTx("0xb", 6, 2 * BASE, 0)) == 6  # not in the pool any more: 6 again, fresh
+
+
 def test_nonce_reuses_a_still_pending_tx_and_moves_on_after_it_is_mined():
     prev = SentTx("0xaa", 7, 2 * BASE, 0)
     assert choose_nonce(latest=7, pending=9, prev=prev) == 7  # unmined: replace it, do not queue behind
@@ -188,6 +198,43 @@ def test_resend_after_30s_passes_the_previous_tx_for_replace_by_fee():
     chain.covers[POOL_A][1][8] = 2  # Paid
     k.poll()
     assert k.txs[POOL_A] == {}
+
+
+class CappedSender(FakeSender):
+    def __init__(self):
+        super().__init__()
+        self.capped = True
+
+    def send(self, pool, action, prev=None):
+        if self.capped:
+            self.calls.append((pool, action.cover_id, prev))
+            raise GasCapError("base fee above the cap")
+        return super().send(pool, action, prev)
+
+
+def test_fresh_tx_over_the_gas_cap_is_not_marked_sent_and_retries_next_poll():
+    chain, clk = ChainWithBalance(), Clock()
+    chain.buy(POOL_A, is_long=False, level=79_000_000_000)
+    sender = CappedSender()
+    k = make(chain, clk, sender=sender)
+    assert k.poll() == [] and k.sent[POOL_A] == {} and k.txs[POOL_A] == {}
+    sender.capped = False
+    clk.t = 3.0  # next poll, well inside RESEND_AFTER_S
+    assert [(a.kind, a.cover_id) for _, a, _ in k.poll()] == [("trigger", 1)]
+    assert len(sender.calls) == 2 and sender.calls[-1][2] is None  # poll 1 held at the cap, poll 2 sent fresh
+
+
+def test_max_fee_must_be_positive():
+    def post(url, payload, timeout):
+        return 200, {"jsonrpc": "2.0", "id": 1, "result": "0x3e6"}
+
+    with pytest.raises(ValueError):
+        Sender(FailoverRpc(["https://fake/evm"], post=post), ANVIL_KEY1, max_fee_wei=0)
+    from numera_engine.keeper import main
+
+    for bad in ("0", "-1", "nan"):
+        with pytest.raises(SystemExit):
+            main(["--dry-run", "--max-fee-gwei", bad])
 
 
 def test_low_balance_warns_at_startup_and_is_rechecked_every_n_seconds(caplog):
