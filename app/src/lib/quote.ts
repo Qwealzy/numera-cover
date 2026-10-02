@@ -119,6 +119,25 @@ export function expectedPremium(payout: number, b: Breakdown): number {
   return Math.ceil(payout * priced * (1 + b.loading)) + (b.fee ?? 0);
 }
 
+/** Quote lifetime the engine signs (how-it-works §6: deadline = issue + 30 s); used by the fixture only. */
+export const QUOTE_TTL_S = 30;
+
+/** Premium the UI accepts: the §7 formula over the shown breakdown, ±1 base unit of rounding. */
+export const premiumMatches = (q: QuoteJson, b: Breakdown) => Math.abs(expectedPremium(q.payout, b) - q.premium) <= 1;
+
+/**
+ * Why Buy must stay disabled for this quote (audit L3), or undefined when the app has verified it: the signature
+ * recovers to the pool's on-chain quoteSigner AND the premium matches the shown breakdown. A mis-signed quote
+ * would only revert (gas lost); an unexplained premium is one the user cannot check.
+ */
+export function buyBlocker(c: { signerCheck: string | null | undefined; poolSigner: string | undefined; premOk: boolean }): string | undefined {
+  if (c.signerCheck === undefined || !c.poolSigner) return 'Checking the quote signature against the pool’s signer…';
+  if (c.signerCheck === null || c.signerCheck.toLowerCase() !== c.poolSigner.toLowerCase())
+    return 'Buy is disabled: the quote’s signature does not recover to this pool’s quote signer, so buyCover would revert. Re-quote from an engine that serves this pool.';
+  if (!c.premOk) return 'Buy is disabled: the premium does not match the breakdown shown (see “Check the arithmetic”). Re-quote.';
+  return undefined;
+}
+
 // ---------------------------------------------------------------- request building
 
 export interface QuoteForm {
@@ -303,7 +322,7 @@ export function fixtureQuote(body: QuoteRequest, spotPx6: bigint, nowSec = Math.
         premium,
         expiry: nowSec + body.durationSec,
         spotRef: spot,
-        deadline: nowSec + 60,
+        deadline: nowSec + QUOTE_TTL_S,
         nonce: 1 + Math.floor(Math.random() * 1e15),
       },
       signature: ('0x' + '00'.repeat(65)) as Hex,

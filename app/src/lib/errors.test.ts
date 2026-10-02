@@ -67,6 +67,16 @@ describe('API error mapping (how-it-works §6)', () => {
     expect(apiErrorMessage('capacity', 'payout exceeds engine cap 1')).toMatch(/engine cap/);
     expect(apiErrorMessage('unknown_pool')).toMatch(/does not sign quotes for this pool/);
   });
+  it('maps the 2026-10-02 hardening codes (rate limit, perp allowlist, level floor)', () => {
+    expect(apiErrorMessage('rate_limited', 'too many quote requests; retry in 6 s')).toBe(
+      'Too many quote requests in a short time (too many quote requests; retry in 6 s). Wait a few seconds and try again.',
+    );
+    expect(apiErrorMessage('perp_not_allowed', 'perpIndex 60000 is not one of the perps this deployment quotes')).toMatch(
+      /^Numera does not cover this perp yet/,
+    );
+    expect(apiErrorMessage('level_too_close')).toMatch(/too close to the current price.*30 s.*Move the level further away/);
+    for (const code of ['rate_limited', 'perp_not_allowed', 'level_too_close']) expect(apiErrorMessage(code)).not.toMatch(/^Quote refused/);
+  });
   it('unknown codes are shown verbatim', () => {
     expect(apiErrorMessage('weird', 'why')).toBe('Quote refused: weird (why)');
   });
