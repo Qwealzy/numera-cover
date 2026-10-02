@@ -27,7 +27,7 @@ from enum import IntEnum
 from typing import Any
 
 from . import multicall as mc
-from .rpc import DEFAULT_TESTNET_RPCS, FailoverRpc, host
+from .rpc import FailoverRpc, host, resolve_rpcs  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
 
 log = logging.getLogger("numera.keeper")
 
@@ -176,17 +176,6 @@ def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
             PoolPlan(addr.lower(), info.name if info else addr.lower(), info.price_source if info else None)
         )
     return out
-
-
-def resolve_rpcs(cli: list[str] | None, env: str | None, deployment_rpc: str | None) -> list[str]:
-    """``--rpc`` (repeated) > ``NUMERA_RPCS`` (comma-separated) > deployments rpc + official + chain.link."""
-    if cli:
-        urls = cli
-    elif env and env.strip():
-        urls = env.split(",")
-    else:
-        urls = ([deployment_rpc] if deployment_rpc else []) + list(DEFAULT_TESTNET_RPCS)
-    return list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
 
 
 # -- chain I/O (thin) ------------------------------------------------------------------------------

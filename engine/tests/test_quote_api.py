@@ -71,7 +71,7 @@ def test_quote_happy_path_signs_a_valid_quote():
     assert q == {
         "buyer": BUYER, "perpIndex": 3, "isLong": True, "level": 80_000_000_000, "payout": 100_000_000,
         "premium": premium(100_000_000, p), "expiry": NOW + 86400, "spotRef": 84_000_000_000,
-        "deadline": NOW + 60, "nonce": 42,
+        "deadline": NOW + 30, "nonce": 42,
     }  # fmt: skip
     assert recover_signer(Quote(**q), 31337, POOL, j["signature"]) == SIGNER
     b = j["breakdown"]
@@ -95,7 +95,9 @@ def test_short_cover_and_tail_table_are_used():
         ({"level": 84_000_000_000}, "level_already_breached"),  # long: oracle <= level
         ({"level": 85_000_000_000}, "level_already_breached"),
         ({"isLong": False, "level": 83_000_000_000}, "level_already_breached"),  # short: oracle >= level
-        ({"level": 83_900_000_000, "durationSec": 7 * 86400}, "prob_too_high"),
+        ({"level": 82_500_000_000, "durationSec": 7 * 86400}, "prob_too_high"),
+        ({"level": 83_900_000_000}, "level_too_close"),  # 0.12 % < 3 x 0.5 x sqrt(30 s) = 0.146 %
+        ({"isLong": False, "level": 84_100_000_000}, "level_too_close"),
         ({"durationSec": 30}, "duration_out_of_range"),
         ({"durationSec": 8 * 86400}, "duration_out_of_range"),
         ({"payout": 10**12}, "capacity"),

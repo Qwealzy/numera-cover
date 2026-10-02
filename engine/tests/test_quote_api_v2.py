@@ -57,6 +57,7 @@ class StubReader:
 
 
 def client(reader=None, market=None, tail=None, deployment=DEPLOYMENT):
+    reader = reader or StubReader(fail=True)  # never the network: spot falls back to the stub Info API
     s = Settings(env="testnet", chain_id=998, pool=POOL_A, signer_key=KEY)
     app = create_app(
         s,
@@ -175,8 +176,8 @@ def test_empty_pool_env_falls_back_to_the_hypercore_pool(monkeypatch, env_pool):
             monkeypatch.setenv(var, env_pool)
     monkeypatch.setenv("NUMERA_ENV", "testnet")
     monkeypatch.setenv("NUMERA_CHAIN_ID", "998")
+    monkeypatch.setenv("QUOTE_SIGNER_KEY", KEY)
     s = Settings.from_env()
-    s.signer_key = KEY
     deployment = load_deployment(default_path("testnet"))  # the real deployments/testnet.json
     hypercore = next(p.pool for p in deployment.pools if p.name == "hypercore")
     assert resolve_default_pool(s.pool, deployment) == hypercore

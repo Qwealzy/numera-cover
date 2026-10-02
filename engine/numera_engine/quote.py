@@ -138,11 +138,17 @@ def digest(q: Quote, chain_id: int, verifying_contract: str) -> bytes:
 # -- sign / recover --------------------------------------------------------------------------------
 
 
-def sign_quote(q: Quote, chain_id: int, verifying_contract: str, private_key: str | bytes) -> str:
-    """65-byte signature r||s||v (v in {27, 28}) as 0x-hex, accepted by OpenZeppelin ECDSA.recover."""
+def sign_quote(q: Quote, chain_id: int, verifying_contract: str, private_key: Any) -> str:
+    """65-byte signature r||s||v (v in {27, 28}) as 0x-hex, accepted by OpenZeppelin ECDSA.recover.
+
+    ``private_key``: a hex/bytes key or an eth_account ``LocalAccount`` (preferred: the Quote API keeps only
+    the account object, so the raw key never sits in a printable field)."""
     _check_chain(chain_id)
     msg = encode_typed_data(full_message=typed_data(q, chain_id, verifying_contract))
-    signed = Account.sign_message(msg, private_key=private_key)
+    if hasattr(private_key, "sign_message"):
+        signed = private_key.sign_message(msg)
+    else:
+        signed = Account.sign_message(msg, private_key=private_key)
     sig = bytes(signed.signature)
     if len(sig) != 65:
         raise RuntimeError("unexpected signature length")
