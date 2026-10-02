@@ -20,7 +20,8 @@ import {
   type QuoteOk,
 } from '../lib/quote';
 import { apiErrorMessage } from '../lib/errors';
-import { approveUsdc, buyCover, readAllowance } from '../lib/tx';
+import { approveUsdc, buyCover, readAllowance, waitReadHead } from '../lib/tx';
+import { ensureAllowance } from '../lib/txflow';
 import { Addr, MockTag, Notice, TxLink, TxStatus, useTx } from '../components/ui';
 import { Faucet } from '../components/Faucet';
 import { SubjectBar } from '../components/SubjectBar';
@@ -352,6 +353,10 @@ function ProtectPanel({ row }: { row: PositionRow }) {
   const [boughtId, setBoughtId] = useState<bigint>();
   const approveTx = useTx();
   const buyTx = useTx();
+  /** Allowance set by an approve mined in this view and not yet spent by a purchase (receipt-trusted). */
+  const approvedRef = useRef<{ key: string; amount: bigint }>({ key: '', amount: 0n });
+  const approveKey = `${account ?? ''}:${pool.pool}`.toLowerCase();
+  const approvedNow = () => (approvedRef.current.key === approveKey ? approvedRef.current.amount : 0n);
 
   const health = usePoll((s) => fetchHealth(pool.engineUrl, s), [pool.engineUrl], 0, !USE_QUOTE_FIXTURE);
 
@@ -400,7 +405,13 @@ function ProtectPanel({ row }: { row: PositionRow }) {
       setQuote(res.value);
       const signer = await recoverQuoteSigner(res.value.quote, res.value.signature, hyperEvmTestnet.id, pool.pool);
       setSignerCheck(signer ?? null);
-      if (account) setAllowance(await readAllowance(account, pool.pool, pool.usdc));
+      if (account) {
+        await waitReadHead();
+        const read = await readAllowance(account, pool.pool, pool.usdc);
+        // an approve mined in this view and not yet spent counts even if the read RPC still lags behind it
+        const mine = approvedNow();
+        setAllowance(read > mine ? read : mine);
+      }
     } finally {
       setQuoting(false);
     }
@@ -416,15 +427,30 @@ function ProtectPanel({ row }: { row: PositionRow }) {
   const balance = stats.data?.user?.usdc;
   const lowBalance = premium !== undefined && balance !== undefined && balance < premium;
 
+  /**
+   * At most one approve per click; the mined receipt is trusted (the allowance is set to the premium, not
+   * re-read: a lagging read would show 0 and invite a second approve). A fresh read first skips the approve
+   * when an earlier one already covers the premium.
+   */
   async function approve() {
     if (!account || premium === undefined) return;
-    const r = await approveTx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, premium, h, pool.usdc));
-    if (r) setAllowance(await readAllowance(account, pool.pool, pool.usdc));
+    const r = await approveTx.flow('Approve mUSDC', (step) =>
+      ensureAllowance(premium, {
+        readAllowance: async () => (await waitReadHead(), readAllowance(account, pool.pool, pool.usdc)),
+        approve: () => step('Approve mUSDC', (h) => approveUsdc(account, pool.pool, premium, h, pool.usdc)),
+      }),
+    );
+    if (r) {
+      if (r.approved) approvedRef.current = { key: approveKey, amount: premium };
+      setAllowance((a) => (a !== undefined && a > premium ? a : premium));
+    }
   }
   async function buy() {
     if (!account || !quote) return;
-    const r = await buyTx.run('Buy cover', (h) => buyCover(account, pool.pool, quote.quote, quote.signature, h));
+    const afterApprove = approvedNow() > 0n;
+    const r = await buyTx.run('Buy cover', (h) => buyCover(account, pool.pool, quote.quote, quote.signature, h, afterApprove));
     if (r) {
+      approvedRef.current = { key: '', amount: 0n }; // the purchase spent it
       setBoughtId(r.coverId);
       refreshAll();
     }

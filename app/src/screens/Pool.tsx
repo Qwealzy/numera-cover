@@ -5,7 +5,8 @@ import { useNow } from '../hooks';
 import { exitView, pauseCause, saleWindow } from '../lib/v2';
 import { Status, type Cover } from '../lib/pool';
 import { SHARE_DECIMALS, fmtBps, fmtDuration, fmtFixed, fmtPx6, fmtRatio, fmtShares, fmtTime, fmtUsdc, parseDecimal } from '../lib/format';
-import { approveUsdc, cancelRedeem, claimAssets, claimShares, deposit, readAllowance, requestRedeem, withdraw } from '../lib/tx';
+import { approveUsdc, cancelRedeem, claimAssets, claimShares, deposit, readAllowance, readBalance, requestRedeem, waitReadHead, withdraw } from '../lib/tx';
+import { depositBlocker, depositFlow } from '../lib/txflow';
 import { Addr, MockTag, Notice, Stat, TxLink, TxStatus, useTx } from '../components/ui';
 import { Faucet } from '../components/Faucet';
 import { useCovers } from '../components/useCovers';
@@ -135,17 +136,25 @@ function LpPanel() {
   } catch (e) {
     wdErr = (e as Error).message;
   }
-  if (depAmt !== undefined && u && depAmt > u.usdc) depErr = 'More than your mUSDC balance.';
   if (wdAmt !== undefined && u && wdAmt > u.maxWithdraw) wdErr = `Above the max withdrawable ${fmtUsdc(u.maxWithdraw)} (your share, limited to free assets).`;
+  // Why Deposit is disabled (amount, balance, paused, a pending tx); the flow re-checks the balance fresh.
+  const depBlock = depositBlocker({ input: dep, amount: depAmt, parseError: depErr, balance: u?.usdc, paused: stats.data?.paused, busy: tx.busy });
 
+  /** One click: at most one approve (receipt trusted, never re-approved on a stale read) and one deposit. */
   async function doDeposit() {
-    if (!account || !depAmt) return;
-    const allowance = await readAllowance(account, pool.pool, pool.usdc);
-    if (allowance < depAmt) {
-      const ok = await tx.run('Approve mUSDC', (h) => approveUsdc(account, pool.pool, depAmt!, h, pool.usdc));
-      if (!ok) return;
-    }
-    if (await tx.run('Deposit', (h) => deposit(account, pool.pool, depAmt!, h))) {
+    if (!account || !depAmt || depBlock) return;
+    const amount = depAmt;
+    const ok = await tx.flow('Deposit', (step) =>
+      depositFlow({
+        amount,
+        waitHead: (min) => waitReadHead(min),
+        readBalance: () => readBalance(account, pool.usdc),
+        readAllowance: () => readAllowance(account, pool.pool, pool.usdc),
+        approve: () => step('Approve mUSDC', (h) => approveUsdc(account, pool.pool, amount, h, pool.usdc)),
+        deposit: (afterApprove) => step('Deposit', (h) => deposit(account, pool.pool, amount, h, afterApprove)),
+      }),
+    );
+    if (ok) {
       setDep('');
       refreshAll();
     }
@@ -191,13 +200,17 @@ function LpPanel() {
               <label htmlFor="dep">Deposit (mUSDC)</label>
               <input id="dep" type="text" inputMode="decimal" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="100" />
             </div>
-            <button className="btn btn--primary" disabled={!depAmt || !!depErr || tx.busy || stats.data?.paused} onClick={doDeposit}>
+            <button className="btn btn--primary" disabled={!!depBlock} title={depBlock ?? ''} onClick={doDeposit}>
               Deposit
             </button>
           </div>
-          {depErr && <p className="small soft">{depErr}</p>}
+          {depBlock && dep.trim() !== '' && (
+            <p className="small soft" role="status">
+              {depBlock}
+            </p>
+          )}
           {v2 ? (
-            <ExitPanel />
+            <ExitPanel tx={tx} />
           ) : (
             <>
               <div className="row" style={{ marginTop: 10 }}>
@@ -231,8 +244,10 @@ function LpPanel() {
 /**
  * v2 LP exit (ARCHITECTURE §5.4): request -> pending countdown -> claimable window -> claim (all or part) ->
  * lapsed -> re-queue; cancel at any time. State from redeemRequestOf, recomputed every second (lib/v2.exitView).
+ * Shares the LP panel's tx guard: while a deposit, request, claim or cancel is open in the wallet, every LP
+ * button is disabled and a second click is dropped.
  */
-function ExitPanel() {
+function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
   const { account, pool, stats, refreshAll } = useApp();
   const now = useNow(1000);
   const s = stats.data;
@@ -242,7 +257,6 @@ function ExitPanel() {
   const view = exitView(req, now, u?.v2?.maxRedeem ?? 0n, u?.shares ?? 0n);
   const [amt, setAmt] = useState('');
   const [claim, setClaim] = useState('');
-  const tx = useTx();
   if (!account || !u || !v2) return null;
 
   let reqShares: bigint | undefined, reqErr: string | undefined;
@@ -382,9 +396,6 @@ function ExitPanel() {
       <p className="faint small" style={{ marginTop: 8 }}>
         Requested shares keep bearing payouts until claimed and no longer back new covers. Requests, claims and cancels work while the pool is paused.
       </p>
-      <div style={{ marginTop: 10 }}>
-        <TxStatus st={tx.st} />
-      </div>
     </div>
   );
 }

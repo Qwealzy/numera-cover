@@ -6,6 +6,7 @@ import { coverPoolAbi, mockPositionSourceAbi, mockPriceSourceAbi, mockUSDCAbi } 
 import { FAUCET_AMOUNT, hyperEvmTestnet, USDC } from '../config';
 import { toContractQuote, type QuoteJson } from './quote';
 import { purchasedCoverIds, rememberPurchase } from './purchases';
+import { minedFloor, noteMined, simulateAfterApprove, waitForHead } from './txflow';
 
 export interface TxDone {
   hash: Hex;
@@ -14,14 +15,32 @@ export interface TxDone {
 
 type SimArgs = Parameters<typeof publicClient.simulateContract>[0];
 
-async function send(account: Address, args: Omit<SimArgs, 'account' | 'chain'>, onHash?: (h: Hex) => void): Promise<TxDone> {
+/** The read RPC's head (uncached): reads after our own tx wait for it to pass that tx's block. */
+export const headBlock = () => publicClient.getBlockNumber({ cacheTime: 0 });
+/** Best effort: wait until the read RPC has the block of this page's last mined tx (or `min`). */
+export const waitReadHead = (min: bigint = minedFloor()) => waitForHead(min > minedFloor() ? min : minedFloor(), headBlock);
+
+/**
+ * `afterApprove`: this write follows an approve mined moments ago; an ERC20InsufficientAllowance from the
+ * simulation then means the read RPC is behind, so it is simulated again (never approved again).
+ */
+async function send(
+  account: Address,
+  args: Omit<SimArgs, 'account' | 'chain'>,
+  onHash?: (h: Hex) => void,
+  opts: { afterApprove?: boolean } = {},
+): Promise<TxDone> {
   await ensureTestnet();
-  const { request } = await publicClient.simulateContract({ ...args, account } as SimArgs);
+  await waitReadHead();
+  const { request } = await simulateAfterApprove(() => publicClient.simulateContract({ ...args, account } as SimArgs), {
+    afterApprove: !!opts.afterApprove,
+  });
   const hash = await walletClient(account).writeContract({ ...request, chain: hyperEvmTestnet, account } as Parameters<
     ReturnType<typeof walletClient>['writeContract']
   >[0]);
   onHash?.(hash);
   const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+  noteMined(receipt.blockNumber);
   if (receipt.status !== 'success') throw new Error(`Transaction reverted on-chain (${hash}).`);
   return { hash, receipt };
 }
@@ -36,15 +55,21 @@ export async function readAllowance(owner: Address, spender: Address, token: Add
   return publicClient.readContract({ address: token, abi: mockUSDCAbi, functionName: 'allowance', args: [owner, spender] });
 }
 
+export async function readBalance(owner: Address, token: Address = USDC): Promise<bigint> {
+  return publicClient.readContract({ address: token, abi: mockUSDCAbi, functionName: 'balanceOf', args: [owner] });
+}
+
 /**
  * buyCover(quote, sig); returns the new cover id parsed from CoverPurchased, and remembers the purchase tx
  * in this browser (lib/purchases.ts) so the My covers Tx cell finds it with one receipt read.
+ * `afterApprove`: the premium approve was mined moments ago (see send).
  */
-export async function buyCover(account: Address, pool: Address, q: QuoteJson, sig: Hex, onHash?: (h: Hex) => void) {
+export async function buyCover(account: Address, pool: Address, q: QuoteJson, sig: Hex, onHash?: (h: Hex) => void, afterApprove = false) {
   const done = await send(
     account,
     { address: pool, abi: coverPoolAbi, functionName: 'buyCover', args: [toContractQuote(q), sig] },
     onHash,
+    { afterApprove },
   );
   const coverId = coverIdFromReceipt(done.receipt, pool);
   if (coverId !== undefined) rememberPurchase(hyperEvmTestnet.id, pool, coverId, done.hash, done.receipt.blockNumber);
@@ -59,8 +84,8 @@ export const triggerCover = (account: Address, pool: Address, id: bigint, onHash
 export const expireCover = (account: Address, pool: Address, id: bigint, onHash?: (h: Hex) => void) =>
   send(account, { address: pool, abi: coverPoolAbi, functionName: 'expire', args: [id] }, onHash);
 
-export const deposit = (account: Address, pool: Address, assets: bigint, onHash?: (h: Hex) => void) =>
-  send(account, { address: pool, abi: coverPoolAbi, functionName: 'deposit', args: [assets, account] }, onHash);
+export const deposit = (account: Address, pool: Address, assets: bigint, onHash?: (h: Hex) => void, afterApprove = false) =>
+  send(account, { address: pool, abi: coverPoolAbi, functionName: 'deposit', args: [assets, account] }, onHash, { afterApprove });
 
 export const withdraw = (account: Address, pool: Address, assets: bigint, onHash?: (h: Hex) => void) =>
   send(account, { address: pool, abi: coverPoolAbi, functionName: 'withdraw', args: [assets, account, account] }, onHash);
