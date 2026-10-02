@@ -145,7 +145,7 @@ set (§5.6) and is checked by the same function:
 |---|---|---|---|---|
 | `maxUtilizationBps` | 1 | 9 000 | | 8 000 |
 | `perPerpCapBps` | 1 | `maxUtilizationBps` | | 5 000 |
-| `maxDuration` | 1 hour | 30 days | ≤ `withdrawDelay` | 604 800 |
+| `maxDuration` | 1 hour | 30 days | < `withdrawDelay` | 604 800 |
 | `maxSpotDeviationBps` | 1 | 500 | ≤ 100 | 30 |
 | `minPayout` | 1 | 1 000 000e6 | | 1e6 |
 | `minPremiumBps` | 1 | 5 000 | | 20 |
@@ -183,6 +183,7 @@ function capacityBase() public view returns (uint256); // B
 **Accounting (v2).**
 - `totalAssets() = USDC balance − owedAssets − unearnedPremium`. Owed payouts are not pool money, and a
   premium becomes pool money (raises the share price) only when its cover settles (expire or trigger).
+  `totalAssets` saturates at 0; that floor is unreachable while invariant 1 (§5.8) holds.
 - `freeAssets() = totalAssets − lockedAssets` (saturating at 0), i.e. `balance − locked − owed − unearned`.
   LP exits are bounded by `freeAssets`, so they never touch locked, owed or unearned USDC.
 - Capacity base `B = totalAssets() − _convertToAssets(totalEscrowedShares, Floor)` (saturating at 0).
@@ -191,7 +192,10 @@ function capacityBase() public view returns (uint256); // B
 **Windows.** The sale window and the breaker window share `saleWindow` and the same reset rule, but reset
 independently: a window is `[start, start + saleWindow)` and starts at the first sale (resp. payout) after
 the previous one ended. At a reset the window's base is snapshotted from `B` *before* the current call's own
-accounting, and that snapshot is the base for the whole window.
+accounting, and that snapshot is the base for the whole window. `windowStart` and `paidWindowStart` start
+at 0, so the first sale (resp. the first payout) opens a window (`block.timestamp ≥ saleWindow` on any real
+chain). An owner unpause (`setPaused(false)`) also resets the breaker window (`paidWindowStart = 0;
+paidInWindow = 0`), so the next payout opens a fresh one instead of re-tripping on the old window's sum.
 
 `buyCover` checks, in order (each failure is a custom error naming the check; new items marked NEW). All
 checks before step 7 are view-only; the price is read once (step 3) and that one `px` is used for every
@@ -221,16 +225,23 @@ price check:
    `soldInWindow += payout`; `buyerWindow[buyer] = (windowStart, bSold + payout)`; store cover; emit
    `CoverPurchased`; pull `premium` (`safeTransferFrom`).
 
-**Throttle bound.** Each window sells at most `maxSoldPerWindowBps × windowAssets`, and the snapshot cannot
-be raised mid-window by a deposit. Any interval of length `saleWindow` overlaps at most two windows. With the
+**Throttle bound (strict mode only).** Each window sells at most `maxSoldPerWindowBps × windowAssets`, and
+the snapshot cannot be raised mid-window by a deposit. Any interval of length `saleWindow` overlaps at most two windows. With the
 premium floor, the net loss per window is at most a fraction `c = maxSoldPerWindowBps/1e4 × (1 −
 minPremiumBps/1e4)` of the pool, so a compromised quote signer that sells and triggers through `N` windows
-takes at most `1 − (1 − c)^N` of the pool (testnet values: c ≈ 0.2495; 1 window ≈ 25 %, 2 ≈ 44 %, 4 ≈ 68 %).
+takes at most `1 − (1 − c)^N` of the pool (at the testnet caps c ≈ 0.2495; 1 window ≈ 25 %, 2 ≈ 44 %, 4 ≈
+68 %). This N-window bound holds **only in strict mode** (`withdrawDelay > maxDuration`, §5.6, audit L-1).
+With non-strict delays an attacker who also supplies capital defeats it (audit M-1, proven): deposit, sell
+to the cap, request, claim at par once the request matures, then trigger, so the attacker's capital has left
+before the covers it backed pay out. On testnet (non-strict) the throttle and the queue therefore only narrow
+that race; they do not bound it.
 The covers also need a real oracle move of at least `minLevelDistanceBps` to trigger. The payout breaker
 (below) pauses sales on its own in the first breaker window whose payouts exceed `maxPaidPerWindowBps`, so
 an attacker who triggers as they sell is stopped within about one window. An attacker who **sells without
-triggering** is bounded only by the utilization cap: covers already sold stay payable after a pause, so the
-worst case is `maxUtilizationBps × B × (1 − minPremiumBps/1e4)` once the price moves. Against that path the
+triggering** (the patient path, audit I-3: sell up to the utilization cap over several windows, trigger
+later) is bounded only by the utilization cap: covers already sold stay payable after a pause, so the worst
+case is `maxUtilizationBps × B × (1 − minPremiumBps/1e4)` (up to 80 % of B at the testnet caps) once the
+price moves. The one-window loss shown by the PoC test (24.95 %) is therefore not a general bound. Against that path the
 defences are the monitoring alerts (sale cap reached, floor-priced sales, §5.10) and the guardian's pause.
 The per-buyer share stops one address from filling a window and blocking honest buyers; a second address
 also needs its own HyperCore position (check 4). `soldInWindow` counts gross payout sold and never
@@ -240,7 +251,8 @@ decreases. A change of `saleWindow` or a cap applies from the next sale.
 (`CoverPastExpiry`), oracle breaches level (`LevelNotBreached`). Effects, in order:
 1. `status = Paid`; unlock (total and per perp); `unearnedPremium −= premium`.
 2. Breaker: if `block.timestamp ≥ paidWindowStart + saleWindow` then `paidWindowStart = now;
-   paidWindowAssets = B` (B as read at the start of `trigger`, before step 1); `paidInWindow += payout`; if `paidInWindow >
+   paidWindowAssets = B; paidInWindow = 0` (B as read at the start of `trigger`, before step 1); then
+   `paidInWindow += payout`; if `paidInWindow >
    paidWindowAssets × maxPaidPerWindowBps / 10000` and the pool is not paused: `_pause()` and emit
    `LossBreakerTripped(paidInWindow, cap)`. The breaker never reverts `trigger`.
 3. Credit first: `owed[buyer] += payout; owedAssets += payout`; emit `CoverTriggered`.
@@ -366,8 +378,12 @@ to stop. With the window, a given LP's instant-exit option is open only a fracti
 - testnet (`D` = 600 s, `W` = 3 600 s): 6/7 ≈ 86 %. The testnet values keep the LP demo short (request,
   wait 10 minutes, claim within the hour); on testnet the exit race is therefore only slightly narrowed.
 
-In strict mode (`withdrawDelay ≥ maxDuration`) every cover that was alive when a request was made has
-expired or triggered before the request matures, so the race is closed for those covers. The residual is
+In strict mode (`withdrawDelay > maxDuration`) every cover that was alive when a request was made has
+expired or triggered before the request matures, so the race is closed for those covers. Equality is not
+enough: with `withdrawDelay == maxDuration` a cover sold in the request's second is still open for one second
+after maturity (audit L-1, proven), so the strict check is strict. With non-strict delays (testnet) a request
+made right after a sale matures before that cover settles: an LP, or an attacker who supplied the capital,
+can claim at par ahead of the payout (audit M-1); there the queue only narrows the race. The residual is
 the covers sold after the request, and only during the claim window. Because premiums are unearned until
 their cover settles, the residual is not premium capture: a matured LP who waits does not collect the
 premiums of covers still open.
@@ -385,6 +401,8 @@ premiums of covers still open.
   pool (after the timelock, it can install a signer and limits of its choice); the defence is the Safe
   threshold.
 - `setPaused(bool)` stays **immediate** (onlyOwner). Pause blocks `buyCover`, `deposit`, `mint` only.
+  `setPaused(false)` also sets `paidWindowStart = 0` and `paidInWindow = 0`, so the breaker does not re-trip
+  on the payouts that tripped it.
 - `guardian` (address, may be 0 = none; set through the timelock): `guardianPause()` pauses immediately
   (`NotGuardian()` for anyone else; no-op if already paused). The guardian can never unpause. Intended for a
   monitoring bot or a single operator key that is faster than a multisig.
@@ -394,7 +412,7 @@ premiums of covers still open.
 ```solidity
 enum OpKind { QuoteSigner, Limits, PerpAllowed, Guardian }
 uint64 public immutable configDelay;                 // s, §5.6
-uint64 public constant CONFIG_GRACE = 14 days;       // execute window after eta
+uint64 public constant CONFIG_GRACE = 3 days;        // execute window after eta
 mapping(bytes32 id => uint64 eta) public queuedEta;  // 0 = not queued
 mapping(uint32 perpIndex => bool) public perpAllowed;
 address public guardian;
@@ -446,12 +464,13 @@ the throttle and the breaker bound what a bad signer can do after execution.
 Constructor: `(IERC20 usdc, address owner, address quoteSigner, address guardian, IPriceSource,
 IPositionSource, Limits limits, uint32[] perps, uint64 configDelay, uint64 withdrawDelay, uint64 claimWindow,
 bool strict)`; reverts `ZeroAddress`, `InvalidLimits`, `InvalidDelays()`, `StrictRequired()`, or the price
-source's error for a bad perp.
+source's error for a bad perp. `owner = 0` reverts first, with OZ `OwnableInvalidOwner(address(0))` (not
+`ZeroAddress`).
 
 | Constant | Bounds (always) | Strict mode (required unless chainid is 998 or 31337) | Testnet value |
 |---|---|---|---|
 | `configDelay` | 5 min … 30 days | ≥ 48 h | 600 (10 min) |
-| `withdrawDelay` | 5 min … 60 days | ≥ `maxDuration`, now and in every later `setLimits` | 600 (10 min) |
+| `withdrawDelay` | 5 min … 60 days | > `maxDuration`, now and in every later `setLimits` (enforced by `_validateLimits`, `InvalidLimits`) | 600 (10 min) |
 | `claimWindow` | 10 min … 7 days | ≤ `withdrawDelay / 7` and ≤ 1 day | 3 600 (1 h) |
 
 - `strict` is an immutable constructor flag; `strict == false` reverts `StrictRequired()` on any chain other
@@ -548,7 +567,28 @@ Plan:
    `cachePerp` for each perp in `deployments/<env>.json` → pool (its constructor validates those perps).
    Txs land in big blocks (~1 min each); keep ≤ 8 pending nonces.
 4. Deployer sends `usingBigBlocks=false` so seeding and admin txs go back to 1 s blocks.
-5. Record addresses, tx hashes and the measured deploy gas in `deployments/testnet.json`.
+5. Record addresses, tx hashes and the measured deploy gas in `deployments/testnet-v2.json` (v1's
+   `deployments/testnet.json` stays as it is).
+
+Steps 2 and 4 are `python scripts/big-blocks.py on|off|status` (official SDK, `DEPLOYER_KEY` read from
+`.env` inside the script). Step 3 is `node scripts/deploy-v2.mjs` (the founder runs it):
+- It loads `.env` into the child process env only (never argv, never printed), checks `eth_chainId` is 998
+  or 31337 on the RPC, prints the plan and needs an explicit `--yes`. `--dry-run` runs the same steps against
+  a local anvil (31337).
+- Forge's local EVM has no HyperCore precompiles, so `cachePerp` and the pool constructor would revert in
+  forge's local pass. For `MODE=hypercore`, `Deploy.s.sol`'s `run()` therefore etches stand-in contracts at
+  `0x…0800`, `0x…0807` and `0x…080a` and configures them (prices from `STANDIN_PX6`, which the wrapper
+  fetches from the Info API) **before** `vm.startBroadcast`. `deploy()` never etches, and nothing calls a
+  stand-in inside the broadcast window, so no transaction to a precompile address is recorded (a test
+  checks the broadcast list). The stand-ins only let the local pass finish.
+- The wrapper broadcasts with `--skip-simulation --slow`: forge still calls `eth_estimateGas` for each
+  transaction, so on 998 the node runs the real precompiles, and an invalid perp aborts the deploy at that
+  transaction's estimation, before it is sent (contracts already deployed, such as the price source, stay; the
+  wrapper lists them). On anvil the hypercore route aborts there by design.
+- The deployer key is read inside the script (`vm.startBroadcast(vm.envUint("DEPLOYER_KEY"))` when set), so
+  it never appears in a command line.
+- Afterwards the wrapper reads the pool's limits, owner, signer, guardian, delays and perps back over RPC and
+  writes them with the addresses into `deployments/testnet-v2.json`.
 TODO-research (NOT VERIFIED): exact v2 deploy gas (measure in the code phase), whether a big-block deploy
 needs `bigBlockGasPrice` instead of `eth_gasPrice`, and timestamp behaviour across dual blocks.
 
@@ -567,10 +607,13 @@ needs `bigBlockGasPrice` instead of `eth_gasPrice`, and timestamp behaviour acro
   transfer or on the breaker, so the trigger loop is unchanged. New alerts (log, and later a notifier):
   `ConfigQueued`; the sale cap reached (`soldInWindow` within one minimum payout of the cap, or
   `SaleWindowCapExceeded` seen); a floor-priced sale (`premium × 10000 == payout × minPremiumBps`, rounded
-  up); `LossBreakerTripped`; `PayoutDeferred`. With a guardian key configured, the keeper may call
+  up); `LossBreakerTripped`; `PayoutDeferred`; ready but unexecuted ops (`queuedEta ≤ now`, inside the 3-day
+  `CONFIG_GRACE`, so they can still be cancelled or will go stale). With a guardian key configured, the keeper
+  may call
   `guardianPause()` on a rule the operator sets.
 - **Deploy script**: v2 constructor args (limits, guardian, perps from `deployments/<env>.json`, delays,
-  `strict=false` on 998), the deploy order and big-block steps above.
+  `strict=false` on 998), the deploy order, the stand-in route and big-block steps above
+  (`scripts/deploy-v2.mjs`, `scripts/big-blocks.py`).
 - **Docs**: SECURITY.md "Mainnet blockers" 1–6 move to "fixed in v2" once deployed with evidence.
 
 ### 5.11 v1 (deployed 2026-10-01, live testnet pools)

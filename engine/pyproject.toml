@@ -16,6 +16,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx", "ruff"]
+# scripts/big-blocks.py (ARCHITECTURE §5.9). The official hyperliquid-python-sdk itself is pinned there
+# (SDK_VERSION = 0.24.0) and installed with `pip install --no-deps hyperliquid-python-sdk==0.24.0`: its metadata
+# caps eth-account < 0.14 and eth-utils < 6, and listing it here would make pip downgrade web3 8 to 7.x.
+# These are its remaining runtime dependencies.
+deploy = ["msgpack>=1.0.5,<2", "websocket-client>=1.5.1,<2"]
 
 [tool.setuptools]
 packages = ["numera_engine"]
