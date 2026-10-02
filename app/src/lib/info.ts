@@ -48,3 +48,42 @@ export async function fetchMarket(signal?: AbortSignal): Promise<Market> {
 export function fetchAccount(user: string, signal?: AbortSignal): Promise<ApiAccount> {
   return info<ApiAccount>({ type: 'clearinghouseState', user }, signal);
 }
+
+// userAbstraction changes only on a user action, so it is read once per wallet per page load.
+const abstractionCache = new Map<string, Promise<string>>();
+
+/** Account abstraction mode ("unifiedAccount", "portfolioMargin", "default", ...), cached per wallet. A failed read is not cached. */
+export function fetchAbstraction(user: string): Promise<string> {
+  const key = user.toLowerCase();
+  let p = abstractionCache.get(key);
+  if (!p) {
+    p = info<string>({ type: 'userAbstraction', user });
+    abstractionCache.set(key, p);
+    p.catch(() => abstractionCache.delete(key));
+  }
+  return p;
+}
+
+/** Test hook. */
+export const clearAbstractionCache = () => abstractionCache.clear();
+
+export interface SpotBalance {
+  coin: string;
+  token: number;
+  total: string;
+  hold: string;
+}
+export interface SpotAccount {
+  balances: SpotBalance[];
+}
+
+export function fetchSpotAccount(user: string, signal?: AbortSignal): Promise<SpotAccount> {
+  return info<SpotAccount>({ type: 'spotClearinghouseState', user }, signal);
+}
+
+/** Spot `total` of the perp collateral coin (USDC), matched by name, not by token index. */
+export function spotCollateralTotal(spot: SpotAccount, coin = 'USDC'): number | undefined {
+  const b = spot.balances?.find((x) => x.coin === coin);
+  const v = b ? Number(b.total) : NaN;
+  return Number.isFinite(v) ? v : undefined;
+}

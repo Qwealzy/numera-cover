@@ -4,7 +4,7 @@ import { cached, invalidate } from '../lib/rpc';
 import { useApp } from '../state';
 import { useNow, usePoll } from '../hooks';
 import { capView, loadPositions, type PositionRow } from '../lib/positions';
-import { defaultLevel } from '../lib/liq';
+import { ACCOUNT_MODE_LABEL, defaultLevel, liqExplain } from '../lib/liq';
 import { fmtDuration, fmtFixed, fmtPct, fmtProb, fmtPx6, fmtTime, fmtUsdc, px6ToNumber, shortAddr } from '../lib/format';
 import {
   buildQuoteRequest,
@@ -65,7 +65,31 @@ export function Protect() {
           <section className="panel">
             <div className="panel__head">
               <h2>{poolKind === 'mock' ? 'Positions in the MOCK position source' : 'Hyperliquid testnet positions'}</h2>
-              <span className="meta">{poolKind === 'mock' ? `source ${shortAddr(pool.positionSource)}` : 'Info API clearinghouseState'}</span>
+              <span className="meta">
+                {poolKind === 'mock' ? (
+                  `source ${shortAddr(pool.positionSource)}`
+                ) : (
+                  <>
+                    Info API clearinghouseState
+                    {rows[0]?.accountMode && (
+                      <>
+                        {' · '}
+                        <span
+                          className="chip"
+                          data-testid="account-mode"
+                          title={
+                            rows[0].accountMode === 'standard'
+                              ? 'Perp balance is separate from spot: cross positions are backed by the perp account value'
+                              : 'Spot USDC backs cross positions (Info API userAbstraction); liquidation uses the spot USDC total'
+                          }
+                        >
+                          {ACCOUNT_MODE_LABEL[rows[0].accountMode]}
+                        </span>
+                      </>
+                    )}
+                  </>
+                )}
+              </span>
             </div>
             {!subject ? (
               <p className="empty">Connect a wallet or enter an address above to see positions.</p>
@@ -183,7 +207,7 @@ function PositionsTable({
                 <td className="r">{o ? (o.ok ? fmtPx6(o.px6) : <span title={o.error}>n/a</span>) : '—'}</td>
                 <td className="r">
                   {r.liq.px ? fmtUsd(r.liq.px) : 'none'}{' '}
-                  <span className="chip" title={r.liq.source === 'api' ? 'From the Info API' : 'Computed with the Hyperliquid formula (Info API value was null)'}>
+                  <span className="chip" data-testid="liq-chip" title={liqExplain(r.liq, r.accountMode)}>
                     {r.liq.source === 'api' ? 'api' : r.source === 'mock' ? 'est.' : 'calc'}
                   </span>
                 </td>
@@ -267,11 +291,18 @@ function PositionDetail({ row }: { row: PositionRow }) {
 l = 1 / (2 × maxLeverage) = 1 / ${2 * inp.maxLeverage}
 price (mark) = ${inp.price}
 side = ${inp.side}, size = ${inp.size}
-margin_available = ${row.levType === 'isolated' ? 'isolated margin − maintenance' : 'account value − cross maintenance'} = ${inp.marginAvailable.toFixed(6)}
+margin_available = ${row.liq.marginNote ?? ''}
+                 = ${inp.marginAvailable.toFixed(6)}
 liq = ${row.liq.px?.toFixed(2) ?? 'none'}`}
           </div>
+          {row.liq.caveat && (
+            <p className="faint small" style={{ marginTop: 6 }}>
+              Note: {row.liq.caveat}.
+            </p>
+          )}
           <p className="faint small" style={{ marginTop: 6 }}>
-            Hyperliquid docs, trading/liquidations. First margin tier assumed.
+            Hyperliquid docs, trading/liquidations{row.liq.formula === 'unified-cross' ? ' and trading/account-abstraction-modes (unified account ratio)' : ''}. First margin
+            tier assumed.
           </p>
         </details>
       )}
