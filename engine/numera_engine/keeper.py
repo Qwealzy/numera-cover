@@ -211,6 +211,15 @@ class PoolBook:
         return {c.perp_index for c in self.active.values()}
 
 
+def state_block(call_block: Any) -> int | None:
+    """Head block whose state an ``eth_call`` at ``latest`` read, from ``block.number`` inside the call.
+    On HyperEVM testnet both RPCs run that call in block head + 1 (``--timing`` dry runs, 2026-10-02:
+    multicall ``getBlockNumber()`` = ``eth_blockNumber`` + 1), so this subtracts 1 and the result compares
+    like-for-like with ``eth_blockNumber`` probes. A node that runs it at the head itself reads 1 block
+    behind here, well inside ``--max-head-lag``."""
+    return None if call_block is None else max(0, int(call_block) - 1)
+
+
 def due(actions: Iterable[Action], sent: Mapping[int, float], t: float,
         resend_after: float = RESEND_AFTER_S) -> list[Action]:  # fmt: skip
     """Actions not already sent within ``resend_after`` seconds (``sent``: cover id -> send time)."""
@@ -557,23 +566,23 @@ class Keeper:
             calls += w.calls()
         keys = [c.key for c in calls]
         out = dict(zip(keys, mc.aggregate(self.rpc, calls, fresh=self.fast), strict=True))
-        self.rpc.note_head(out.get("bn"))
+        self.rpc.note_head(state_block(out.get("bn")))
         ep = self.rpc.last
         if self.fast and ep is not None and self.rpc.lagging(ep):
             log.info("[keeper] decision read at block %s from %s is %s blocks behind; re-reading from a "
-                     "fresher rpc", out.get("bn"), host(ep.url), self.rpc.lag(ep))  # fmt: skip
+                     "fresher rpc", state_block(out.get("bn")), host(ep.url), self.rpc.lag(ep))  # fmt: skip
             out = dict(zip(keys, mc.aggregate(self.rpc, calls, fresh=True), strict=True))
-            self.rpc.note_head(out.get("bn"))
+            self.rpc.note_head(state_block(out.get("bn")))
         if out["ts"] is None:
             raise RuntimeError("Multicall3.getCurrentBlockTimestamp() failed")
-        self.head = None if out.get("bn") is None else int(out["bn"])
+        self.head = state_block(out.get("bn"))
         return out, price_keys
 
     def _fold(self, out: Mapping[Any, Any], price_keys: list[tuple[str, int]],
               ) -> tuple[dict[str, dict[int, int | None]], dict[int, list[int]]]:  # fmt: skip
         """Pure: fold the decision read into the books; returns (prices, ids still to backfill)."""
         if self.watches:
-            self._block = self.head
+            self._block = out.get("bn")  # the call's block.number, as before (alert scan ranges)
             for w in self.watches.values():
                 self.alerts += emit(w.update(out, int(out["ts"]), self._block))
         prices: dict[str, dict[int, int | None]] = {}

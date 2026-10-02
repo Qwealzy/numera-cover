@@ -43,8 +43,8 @@ class TimedChain(FakeChain):
         return self.head0 + int(self.clock.t)
 
     def sub(self, target, data):
-        if data[:4] == mc.selector("getBlockNumber()"):
-            return True, encode(["uint256"], [self.head()])
+        if data[:4] == mc.selector("getBlockNumber()"):  # eth_call at latest runs in head + 1 (HyperEVM)
+            return True, encode(["uint256"], [self.head() + 1])
         return super().sub(target, data)
 
     def __call__(self, url, payload, timeout):
@@ -198,6 +198,12 @@ def test_send_goes_out_before_the_log_scan_and_backfill():
 
 
 # -- decision reads avoid a lagging RPC -------------------------------------------------------------------
+
+
+def test_call_block_maps_to_the_head_it_read():
+    from numera_engine.keeper import state_block
+
+    assert state_block(65837373) == 65837372 and state_block(None) is None and state_block(0) == 0
 
 
 class SplitNet:
