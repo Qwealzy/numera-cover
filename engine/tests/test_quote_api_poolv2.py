@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from numera_engine.deployments import load as load_deployment
 from numera_engine.deployments import parse, v2_sibling
-from numera_engine.poolv2 import Limits, V2ReadError, V2State, level_distance_bps, premium_floor
+from numera_engine.poolv2 import Limits, V1Gate, V2ReadError, V2State, level_distance_bps, premium_floor
 from numera_engine.pricing import TailTable
 from numera_engine.quote_api import Settings, create_app
 
@@ -50,8 +50,9 @@ def state(**kw):
 class StubV2:
     """V2StateReader stand-in: a state for v2 pools, None (v1) for others, or an error."""
 
-    def __init__(self, st=None, fail=False, versions=None):
+    def __init__(self, st=None, fail=False, versions=None, gate=None, gate_fail=False):
         self.st, self.fail, self.versions, self.calls = st or state(), fail, dict(versions or {}), []
+        self.gate, self.gate_fail, self.v1_calls = gate, gate_fail, []
 
     def version(self, pool):
         return self.versions.get(pool.lower())
@@ -65,6 +66,12 @@ class StubV2:
             return self.st
         self.versions[pool.lower()] = "v1"
         return None
+
+    def read_v1(self, pool):
+        self.v1_calls.append(pool.lower())
+        if self.gate_fail:
+            raise V2ReadError("rpc down")
+        return self.gate
 
 
 def client(v2=None, deployment=DEP, **kw):
@@ -152,6 +159,54 @@ def test_capacity_refusals_replicate_checks_5_and_6():
                             buyer_sold=600 * 10**6)))  # fmt: skip
     r = c.post("/quote", json=body())  # buyer cap 2,500 x 25 % = 625
     assert r.status_code == 422 and "buyer" in r.json()["reason"]
+
+
+def test_reviewer_repro_window_reset_inside_the_quote_lifetime():
+    """Review 2026-10-02: B 400, window opened at 1000 on 1,000 USDC, nothing sold, payout 50. Open window:
+    cap 250, buyer cap 62.5 (passes). Reset on B: cap 100, buyer cap 25 (fails). The window ends at 4600;
+    a quote issued at 4590 with a 30 s TTL can still be used after it, so it must be refused already."""
+    st = state(capacity_base=400 * 10**6, window_start=1000, window_assets=1000 * 10**6, sold_in_window=0)
+    for t, ok in ((4569, True), (4570, False), (4590, False), (4600, False)):
+        app = create_app(Settings(env="testnet", chain_id=998, pool=POOL_V1, signer_key=KEY, rate_per_min=0),
+                         StubMarket(), TailTable(coins={}), clock=lambda t=t: t, nonce_fn=lambda: 7,
+                         spot_reader=StubSpot(), deployment=DEP, v2_reader=StubV2(st))  # fmt: skip
+        r = TestClient(app).post("/quote", json=body(payout=50 * 10**6))
+        if ok:
+            assert r.status_code == 200, (t, r.text)
+            assert r.json()["quote"]["deadline"] == t + 30
+        else:
+            assert r.status_code == 422 and r.json()["error"] == "capacity", (t, r.text)
+            assert "50000000 > 25000000" in r.json()["reason"], r.text
+
+
+def test_paused_pool_is_refused_503_v2_and_v1():
+    r = client(StubV2(state(paused=True))).post("/quote", json=body())
+    assert r.status_code == 503 and r.json()["error"] == "pool_paused", r.text
+    v2 = StubV2(gate=V1Gate(paused=True, min_payout=10**6))
+    r = client(v2).post("/quote", json=body(pool=POOL_V1))
+    assert r.status_code == 503 and r.json()["error"] == "pool_paused", r.text
+    assert v2.v1_calls == [POOL_V1]
+
+
+def test_payout_below_min_payout_is_refused_422_v2_and_v1():
+    lim = Limits(**vars(TESTNET) | {"minPayout": 5 * 10**6})
+    r = client(StubV2(state(limits=lim))).post("/quote", json=body(payout=5 * 10**6 - 1))
+    assert r.status_code == 422 and r.json()["error"] == "payout_too_small", r.text
+    assert "5000000" in r.json()["reason"]
+    r = client(StubV2(state(limits=lim))).post("/quote", json=body(payout=5 * 10**6, level=40_000_000_000))
+    assert r.status_code == 200, r.text  # exactly minPayout passes (contract: payout < minPayout reverts)
+    gate = V1Gate(paused=False, min_payout=2 * 10**6)
+    r = client(StubV2(gate=gate)).post("/quote", json=body(pool=POOL_V1, payout=2 * 10**6 - 1))
+    assert r.status_code == 422 and r.json()["error"] == "payout_too_small", r.text
+    r = client(StubV2(gate=gate)).post("/quote", json=body(pool=POOL_V1, payout=2 * 10**6))
+    assert r.status_code == 200, r.text
+
+
+def test_v1_gate_unreadable_still_quotes():
+    r = client(StubV2(gate_fail=True)).post("/quote", json=body(pool=POOL_V1))
+    assert r.status_code == 200, r.text  # the contract still enforces both; the read is best effort
+    r = client(StubV2(gate=None)).post("/quote", json=body(pool=POOL_V1))
+    assert r.status_code == 200, r.text
 
 
 def test_known_v2_pool_state_unavailable_is_503_unknown_pool_falls_back_to_v1():

@@ -145,9 +145,15 @@ def sale_window(s: V2State, now: int) -> SaleWindow:
     return SaleWindow(reset, cap, sold, buyer_cap, b_sold, None if reset else s.window_start + lim.saleWindow)
 
 
-def capacity_refusal(s: V2State, payout: int, now: int) -> CapacityRefusal | None:
-    """Checks 5 and 6 of buyCover, in the contract's order; None when a sale of ``payout`` at ``now``
-    passes them."""
+def capacity_refusal(s: V2State, payout: int, now: int, until: int | None = None) -> CapacityRefusal | None:
+    """Checks 5 and 6 of buyCover, in the contract's order; None when a sale of ``payout`` passes them at
+    every block time in ``[now, until]`` (``until`` defaults to ``now``; the Quote API passes the quote's
+    deadline, the last second buyCover can run).
+
+    Check 5 does not depend on the time. Check 6 has two regimes: the open window (``t < windowStart +
+    saleWindow``: the window-start snapshot and what was sold in it) and the reset (``t ≥`` that end: a fresh
+    cap on the current B, nothing sold). When the window ends inside ``[now, until]`` the sale must pass
+    both, because the reset cap on a B that shrank since the window opened can be the smaller one."""
     lim, b = s.limits, s.capacity_base
     after, cap = s.locked + payout, b * lim.maxUtilizationBps // BPS
     if after > cap:
@@ -155,11 +161,14 @@ def capacity_refusal(s: V2State, payout: int, now: int) -> CapacityRefusal | Non
     after, cap = s.locked_by_perp + payout, b * lim.perPerpCapBps // BPS
     if after > cap:
         return CapacityRefusal("perp_cap", after, cap)
-    w = sale_window(s, now)
-    if w.sold + payout > w.cap:
-        return CapacityRefusal("sale_window", w.sold + payout, w.cap)
-    if w.buyer_sold + payout > w.buyer_cap:
-        return CapacityRefusal("buyer_window", w.buyer_sold + payout, w.buyer_cap)
+    end = s.window_start + lim.saleWindow
+    times = [now] if until is None or not now < end <= until else [now, end]
+    for t in times:
+        w = sale_window(s, t)
+        if w.sold + payout > w.cap:
+            return CapacityRefusal("sale_window", w.sold + payout, w.cap)
+        if w.buyer_sold + payout > w.buyer_cap:
+            return CapacityRefusal("buyer_window", w.buyer_sold + payout, w.buyer_cap)
     return None
 
 
@@ -183,6 +192,22 @@ def state_calls(pool: str, perp: int, buyer: str) -> list[mc.Call]:
         c(pool, "paused()", [], [], ["bool"], "paused"),
         mc.block_timestamp("ts"),
     ]
+
+
+def v1_calls(pool: str) -> list[mc.Call]:
+    """What a v1 pool's buyCover gates on besides the quote itself: ``paused()`` (whenNotPaused) and the
+    public ``minPayout()`` (PayoutTooSmall). One Multicall3 batch."""
+    c = mc.call
+    return [
+        c(pool, "paused()", [], [], ["bool"], "paused"),
+        c(pool, "minPayout()", [], [], ["uint256"], "minPayout"),
+    ]
+
+
+@dataclass(frozen=True)
+class V1Gate:
+    paused: bool
+    min_payout: int
 
 
 class V2ReadError(RuntimeError):
@@ -217,16 +242,17 @@ def decode_state(out: dict[Any, Any]) -> V2State | None:
 class V2StateReader:
     """Per-pool version cache + one-``eth_call`` state reads, cached ``ttl_s`` per (pool, perp, buyer).
 
-    ``read`` returns None for a v1 pool. Versions: "v2" from the deployments file (``known``) or a
-    successful probe; "v1" when the probe sub-call failed inside a multicall that itself succeeded. An RPC
-    failure caches nothing and raises V2ReadError (the caller decides: refuse for a known v2 pool, quote as
-    v1 for an unknown one)."""
+    ``read`` returns None for a v1 pool (``read_v1`` then gives its pause flag and minPayout). Versions:
+    "v2" from the deployments file (``known``) or a successful probe; "v1" when the probe sub-call failed
+    inside a multicall that itself succeeded. An RPC failure caches nothing and raises V2ReadError (the
+    caller decides: refuse for a known v2 pool, quote as v1 for an unknown one)."""
 
     def __init__(self, rpc: Any, known: dict[str, str] | None = None, ttl_s: float = DEFAULT_STATE_CACHE_S,
                  clock: Callable[[], float] = time.monotonic) -> None:  # fmt: skip
         self.rpc, self.ttl_s, self.clock = rpc, ttl_s, clock
         self.versions: dict[str, str] = {k.lower(): v for k, v in (known or {}).items() if v}
         self._hits: dict[tuple[str, int, str], tuple[float, V2State]] = {}
+        self._v1_hits: dict[str, tuple[float, V1Gate | None]] = {}
         self._lock = threading.Lock()
 
     def version(self, pool: str) -> str | None:
@@ -258,3 +284,22 @@ class V2StateReader:
             self.versions[p] = "v2"
             self._hits[key] = (now, state)
         return state
+
+    def read_v1(self, pool: str) -> V1Gate | None:
+        """``paused()`` and ``minPayout()`` of a v1 pool, cached ``ttl_s`` per pool. None when either getter
+        failed (not a CoverPool ABI we know); V2ReadError on an RPC failure (nothing cached)."""
+        p = pool.lower()
+        now = self.clock()
+        with self._lock:
+            hit = self._v1_hits.get(p)
+            if hit and now - hit[0] < self.ttl_s:
+                return hit[1]
+        calls = v1_calls(pool)
+        try:
+            paused, min_payout = mc.aggregate(self.rpc, calls)
+        except Exception as exc:  # noqa: BLE001 - RPC down, rate limit, ...
+            raise V2ReadError(f"pool state read failed: {exc}") from exc
+        gate = None if paused is None or min_payout is None else V1Gate(bool(paused), int(min_payout))
+        with self._lock:
+            self._v1_hits[p] = (now, gate)
+        return gate
