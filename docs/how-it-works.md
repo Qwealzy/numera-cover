@@ -587,8 +587,9 @@ Steps 2 and 4 are `python scripts/big-blocks.py on|off|status` (official SDK, `D
   stand-in inside the broadcast window, so no transaction to a precompile address is recorded (a test
   checks the broadcast list). The stand-ins only let the local pass finish.
 - The wrapper broadcasts with `--skip-simulation --slow`: forge still calls `eth_estimateGas` for each
-  transaction, so on 998 the node runs the real precompiles, and an invalid perp aborts the deploy at
-  estimation, before any gas is spent. (On anvil the hypercore route aborts there by design.)
+  transaction, so on 998 the node runs the real precompiles, and an invalid perp aborts the deploy at that
+  transaction's estimation, before it is sent (contracts already deployed, such as the price source, stay; the
+  wrapper lists them). On anvil the hypercore route aborts there by design.
 - The deployer key is read inside the script (`vm.startBroadcast(vm.envUint("DEPLOYER_KEY"))` when set), so
   it never appears in a command line.
 - Afterwards the wrapper reads the pool's limits, owner, signer, guardian, delays and perps back over RPC and
