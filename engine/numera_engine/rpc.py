@@ -12,6 +12,14 @@ by more than ``max_head_lag`` blocks (heads are extrapolated at ``block_s`` per 
 answers. ``batch`` sends several calls in one HTTP request (one round-trip), falling back to one request per
 call when a node does not accept JSON-RPC batches.
 
+Pinning (keeper sends): ``call``/``batch`` take ``ep``, the endpoint to use (normally the one that served the
+decision read), so the nonce, the gas estimate and ``eth_sendRawTransaction`` see the same state the decision
+saw. A pinned endpoint that is cooling down is replaced by a ``fresh`` pick.
+
+Chain guard: ``verify_chain`` asks every endpoint for ``eth_chainId`` (directly, no failover). Any endpoint
+answering an id outside the allowed set, or endpoints disagreeing, is an error; an endpoint that cannot be
+reached is dropped from the list (never used, never compared for lag). Callers that send run it first.
+
 ``FailoverProvider`` lets web3 (used only to build and send the rare keeper transactions) go through the
 same client, so sends are counted and fail over too.
 """
@@ -22,7 +30,7 @@ import logging
 import random
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -155,6 +163,7 @@ class FailoverRpc:
         self.max_head_lag = max_head_lag
         self.block_s = block_s
         self.last: Endpoint | None = None  # endpoint that answered the last call (result or RpcError)
+        self.chain_id: int | None = None  # set by verify_chain (every endpoint answered this id)
 
     # -- stats ----------------------------------------------------------------------------------------
 
@@ -200,8 +209,12 @@ class FailoverRpc:
         lag = self.lag(ep, now)
         return lag is not None and lag > self.max_head_lag
 
-    def _pick(self, now: float, fresh: bool = False) -> Endpoint | None:
+    def _pick(self, now: float, fresh: bool = False, ep: Endpoint | None = None) -> Endpoint | None:
         healthy = self.healthy(now)
+        if ep is not None:  # pinned: that endpoint while it is healthy, else the freshest healthy one
+            if ep in healthy:
+                return ep
+            fresh = True
         if fresh and len(healthy) > 1:  # a lagging endpoint is used only when no healthy one keeps up
             healthy = [e for e in healthy if not self.lagging(e, now)] or healthy
         return healthy[0] if healthy else None
@@ -227,17 +240,20 @@ class FailoverRpc:
 
     # -- call -----------------------------------------------------------------------------------------
 
-    def call(self, method: str, params: list[Any] | None = None, fresh: bool = False) -> Any:
+    def call(self, method: str, params: list[Any] | None = None, fresh: bool = False,
+             ep: Endpoint | None = None) -> Any:  # fmt: skip
         """One JSON-RPC call; fails over and backs off on rate limits and transport errors. ``fresh``: skip
-        endpoints whose head lags a healthy one by more than ``max_head_lag`` blocks (module docstring)."""
-        body = self._roundtrip(method, lambda: self._payload(method, params), fresh, batch=False)
+        endpoints whose head lags a healthy one by more than ``max_head_lag`` blocks; ``ep``: use that
+        endpoint while it is healthy (module docstring)."""
+        body = self._roundtrip(method, lambda: self._payload(method, params), fresh, batch=False, ep=ep)
         if "error" in body:
             raise _rpc_error(body["error"])
         return body["result"]
 
-    def batch(self, calls: Sequence[tuple[str, list[Any]]]) -> list[Any]:
+    def batch(self, calls: Sequence[tuple[str, list[Any]]], ep: Endpoint | None = None) -> list[Any]:
         """Several calls in one HTTP request (one round-trip). Each item is its result or an ``RpcError``
-        instance (returned, not raised). A node that refuses batches gets one request per call instead."""
+        instance (returned, not raised). A node that refuses batches gets one request per call instead.
+        ``ep``: pinned endpoint, as in ``call``."""
         if not calls:
             return []
         payloads: list[dict[str, Any]] = []
@@ -246,14 +262,14 @@ class FailoverRpc:
             payloads[:] = [self._payload(m, p) for m, p in calls]
             return payloads
 
-        body = self._roundtrip(f"batch[{len(calls)}]", build, False, batch=True)
+        body = self._roundtrip(f"batch[{len(calls)}]", build, False, batch=True, ep=ep)
         if not isinstance(body, list):  # batch refused (one error object): one call each
             log.info("[%s] batch refused by %s; sending %d calls one by one", self.label,
                      host(self.last.url) if self.last else "-", len(calls))  # fmt: skip
             out: list[Any] = []
             for m, p in calls:
                 try:
-                    out.append(self.call(m, p))
+                    out.append(self.call(m, p, ep=self.last if ep is not None else None))
                 except RpcError as e:
                     out.append(e)
             return out
@@ -273,12 +289,14 @@ class FailoverRpc:
         self._id += 1
         return {"jsonrpc": "2.0", "id": self._id, "method": method, "params": params or []}
 
-    def _roundtrip(self, what: str, build: Callable[[], Any], fresh: bool, batch: bool) -> Any:
+    def _roundtrip(self, what: str, build: Callable[[], Any], fresh: bool, batch: bool,
+                   ep: Endpoint | None = None) -> Any:  # fmt: skip
         """Post ``build()`` until an endpoint gives a usable answer; returns the parsed body."""
         waited = 0.0
+        pin = ep
         while True:
             now = self.clock()
-            ep = self._pick(now, fresh)
+            ep = self._pick(now, fresh, pin)
             if ep is None:
                 wait = max(0.0, min(e.cool_until for e in self.endpoints) - now)
                 if waited + wait > self.max_wait_s:
@@ -313,6 +331,45 @@ class FailoverRpc:
         ep.requests += 1
         self._recent.append(now)
         self._trim(now)
+
+    def verify_chain(self, allowed: Collection[int], attempts: int = 3) -> int:
+        """``eth_chainId`` on every endpoint (no failover; counted). Raises RuntimeError when an endpoint
+        answers an id outside ``allowed`` or the endpoints disagree; drops an endpoint that gives no usable
+        answer after ``attempts`` tries (logged), so it is never used nor compared for lag. Returns the id.
+        Runs once per client: later calls only check the verified id against ``allowed``."""
+        if self.chain_id is not None:
+            if self.chain_id not in allowed:
+                raise RuntimeError(f"chainId {self.chain_id} not allowed: {sorted(allowed)}")
+            return self.chain_id
+        ids: dict[str, int] = {}
+        for ep in list(self.endpoints):
+            got: int | None = None
+            for i in range(attempts):
+                now = self.clock()
+                self._count(ep, now)
+                try:
+                    status, body = self.post(ep.url, self._payload("eth_chainId", []), self.timeout_s)
+                    if status < 500 and isinstance(body, dict) and isinstance(body.get("result"), str):
+                        got = int(body["result"], 16)
+                        break
+                except Exception:  # noqa: BLE001 - unreachable now: retried, then dropped
+                    pass
+                if i + 1 < attempts:
+                    self.sleep(BACKOFF_BASE_S)
+            if got is None:
+                log.warning("[%s] rpc %s gave no chain id; not used", self.label, host(ep.url))
+                self.endpoints.remove(ep)
+                continue
+            if got not in allowed:
+                raise RuntimeError(f"rpc {host(ep.url)} is on chainId {got}; allowed: {sorted(allowed)}")
+            ids[ep.url] = got
+        if not ids:
+            raise RuntimeError("no RPC endpoint answered eth_chainId")
+        if len(set(ids.values())) > 1:
+            seen = ", ".join(f"{host(u)}={c}" for u, c in ids.items())
+            raise RuntimeError(f"RPC endpoints differ in chainId: {seen}")
+        self.chain_id = next(iter(ids.values()))
+        return self.chain_id
 
     def probe_head(self, ep: Endpoint) -> int | None:
         """``eth_blockNumber`` on ``ep`` alone (no failover; counted). Records and returns the head, or None

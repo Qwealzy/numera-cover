@@ -68,7 +68,7 @@ class TimedSender(FakeSender):
         super().__init__()
         self.clock, self.at = clock, []
 
-    def send(self, pool, action, prev=None, base_fee=None):
+    def send(self, pool, action, prev=None, base_fee=None, ep=None):
         self.at.append(self.clock.t)
         return super().send(pool, action, prev, base_fee)
 
@@ -182,7 +182,7 @@ def test_send_goes_out_before_the_log_scan_and_backfill():
     at_send = []
 
     class Rec(FakeSender):
-        def send(self, pool, action, prev=None, base_fee=None):
+        def send(self, pool, action, prev=None, base_fee=None, ep=None):
             at_send.append(list(chain.methods))
             return super().send(pool, action, prev, base_fee)
 

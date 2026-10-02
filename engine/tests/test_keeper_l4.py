@@ -214,7 +214,7 @@ class FakeSender:
     def __init__(self):
         self.calls = []
 
-    def send(self, pool, action, prev=None, base_fee=None):
+    def send(self, pool, action, prev=None, base_fee=None, ep=None):
         self.calls.append((pool, action.cover_id, prev))
         return SentTx(f"0x{len(self.calls):064x}", 100 + action.cover_id, 2 * BASE, 0)
 
@@ -271,7 +271,7 @@ class CappedSender(FakeSender):
         super().__init__()
         self.capped = True
 
-    def send(self, pool, action, prev=None, base_fee=None):
+    def send(self, pool, action, prev=None, base_fee=None, ep=None):
         if self.capped:
             self.calls.append((pool, action.cover_id, prev))
             raise GasCapError("base fee above the cap")
