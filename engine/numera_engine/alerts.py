@@ -8,7 +8,10 @@ Floor-priced sales come from the ``getCover`` tuples the keeper already reads. O
 needs events: ``ConfigQueued`` (and its executed/cancelled pair), ``LossBreakerTripped`` and
 ``PayoutDeferred`` are fetched by one ``eth_getLogs`` over all v2 pools every ``every_s`` seconds (default
 60 s, i.e. +1 request a minute), at most ``LOG_RANGE`` blocks per call (the public testnet RPC caps a range
-at 1000 blocks), starting ``lookback`` blocks before the first scan.
+at 1000 blocks), starting ``lookback`` blocks before the first scan. Every scan stops ``head_lag`` blocks
+behind the polled head (default 5): the public testnet RPC's log node lags its head, and an ``eth_getLogs``
+reaching the head failed there with ``block not found`` (keeper run 2026-10-02). The lagged blocks are
+scanned at the next interval; nothing is skipped.
 
 Startup catch-up. An op queued before that lookback is still executable (or cancellable) for
 ``configDelay + CONFIG_GRACE`` seconds after it was queued, so after a restart the keeper would never alert
@@ -55,6 +58,7 @@ CONFIG_GRACE_S = 3 * 86400  # CoverPool.CONFIG_GRACE (§5.5); the pool's own val
 LOG_RANGE = 1000  # blocks per eth_getLogs (testnet RPC cap)
 DEFAULT_LOG_EVERY_S = 60.0
 DEFAULT_LOOKBACK_BLOCKS = 1000
+DEFAULT_HEAD_LAG_BLOCKS = 5  # log scans end this far behind the head (the RPC's log node lags, 2026-10-02)
 DEFAULT_BLOCKS_PER_S = 1.0  # HyperEVM small blocks, 1 s (docs/research/hyperliquid.md)
 DEFAULT_CATCHUP_CAP = 300  # eth_getLogs in all for the startup catch-up (testnet 600 s + 3 d ~ 260)
 DEFAULT_CATCHUP_PER_SCAN = 10  # ... and per poll, so the trigger loop is never held up for long
@@ -308,6 +312,7 @@ class LogScanner:
     catchup_cap: int = DEFAULT_CATCHUP_CAP
     catchup_per_scan: int = DEFAULT_CATCHUP_PER_SCAN
     blocks_per_s: float = DEFAULT_BLOCKS_PER_S
+    head_lag: int = DEFAULT_HEAD_LAG_BLOCKS
     catchup_requests: int = 0
     catchup_range: tuple[int, int] | None = None  # (oldest, newest) block of the catch-up, once planned
     _catchup: tuple[int, int] | None = None  # (oldest, next newest) still to scan
@@ -320,6 +325,10 @@ class LogScanner:
         return self._last is None or t - self._last >= self.every_s or self._catchup is not None
 
     def scan(self, latest: int, t: float) -> list[Alert]:
+        """``latest`` is the polled head; every range ends at or before ``latest - head_lag``."""
+        latest = latest - max(0, self.head_lag)
+        if latest < 0:
+            return []
         alerts: list[Alert] = []
         if self._last is None or t - self._last >= self.every_s:
             alerts += self._forward(latest, t)

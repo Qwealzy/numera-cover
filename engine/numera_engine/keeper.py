@@ -39,7 +39,14 @@ from enum import IntEnum
 from typing import Any
 
 from . import multicall as mc
-from .alerts import DEFAULT_LOG_EVERY_S, DEFAULT_LOOKBACK_BLOCKS, LogScanner, PoolWatch, emit
+from .alerts import (
+    DEFAULT_HEAD_LAG_BLOCKS,
+    DEFAULT_LOG_EVERY_S,
+    DEFAULT_LOOKBACK_BLOCKS,
+    LogScanner,
+    PoolWatch,
+    emit,
+)
 from .rpc import FailoverRpc, host, resolve_rpcs  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
 
 log = logging.getLogger("numera.keeper")
@@ -336,6 +343,7 @@ class Keeper:
         balance_every_s: float = DEFAULT_BALANCE_EVERY_S,
         alert_logs_every_s: float = DEFAULT_LOG_EVERY_S,
         alert_lookback_blocks: int = DEFAULT_LOOKBACK_BLOCKS,
+        alert_head_lag_blocks: int = DEFAULT_HEAD_LAG_BLOCKS,
     ) -> None:
         if sender is None and not dry_run:
             raise ValueError("a Sender is needed unless dry_run")
@@ -359,7 +367,10 @@ class Keeper:
         self._balance_at: float | None = None
         self.last_balance: int | None = None
         self.watches: dict[str, PoolWatch] = {}  # v2 pools, filled by start()
-        self.scanner = LogScanner(rpc, self.watches, alert_logs_every_s, alert_lookback_blocks)
+        if alert_head_lag_blocks < 0:
+            raise ValueError("alert_head_lag_blocks must be >= 0")
+        self.scanner = LogScanner(rpc, self.watches, alert_logs_every_s, alert_lookback_blocks,
+                                  head_lag=alert_head_lag_blocks)  # fmt: skip
         self.alerts: list[Any] = []  # every alert emitted (tests, summary)
         self._block: int | None = None  # latest block number of the last poll (v2 pools only)
 
@@ -610,6 +621,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--alert-lookback-blocks", type=int, default=DEFAULT_LOOKBACK_BLOCKS,
                     help="blocks before startup that the first v2 alert scan covers "
                          f"(default {DEFAULT_LOOKBACK_BLOCKS})")  # fmt: skip
+    ap.add_argument("--alert-head-lag-blocks", type=int, default=DEFAULT_HEAD_LAG_BLOCKS,
+                    help="v2 alert log scans end this many blocks behind the head (the RPC's log node "
+                         f"lags; default {DEFAULT_HEAD_LAG_BLOCKS})")  # fmt: skip
     ap.add_argument("--keeper-address", default=None,
                     help="address whose balance a --dry-run reports (default: KEEPER_KEY's, else the "
                          "deployments file `keeper`)")  # fmt: skip
@@ -618,6 +632,8 @@ def main(argv: list[str] | None = None) -> None:
         ap.error("--max-fee-gwei must be > 0")
     if args.max_tx_per_poll < 1:
         ap.error("--max-tx-per-poll must be >= 1")
+    if args.alert_head_lag_blocks < 0:
+        ap.error("--alert-head-lag-blocks must be >= 0")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     key = os.environ.get("KEEPER_KEY", "").strip()
     if not key and not args.dry_run:
@@ -645,7 +661,8 @@ def main(argv: list[str] | None = None) -> None:
                     max_tx_per_poll=args.max_tx_per_poll, balance_address=balance_addr,
                     min_balance_wei=int(args.min_balance * WEI_PER_HYPE),
                     balance_every_s=args.balance_every, alert_logs_every_s=args.alert_logs_every,
-                    alert_lookback_blocks=args.alert_lookback_blocks)  # fmt: skip
+                    alert_lookback_blocks=args.alert_lookback_blocks,
+                    alert_head_lag_blocks=args.alert_head_lag_blocks)  # fmt: skip
     keeper.start()
     keeper.run(args.poll, args.duration)
 

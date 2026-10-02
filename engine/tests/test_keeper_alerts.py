@@ -1,5 +1,8 @@
 """Keeper alerts for v2 pools (ARCHITECTURE §5.10): state reads ride in the poll's one eth_call; the timelock
-and breaker events cost one eth_getLogs per interval. Fake chain, no network."""
+and breaker events cost one eth_getLogs per interval. Fake chain, no network.
+
+The fake chain's log node never lags, so most tests scan up to the head (``LAG0``); the head lag the live
+keeper uses has its own tests at the end."""
 
 import logging
 
@@ -15,6 +18,7 @@ from numera_engine.rpc import FailoverRpc
 
 LIM = Limits(8000, 5000, 604_800, 30, 1_000_000, 20, 25, 3600, 2500, 2500, 1500)
 OP = "0x" + "ab" * 32
+LAG0 = {"alert_head_lag_blocks": 0}
 
 
 class V2Chain(FakeChain):
@@ -80,7 +84,7 @@ def setup():
     clock = [0.0]
     rpc = FailoverRpc(["https://fake/evm"], post=chain, clock=lambda: clock[0])
     k = Keeper(rpc, [PoolPlan(POOL_A, "hypercore"), PoolPlan(POOL_B, "mock-v2")], watch_perps=[3],
-               dry_run=True, clock=lambda: clock[0])  # fmt: skip
+               dry_run=True, clock=lambda: clock[0], **LAG0)  # fmt: skip
     k.start()
     return chain, rpc, k, clock
 
@@ -155,7 +159,7 @@ def test_catch_up_is_bounded_by_the_deploy_block_and_the_cap():
     tx = "0x" + "de" * 32
     chain.receipts[tx] = {"blockNumber": hex(3_500), "contractAddress": POOL_B}
     rpc = FailoverRpc(["https://fake/evm"], post=chain, clock=lambda: 0.0)
-    k = Keeper(rpc, [PoolPlan(POOL_B, "mock-v2", deploy_tx=tx)], dry_run=True, clock=lambda: 0.0)
+    k = Keeper(rpc, [PoolPlan(POOL_B, "mock-v2", deploy_tx=tx)], dry_run=True, clock=lambda: 0.0, **LAG0)
     k.start()
     assert k.watches[POOL_B].deploy_block == 3_500
     k.poll()
@@ -165,7 +169,7 @@ def test_catch_up_is_bounded_by_the_deploy_block_and_the_cap():
     chain.block = 2_000_000
     clock = [0.0]
     rpc = FailoverRpc(["https://fake/evm"], post=chain, clock=lambda: clock[0])
-    k = Keeper(rpc, [PoolPlan(POOL_B, "mock-v2")], dry_run=True, clock=lambda: clock[0])
+    k = Keeper(rpc, [PoolPlan(POOL_B, "mock-v2")], dry_run=True, clock=lambda: clock[0], **LAG0)
     k.scanner.catchup_cap, k.scanner.catchup_per_scan = 7, 3
     k.start()
     per_poll = []
@@ -192,7 +196,7 @@ def test_catch_up_failure_is_retried_from_the_same_block(setup):
                 raise RuntimeError("rate limited")
             return []
 
-    s = al.LogScanner(Flaky(), {POOL_B: w}, every_s=60, lookback=1000, catchup_per_scan=10)
+    s = al.LogScanner(Flaky(), {POOL_B: w}, every_s=60, lookback=1000, catchup_per_scan=10, head_lag=0)
     s.scan(5_000, 0.0)
     assert calls == [(4001, 5000), (3001, 4000)] and s.catchup_requests == 1
     assert s.due(3.0)  # the catch-up continues next poll, before the 60 s interval
@@ -326,7 +330,7 @@ def test_log_scan_failure_is_retried_from_the_same_block(setup):
         def call(self, *a):
             raise RuntimeError("rate limited")
 
-    s = al.LogScanner(Boom(), {POOL_B: w}, every_s=60, lookback=10, catchup_cap=0)
+    s = al.LogScanner(Boom(), {POOL_B: w}, every_s=60, lookback=10, catchup_cap=0, head_lag=0)
     assert s.scan(100, 0.0) == [] and s.next_block == 91
     s.rpc = rpc
     s.scan(100, 60.0)
@@ -369,3 +373,52 @@ def test_cli_has_alert_flags():
 
     with pytest.raises(SystemExit):
         keeper.main(["--help"])
+
+
+class LaggingLogNode(V2Chain):
+    """The public testnet RPC's log node lags its head: eth_getLogs reaching the head failed with
+    ``block not found`` (keeper run 2026-10-02). Here a toBlock within ``lag`` blocks of the head fails."""
+
+    lag = 3
+
+    def __call__(self, url, payload, timeout):
+        q = payload["params"][0] if payload["method"] == "eth_getLogs" else None
+        if q is not None and int(q["toBlock"], 16) > self.block - self.lag:
+            self.methods.append("eth_getLogs")
+            return 200, {"error": {"code": -32000, "message": "block not found"}}
+        return super().__call__(url, payload, timeout)
+
+
+def test_log_scans_stop_behind_the_head_and_lose_nothing(caplog):
+    chain = LaggingLogNode()
+    clock = [0.0]
+    rpc = FailoverRpc(["https://fake/evm"], post=chain, clock=lambda: clock[0])
+    k = Keeper(rpc, [PoolPlan(POOL_B, "mock-v2")], dry_run=True, clock=lambda: clock[0])  # default lag
+    assert k.scanner.head_lag == al.DEFAULT_HEAD_LAG_BLOCKS == 5
+    k.scanner.catchup_cap = 0
+    k.start()
+    buyer = "0x" + "00" * 12 + "cc" * 20
+    chain.log(al.T_DEFERRED, ["0x" + f"{7:064x}", buyer], encode(["uint256"], [5 * 10**6]), block=4_998)
+    with caplog.at_level(logging.WARNING):
+        k.poll()
+    assert chain.log_queries == [(5_000 - 5 - 1000 + 1, 5_000 - 5, [POOL_B])]
+    assert "failed" not in caplog.text  # no "block not found"
+    assert kinds(k) == []  # the log at 4,998 is inside the lag: not scanned yet
+    clock[0] = 61
+    chain.block = 5_060
+    k.poll()
+    assert chain.log_queries[-1][:2] == (4_996, 5_055)  # resumes at the first unscanned block
+    assert kinds(k) == ["payout_deferred"]
+
+
+def test_head_lag_zero_scans_to_the_head_and_negative_is_refused():
+    chain = V2Chain()
+    rpc = FailoverRpc(["https://fake/evm"], post=chain, clock=lambda: 0.0)
+    w = al.PoolWatch(POOL_B, "mock-v2")
+    s = al.LogScanner(rpc, {POOL_B: w}, every_s=60, lookback=10, catchup_cap=0, head_lag=0)
+    s.scan(100, 0.0)
+    assert chain.log_queries[-1][:2] == (91, 100)
+    s2 = al.LogScanner(rpc, {POOL_B: w}, every_s=60, lookback=10, catchup_cap=0)
+    assert s2.scan(3, 0.0) == [] and s2.next_block is None  # head below the lag: nothing to scan yet
+    with pytest.raises(ValueError):
+        Keeper(rpc, [PoolPlan(POOL_B, "mock-v2")], dry_run=True, alert_head_lag_blocks=-1)
