@@ -160,8 +160,9 @@ contracts. v2 implements:
 - on-chain `minPremiumBps` and `minLevelDistanceBps` floors, a sale-window throttle, and a payout circuit
   breaker that pauses sales when payouts in a window exceed a cap (an owner unpause also resets the
   breaker window);
-- a timelock on `setQuoteSigner`, `setLimits` and the allowlist, `Ownable2Step`, disabled renounce, and a
-  guardian that can cancel queued changes; queued changes expire 3 days after they become executable;
+- a timelock on `setQuoteSigner`, `setLimits`, the allowlist and the guardian address (the owner queues,
+  waits `configDelay`, then executes or cancels), `Ownable2Step`, disabled renounce, and a guardian that
+  can pause the pool but never unpause it; queued changes expire 3 days after they become executable;
 - asynchronous LP exits (request, wait `withdrawDelay`, claim);
 - an on-chain, owner-set perp allowlist;
 - bounds on `setLimits`;
@@ -199,9 +200,11 @@ Residual risks that remain even with v2 as written:
   non-strict delays outside chains 998 and 31337.
 - **Patient-path loss.** Within the floors, throttle and breaker, a compromised signer can still sell
   covers over time that lose money; the loss is bounded by `maxUtilization` of the pool, not zero.
-- **Full owner compromise.** An owner key that stays compromised through the timelock delay, with no
-  working guardian cancel, can still queue and execute harmful changes. Multisig custody and an honest
-  guardian are operational requirements, not something the contract can enforce.
+- **Full owner compromise.** Only the owner can cancel a queued change, so an owner key that stays
+  compromised through the timelock delay can queue and execute harmful changes. The guardian can pause new
+  sales and deposits meanwhile, but cannot cancel. The delay gives LPs and monitoring time to see a queued
+  change (`ConfigQueued` is public); multisig custody of the owner is an operational requirement, not
+  something the contract can enforce.
 
 ## 7. Tests backing these claims
 
