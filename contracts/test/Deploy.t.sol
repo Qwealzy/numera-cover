@@ -9,6 +9,11 @@ import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {HyperCorePriceSource} from "../src/sources/HyperCorePriceSource.sol";
 import {Deploy} from "../script/Deploy.s.sol";
 import {OraclePxPrecompileMock, PerpAssetInfoPrecompileMock} from "./Sources.t.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPriceSource} from "../src/interfaces/IPriceSource.sol";
+import {IPositionSource} from "../src/interfaces/IPositionSource.sol";
+import {MockPositionSource} from "../src/mocks/MockPositionSource.sol";
+import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 
 /// @notice Deploy script refuses mainnet, wires the right sources per MODE and passes the v2 constructor args.
 /// @dev Calls `deploy(Config)` directly: env vars are process-global and tests run in parallel.
@@ -203,5 +208,44 @@ contract DeployTest is Test {
         c.claimWindow = 1 days;
         Deploy.Deployment memory d = script.deploy(c);
         assertTrue(CoverPool(d.pool).strict());
+    }
+
+    /// @dev 2026-10-02 testnet run: forge's local pass took the RPC's 3M small-block gas limit, the CoverPool
+    ///      creation ran out of gas and forge only said "Failed to decode return value: 0x". The pool creation alone
+    ///      needs more than a small block and fits a big block, so the wrapper must pass
+    ///      --block-gas-limit BIG_BLOCK_GAS_LIMIT (scripts/lib/deployv2.test.mjs checks the flag).
+    function test_poolCreation_needsBigBlockGasLimit() public {
+        Deploy.Config memory c = _cfg("mock");
+        MockPriceSource mp = new MockPriceSource(address(this));
+        for (uint256 i; i < c.perps.length; ++i) {
+            mp.setPrice(c.perps[i], c.mockPx6[i]);
+        }
+        address usdc = address(new MockUSDC());
+        address pos = address(new MockPositionSource(address(this)));
+
+        try this.createPool{gas: 3_000_000}(c, usdc, address(mp), pos) {
+            fail("pool creation fits a 3M small block: the big-block flag is no longer needed");
+        } catch {}
+        address pool = this.createPool{gas: script.BIG_BLOCK_GAS_LIMIT()}(c, usdc, address(mp), pos);
+        assertTrue(CoverPool(pool).perpAllowed(3), "fits a big block");
+    }
+
+    function createPool(Deploy.Config memory c, address usdc, address price, address pos) external returns (address) {
+        return address(
+            new CoverPool(
+                IERC20(usdc),
+                c.owner,
+                c.quoteSigner,
+                c.guardian,
+                IPriceSource(price),
+                IPositionSource(pos),
+                script.testnetLimits(),
+                c.perps,
+                c.configDelay,
+                c.withdrawDelay,
+                c.claimWindow,
+                false
+            )
+        );
     }
 }

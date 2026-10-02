@@ -7,22 +7,31 @@ export const PRECOMPILES = [
   '0x0000000000000000000000000000000000000807',
   '0x000000000000000000000000000000000000080a',
 ];
+// HyperEVM big-block gas limit (docs/research/hyperliquid.md); the --fork anvil uses it. Must equal
+// Deploy.BIG_BLOCK_GAS_LIMIT. The CoverPool creation (~4.9M gas) does not fit a 3M small block, and forge's local
+// pass caps each broadcast transaction at the gas limit of the block it forks (the RPC's latest, almost always a
+// small block), even with --block-gas-limit; only --disable-block-gas-limit lifts it. 2026-10-02 testnet run: the
+// pool creation ran out of gas there and forge only said "Failed to decode return value: 0x".
+export const BIG_BLOCK_GAS_LIMIT = 30_000_000;
 // anvil's first default account (public dev account; the dry run broadcasts with --unlocked, no key).
 export const ANVIL_ACCOUNT0 = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
-export const USAGE = `usage: node scripts/deploy-v2.mjs [--dry-run] [--yes] [--mode hypercore|mock] [--rpc <url>]
+export const USAGE = `usage: node scripts/deploy-v2.mjs [--dry-run | --fork] [--yes] [--mode hypercore|mock] [--rpc <url>]
                                    [--standin-px <px6,...>] [--gas-price <wei>] [--replace]
   default      deploy to testnet (998) with DEPLOYER_KEY from .env; writes deployments/testnet-v2.json
   --dry-run    same steps against a local anvil (31337) this script starts (or --rpc to an existing one);
                broadcasts with anvil's unlocked account 0, never with DEPLOYER_KEY; writes a temp file
-  --yes        required to broadcast (the plan is printed first)
+  --fork       same steps against a local anvil FORK of testnet (chain id 998, real nonce, USDC and state) this
+               script starts from the testnet RPC (or --rpc as the fork source); broadcasts to the fork only, as
+               the impersonated deployer from deployments/testnet.json, never with DEPLOYER_KEY; writes a temp file
+  --yes        required to broadcast (the plan and a no-broadcast forge simulation run first)
   --mode       hypercore (default: HyperCore precompile sources) | mock (MOCK demo pool)
   --standin-px px6 per perp for the local stand-ins / mock prices (default: fetched from the testnet Info API)
   --gas-price  passed to forge as --with-gas-price (big-block gas price is NOT VERIFIED, ARCHITECTURE §5.9)
   --replace    overwrite an existing entry for this mode in deployments/testnet-v2.json`;
 
 export function parseDeployArgs(argv) {
-  const a = { dryRun: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false };
+  const a = { dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const val = () => {
@@ -31,6 +40,7 @@ export function parseDeployArgs(argv) {
       return v;
     };
     if (k === '--dry-run') a.dryRun = true;
+    else if (k === '--fork') a.fork = true;
     else if (k === '--yes') a.yes = true;
     else if (k === '--replace') a.replace = true;
     else if (k === '--help' || k === '-h') a.help = true;
@@ -40,6 +50,7 @@ export function parseDeployArgs(argv) {
     else if (k === '--gas-price') a.gasPrice = val();
     else throw new Error(`unknown argument ${k}`);
   }
+  if (a.dryRun && a.fork) throw new Error('--dry-run and --fork are exclusive');
   if (!['hypercore', 'mock'].includes(a.mode)) throw new Error('--mode must be hypercore or mock');
   if (a.gasPrice !== null && !/^\d+$/.test(a.gasPrice)) throw new Error('--gas-price must be an integer (wei)');
   if (a.standinPx) for (const p of a.standinPx) if (!/^[1-9]\d*$/.test(p)) throw new Error('--standin-px must be positive integers (px6)');
@@ -92,11 +103,20 @@ export function childEnv(base, dotenv, vars, { dryRun }) {
   return env;
 }
 
-export function forgeArgs({ rpc, dryRun, gasPrice }) {
-  const a = ['script', 'script/Deploy.s.sol', '--rpc-url', rpc, '--broadcast', '--skip-simulation', '--slow'];
-  if (dryRun) a.push('--unlocked', '--sender', ANVIL_ACCOUNT0);
+// forge script argv. broadcast=false is the preflight: forge's local pass only, nothing is sent. unlockedSender
+// (anvil only) broadcasts through the node's unlocked/impersonated account instead of DEPLOYER_KEY.
+export function forgeArgs({ rpc, unlockedSender = null, gasPrice = null, broadcast = true }) {
+  const a = ['script', 'script/Deploy.s.sol', '--rpc-url', rpc];
+  if (broadcast) a.push('--broadcast');
+  a.push('--skip-simulation', '--slow', '--disable-block-gas-limit');
+  if (unlockedSender) a.push('--unlocked', '--sender', unlockedSender);
   if (gasPrice) a.push('--with-gas-price', gasPrice);
   return a;
+}
+
+// eth_getCode result -> true when the address has code ("0x" / "0x0" / empty = no code).
+export function hasCode(code) {
+  return typeof code === 'string' && /^0x[0-9a-f]*$/i.test(code) && /[1-9a-f]/i.test(code.slice(2));
 }
 
 // forge's run-latest.json -> { contracts: {Name: address}, txs: [...], precompileTxs: [...] }.

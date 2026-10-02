@@ -17,7 +17,8 @@ import {OraclePxStandIn, PerpAssetInfoStandIn, PositionStandIn} from "./HyperCor
 
 /// @title Deploy — CoverPool v2 + sources on local (31337) or testnet (998) ONLY
 /// @notice Normally run through `node scripts/deploy-v2.mjs` (ARCHITECTURE §5.9), which fills this env from
-///         deployments/testnet.json, the Info API and .env, and passes --skip-simulation --slow. Env:
+///         deployments/testnet.json, the Info API and .env, and passes --skip-simulation --slow
+///         --disable-block-gas-limit (see BIG_BLOCK_GAS_LIMIT). Env:
 ///   QUOTE_SIGNER   (required) engine signer address
 ///   PERPS          (required) comma-separated perp indices, copied from deployments/<env>.json `perps`
 ///                  (never hardcoded: indices differ per network)
@@ -43,6 +44,12 @@ contract Deploy is Script {
     address internal constant POSITION_PRECOMPILE = 0x0000000000000000000000000000000000000800;
     address internal constant ORACLE_PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
     address internal constant PERP_INFO_PRECOMPILE = 0x000000000000000000000000000000000000080a;
+    /// @notice HyperEVM big-block gas limit (ARCHITECTURE §5.9). The CoverPool creation alone (~4.9M) needs more
+    ///         than the 3M small-block limit. forge's local pass forks the RPC's latest block, almost always a 3M
+    ///         small block on HyperEVM, and caps every broadcast transaction at that block's gas limit even with
+    ///         --block-gas-limit; only --disable-block-gas-limit lifts it (2026-10-02 testnet run: the pool
+    ///         creation ran out of gas and forge only said "Failed to decode return value: 0x").
+    uint256 public constant BIG_BLOCK_GAS_LIMIT = 30_000_000;
 
     struct Deployment {
         address pool;
