@@ -61,11 +61,6 @@ def block_number(key: Any = None) -> Call:
     return call(MULTICALL3, "getBlockNumber()", [], [], ["uint256"], key)
 
 
-def base_fee(key: Any = None) -> Call:
-    """``block.basefee`` of the block the batch runs in: the keeper's fee input at no extra request."""
-    return call(MULTICALL3, "getBasefee()", [], [], ["uint256"], key)
-
-
 AGGREGATE3 = selector("aggregate3((address,bool,bytes)[])")
 
 

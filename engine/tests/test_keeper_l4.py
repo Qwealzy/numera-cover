@@ -107,7 +107,8 @@ def test_sender_caps_fees_and_replaces_a_pending_tx_on_the_same_nonce():
     from numera_engine.keeper import Action
 
     node = FakeNode(latest=7, pending=7)
-    s = Sender(FailoverRpc(["https://fake/evm"], post=node), ANVIL_KEY1, max_fee_wei=CAP)
+    clk = Clock()
+    s = Sender(FailoverRpc(["https://fake/evm"], post=node), ANVIL_KEY1, max_fee_wei=CAP, clock=clk)
     a = Action("trigger", 1, "test")
     first = s.send(POOL_A, a)
     assert decode(node.raw[0]) == (7, 2 * BASE, 0) == (first.nonce, first.max_fee, first.tip)
@@ -119,6 +120,7 @@ def test_sender_caps_fees_and_replaces_a_pending_tx_on_the_same_nonce():
     third = s.send(POOL_A, a, prev=second)
     assert decode(node.raw[2]) == (8, 2 * BASE, 0) and third.nonce == 8
     node.base = CAP + 1
+    clk.t += 2  # a later poll: the base fee cached by the sends above (BASE_FEE_TTL_S) is re-read
     with pytest.raises(GasCapError):
         s.send(POOL_A, a)
     assert len(node.raw) == 3  # nothing sent above the ceiling
@@ -139,9 +141,17 @@ def test_sender_fresh_trigger_is_two_round_trips_with_the_polled_base_fee():
     raw = TypedTransaction.from_bytes(HexBytes(node.raw[0])).as_dict()
     assert "0x" + bytes(raw["data"]).hex() == calldata(Action("trigger", 3, "t")) and raw["chainId"] == 998
     node.posts, node.methods = 0, []
-    s.send(POOL_A, Action("trigger", 4, "t"))  # no base fee given; tip still cached
+    s.send(POOL_A, Action("trigger", 4, "t"))  # no base fee given: read in the same batch; tip cached
     assert node.posts == 2 and node.methods == ["eth_getTransactionCount", "eth_estimateGas",
                                                 "eth_getBlockByNumber", "eth_sendRawTransaction"]  # fmt: skip
+    node.posts, node.methods = 0, []
+    s.clock = lambda: s._base_at + 0.5  # another send in the same poll reuses that base fee
+    s.send(POOL_A, Action("trigger", 5, "t"))
+    assert "eth_getBlockByNumber" not in node.methods and node.posts == 2
+    s.clock = lambda: s._base_at + 1.0  # next poll: read again
+    node.methods = []
+    s.send(POOL_A, Action("trigger", 6, "t"))
+    assert "eth_getBlockByNumber" in node.methods
 
 
 def test_sender_works_on_a_node_without_batches_and_never_sends_a_reverting_trigger():

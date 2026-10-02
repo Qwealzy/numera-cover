@@ -84,6 +84,7 @@ DEFAULT_MAX_TX_PER_POLL = 5  # txs sent per poll at most (triggers first); the r
 DEFAULT_MIN_BALANCE_HYPE = 0.01  # warn below this keeper balance (~16 triggers at the fee ceiling)
 DEFAULT_BALANCE_EVERY_S = 600.0  # balance re-checked this often (and at startup)
 TIP_TTL_S = 300.0  # eth_maxPriorityFeePerGas cached this long (HyperEVM answers 0)
+BASE_FEE_TTL_S = 1.0  # a base fee read by one send serves the other sends of the same poll
 GAS_HEADROOM_DIV = 5  # gas limit = estimate + estimate / 5 (the state can change between estimate and block)
 # Adaptive polling (F9: trigger within 5 s of a breach). A cover whose oracle price is within NEAR_PCT of its
 # level (or past it) switches polling to FAST_POLL_S; each approach may keep fast mode on for FAST_MAX_S at
@@ -295,13 +296,14 @@ def calldata(action: Action) -> str:
 class Sender:
     """Builds, signs and sends trigger/expire from KEEPER_KEY through the failover RPC.
 
-    Round-trips per send (latency, F9 "trigger within 5 s"): one JSON-RPC batch with the pending nonce and
-    ``eth_estimateGas`` (plus the latest nonce when replacing, the tip when its cache is stale, and the latest
-    block only when the caller has no base fee), then ``eth_sendRawTransaction``: 2 round-trips. Cached:
-    chainId (read once here), the tip (``TIP_TTL_S``; HyperEVM answers 0). The keeper passes the base fee
-    its decision multicall read in the same poll (``Multicall3.getBasefee()``). The nonce is still read per
-    send, so ``choose_nonce`` sees the node's real pending/latest counts (another tx from the same key, e.g.
-    a guardian action, never collides)."""
+    Round-trips per send (latency, F9 "trigger within 5 s"): one JSON-RPC batch with the pending nonce,
+    ``eth_estimateGas`` and the latest block's base fee (plus the latest nonce when replacing and the tip
+    when its cache is stale), then ``eth_sendRawTransaction``: 2 round-trips (was 6 sequential calls).
+    Cached: chainId (read once here), the tip (``TIP_TTL_S``; HyperEVM answers 0) and the base fee for
+    ``BASE_FEE_TTL_S`` (later sends of the same poll). The base fee is not taken from the decision
+    multicall: ``Multicall3.getBasefee()`` answers 0 inside ``eth_call`` on HyperEVM (testnet, 2026-10-02).
+    The nonce is still read per send, so ``choose_nonce`` sees the node's real pending/latest counts
+    (another tx from the same key, e.g. a guardian action, never collides)."""
 
     def __init__(self, rpc: FailoverRpc, private_key: str,
                  max_fee_wei: int = int(DEFAULT_MAX_FEE_GWEI * GWEI),
@@ -320,6 +322,8 @@ class Sender:
         self.clock = clock
         self._tip: int | None = None
         self._tip_at = 0.0
+        self._base: int | None = None
+        self._base_at = 0.0
         self.last_requests = 0  # HTTP requests the last send() made (timing log)
 
     @property
@@ -330,10 +334,12 @@ class Sender:
              base_fee: int | None = None) -> SentTx:  # fmt: skip
         """Sign and send ``action``. With ``prev`` (our earlier tx for the same cover) still pending, the
         same nonce is reused with bumped fees (replace-by-fee); fees never exceed ``max_fee_wei``.
-        ``base_fee``: the latest block's base fee if the caller already read it (saves a request)."""
+        ``base_fee``: the latest block's base fee if the caller already has it from a block header."""
         from eth_utils import to_checksum_address
 
         r0 = self.rpc.requests
+        if base_fee is None and self._base is not None and self.clock() - self._base_at < BASE_FEE_TTL_S:
+            base_fee = self._base
         addr, to, data = self.account.address, to_checksum_address(pool), calldata(action)
         calls: dict[str, tuple[str, list[Any]]] = {
             "pending": ("eth_getTransactionCount", [addr, "pending"]),
@@ -357,6 +363,7 @@ class Sender:
         if base_fee is None:
             blk = res["block"] or {}
             base_fee = int(blk.get("baseFeePerGas") or self.rpc.call("eth_gasPrice"), 16)
+            self._base, self._base_at = base_fee, self.clock()
         pending = int(res["pending"], 16)
         # with no previous tx choose_nonce returns `pending` whatever `latest` is, so it is not read then
         latest = int(res["latest"], 16) if prev is not None else pending
@@ -419,7 +426,6 @@ class Keeper:
         # (block, block ts, wall, clock)
         self._probe_at: float | None = None
         self.head: int | None = None  # block number of the last decision read
-        self.base_fee: int | None = None  # block.basefee of the last decision read (passed to the sender)
         self.rpc = rpc
         self.books = [PoolBook(p.pool, p.label) for p in plans]
         self.plans = plans
@@ -541,7 +547,7 @@ class Keeper:
         """The decision read: one Multicall3 ``eth_call`` (block number, timestamp, base fee, covers,
         prices, v2 state). In fast mode it avoids a lagging endpoint, and re-reads once from a fresher one
         when the answer turns out to be more than ``rpc.max_head_lag`` blocks behind (rpc.py docstring)."""
-        calls = [mc.block_timestamp("ts"), mc.block_number("bn"), mc.base_fee("basefee")]
+        calls = [mc.block_timestamp("ts"), mc.block_number("bn")]
         for i, b in enumerate(self.books):
             calls.append(mc.cover_count(b.pool, ("count", i)))
             calls += [mc.get_cover(b.pool, cid, ("cover", i, cid)) for cid in b.ids_to_read()]
@@ -561,7 +567,6 @@ class Keeper:
         if out["ts"] is None:
             raise RuntimeError("Multicall3.getCurrentBlockTimestamp() failed")
         self.head = None if out.get("bn") is None else int(out["bn"])
-        self.base_fee = None if out.get("basefee") is None else int(out["basefee"])
         return out, price_keys
 
     def _fold(self, out: Mapping[Any, Any], price_keys: list[tuple[str, int]],
@@ -667,7 +672,7 @@ class Keeper:
             prev = self.txs[b.pool].get(a.cover_id)
             c0 = self.clock()
             try:
-                tx = self.sender.send(b.pool, a, prev=prev, base_fee=self.base_fee)
+                tx = self.sender.send(b.pool, a, prev=prev)
             except GasCapError as exc:
                 if prev is None:  # nothing went out: not "sent", so the next poll retries it
                     del self.sent[b.pool][a.cover_id]
@@ -827,15 +832,19 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--price-source", default=None, help="override pool.priceSource() (single pool only)")
     ap.add_argument("--poll", type=float, default=DEFAULT_POLL_S,
                     help=f"seconds between polls (default {DEFAULT_POLL_S:g})")  # fmt: skip
-    ap.add_argument("--fast-poll", type=float, default=DEFAULT_FAST_POLL_S,
-                    help="seconds between polls while a cover is near its level (default "
-                         f"{DEFAULT_FAST_POLL_S:g})")  # fmt: skip
-    ap.add_argument("--near-pct", type=float, default=DEFAULT_NEAR_PCT,
-                    help="fast mode when an active cover's oracle price is within this %% of its level "
-                         f"(0 = never; default {DEFAULT_NEAR_PCT:g})")  # fmt: skip
-    ap.add_argument("--fast-max-min", type=float, default=DEFAULT_FAST_MAX_MIN,
+    env = os.environ
+    ap.add_argument("--fast-poll", type=float,
+                    default=float(env.get("NUMERA_KEEPER_FAST_POLL", DEFAULT_FAST_POLL_S)),
+                    help="seconds between polls while a cover is near its level "
+                         f"(env NUMERA_KEEPER_FAST_POLL; default {DEFAULT_FAST_POLL_S:g})")  # fmt: skip
+    ap.add_argument("--near-pct", type=float,
+                    default=float(env.get("NUMERA_KEEPER_NEAR_PCT", DEFAULT_NEAR_PCT)),
+                    help="fast mode when an active cover's oracle price is within this %% of its level (0 = "
+                         f"never; env NUMERA_KEEPER_NEAR_PCT; default {DEFAULT_NEAR_PCT:g})")  # fmt: skip
+    ap.add_argument("--fast-max-min", type=float,
+                    default=float(env.get("NUMERA_KEEPER_FAST_MAX_MIN", DEFAULT_FAST_MAX_MIN)),
                     help="fast mode lasts at most this many minutes per approach of a cover to its level "
-                         f"(default {DEFAULT_FAST_MAX_MIN:g})")  # fmt: skip
+                         f"(env NUMERA_KEEPER_FAST_MAX_MIN; default {DEFAULT_FAST_MAX_MIN:g})")  # fmt: skip
     ap.add_argument("--max-head-lag", type=int, default=DEFAULT_MAX_HEAD_LAG,
                     help="fast mode: a decision read avoids an RPC whose head is more than this many blocks "
                          f"behind a healthy one (default {DEFAULT_MAX_HEAD_LAG})")  # fmt: skip
@@ -844,7 +853,6 @@ def main(argv: list[str] | None = None) -> None:
                          "decision read's block (costs one request per RPC per poll)")  # fmt: skip
     ap.add_argument("--dry-run", action="store_true", help="read only: log the txs it would send")
     ap.add_argument("--duration", type=float, default=0.0, help="stop after this many seconds (0 = never)")
-    env = os.environ
     ap.add_argument("--max-fee-gwei", type=float,
                     default=float(env.get("NUMERA_KEEPER_MAX_FEE_GWEI", DEFAULT_MAX_FEE_GWEI)),
                     help=f"maxFeePerGas ceiling in gwei (default {DEFAULT_MAX_FEE_GWEI:g})")  # fmt: skip
