@@ -201,4 +201,216 @@ export const testnet = {
   }
 } as const;
 
-export const testnetV2: unknown = null;
+export const testnetV2: unknown = {
+  "env": "testnet",
+  "chainId": 998,
+  "contract": "CoverPool v2",
+  "pools": {
+    "mock": {
+      "deployedAt": "2026-10-02",
+      "commit": "269abd4",
+      "chainId": 998,
+      "mode": "mock",
+      "pool": "0x493c14a92da0905b06a91a1e87a75d4bff75e4a6",
+      "priceSource": "0x0c1Daf9Bb701A6c57dE7D55BA054117329D8821b",
+      "positionSource": "0xC2f3893B413f46FeF5345079c06fec9A8489E7C8",
+      "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
+      "config": {
+        "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+        "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
+        "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "configDelay": 600,
+        "withdrawDelay": 600,
+        "claimWindow": 3600,
+        "configGrace": 259200,
+        "strict": false,
+        "paused": false,
+        "limits": {
+          "maxUtilizationBps": "8000",
+          "perPerpCapBps": "5000",
+          "maxDuration": "604800",
+          "maxSpotDeviationBps": "30",
+          "minPayout": "1000000",
+          "minPremiumBps": "20",
+          "minLevelDistanceBps": "25",
+          "saleWindow": "3600",
+          "maxSoldPerWindowBps": "2500",
+          "maxBuyerWindowShareBps": "2500",
+          "maxPaidPerWindowBps": "1500"
+        },
+        "perps": {
+          "BTC": {
+            "index": 3,
+            "allowed": true
+          },
+          "ETH": {
+            "index": 4,
+            "allowed": true
+          },
+          "SOL": {
+            "index": 0,
+            "allowed": true
+          },
+          "HYPE": {
+            "index": 135,
+            "allowed": true
+          }
+        }
+      },
+      "txs": [
+        {
+          "name": "MockPriceSource",
+          "function": "create",
+          "hash": "0x48a8518982674366d674928855b420ba4b7629262c11a321efe780e3f01d0542",
+          "gasUsed": 244071,
+          "status": 1
+        },
+        {
+          "name": "MockPriceSource",
+          "function": "setPrice(uint32,uint64)",
+          "hash": "0x4c83f74e760e5d4adf5dec32e62ed1c507046ed9492bc9e841c2c6160094a796",
+          "gasUsed": 47414,
+          "status": 1
+        },
+        {
+          "name": "MockPriceSource",
+          "function": "setPrice(uint32,uint64)",
+          "hash": "0xb63791faf9257aaebb7be0b95f98e05e95d8021b320d6d99d902f6686bc2679f",
+          "gasUsed": 47414,
+          "status": 1
+        },
+        {
+          "name": "MockPriceSource",
+          "function": "setPrice(uint32,uint64)",
+          "hash": "0x2d6a25ef0949de951a90a98b3ba512cf8c9ad3b4c9a3cb24ac125ce5b143d341",
+          "gasUsed": 47402,
+          "status": 1
+        },
+        {
+          "name": "MockPriceSource",
+          "function": "setPrice(uint32,uint64)",
+          "hash": "0xd5686579b0479b50306d74b7e7fa72b04b41c658f8ad102dd22296a05bbbe349",
+          "gasUsed": 47414,
+          "status": 1
+        },
+        {
+          "name": "MockPositionSource",
+          "function": "create",
+          "hash": "0xf4e119da8872a322c186dc445d39ff86fd7c20b2140a7840ad0ff35ca0145e1b",
+          "gasUsed": 299504,
+          "status": 1
+        },
+        {
+          "name": "CoverPool",
+          "function": "create",
+          "hash": "0xc014748279f15cf5c66539e51ae64d7dc867b56924e14fde5dbae204fe1d3bed",
+          "gasUsed": 4866173,
+          "status": 1
+        }
+      ]
+    },
+    "hypercore": {
+      "deployedAt": "2026-10-02",
+      "commit": "269abd4",
+      "chainId": 998,
+      "mode": "hypercore",
+      "pool": "0xcb909999bc241b6970134a440001c7b758df2b00",
+      "priceSource": "0xBae5a5175698EaBe85703f1676bA598f96caA5FF",
+      "positionSource": "0x6DB11839fc8CDe5779638e477f26E77d6b1c01e6",
+      "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
+      "config": {
+        "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+        "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
+        "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "configDelay": 600,
+        "withdrawDelay": 600,
+        "claimWindow": 3600,
+        "configGrace": 259200,
+        "strict": false,
+        "paused": false,
+        "limits": {
+          "maxUtilizationBps": "8000",
+          "perPerpCapBps": "5000",
+          "maxDuration": "604800",
+          "maxSpotDeviationBps": "30",
+          "minPayout": "1000000",
+          "minPremiumBps": "20",
+          "minLevelDistanceBps": "25",
+          "saleWindow": "3600",
+          "maxSoldPerWindowBps": "2500",
+          "maxBuyerWindowShareBps": "2500",
+          "maxPaidPerWindowBps": "1500"
+        },
+        "perps": {
+          "BTC": {
+            "index": 3,
+            "allowed": true
+          },
+          "ETH": {
+            "index": 4,
+            "allowed": true
+          },
+          "SOL": {
+            "index": 0,
+            "allowed": true
+          },
+          "HYPE": {
+            "index": 135,
+            "allowed": true
+          }
+        }
+      },
+      "txs": [
+        {
+          "name": "HyperCorePriceSource",
+          "function": "create",
+          "hash": "0x5d50f5cf6d72045c25d8ab7b72229173bd7456dcd60b2993e450736dfba8efbe",
+          "gasUsed": 439814,
+          "status": 1
+        },
+        {
+          "name": "HyperCorePriceSource",
+          "function": "cachePerp(uint32)",
+          "hash": "0xe7330a4cd269fc5749e935f17ed4432d3d228bdf27a9732719e4e4cbb4fa1374",
+          "gasUsed": 58613,
+          "status": 1
+        },
+        {
+          "name": "HyperCorePriceSource",
+          "function": "cachePerp(uint32)",
+          "hash": "0xeb4503e03cea3d4a5093a621a8d32e85b8737587043aee41f3422099362836fa",
+          "gasUsed": 58613,
+          "status": 1
+        },
+        {
+          "name": "HyperCorePriceSource",
+          "function": "cachePerp(uint32)",
+          "hash": "0x2c83222ea6f05909b6785c7ebe7533bfd880c2abbf6e81c0d1c226babfe6086a",
+          "gasUsed": 58601,
+          "status": 1
+        },
+        {
+          "name": "HyperCorePriceSource",
+          "function": "cachePerp(uint32)",
+          "hash": "0x3be148b98f1e404478f5b24dba40a9e800b74ef9dbddd73c1fdee26320675456",
+          "gasUsed": 58613,
+          "status": 1
+        },
+        {
+          "name": "HyperCorePositionSource",
+          "function": "create",
+          "hash": "0x4dc68d3a0c7ee2a9e2458f39fa69ec34ee8d47fff26832643572a349af3b895d",
+          "gasUsed": 241921,
+          "status": 1
+        },
+        {
+          "name": "CoverPool",
+          "function": "create",
+          "hash": "0x2e2d7a146ffab847c49b41e4b54440bcdddcb99e8c91768788f306a52d14acda",
+          "gasUsed": 4883053,
+          "status": 1
+        }
+      ]
+    }
+  }
+};
