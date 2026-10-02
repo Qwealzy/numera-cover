@@ -84,8 +84,8 @@ export function boot(): void {
       if (!join || !joinSection) return;
       e.preventDefault();
       const target = window.innerWidth > 900 ? joinSection.querySelector('[data-ticket]') ?? joinSection : joinSection;
+      join.focusForm(); // focus first (without scrolling), then scroll: a focus call can cut a smooth scroll short
       target.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
-      join.focusForm();
     });
   }
   on('joined', (s) => {

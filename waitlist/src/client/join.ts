@@ -133,6 +133,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   function busy(on: boolean) {
     form.setAttribute('aria-busy', String(on));
     handle.readOnly = on;
+    for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox], input[name=channel]')) el.disabled = on;
     submit.disabled = on;
     const label = submit.querySelector('.cta-label')!;
     label.textContent = on ? Wl.sending : state.joined ? nav.joined : Wl.submit;

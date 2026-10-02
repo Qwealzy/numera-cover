@@ -645,6 +645,7 @@ export function mountInstrument(root: HTMLElement): void {
     const uq = uLiq();
     const lim = Math.max(uq * 1.25, uq + 0.2);
     pullU = clamp(u, -1.6, lim);
+    if (Math.abs(pullU - 1) < 1e-6) pullU = 1; // the level is a touch (no floating-point miss)
     // detent when crossing the level
     if ((before - 1) * (pullU - 1) < 0 || (before < 1 && pullU >= 1)) {
       if (!touched || (before - 1) * (pullU - 1) < 0) {
@@ -736,7 +737,9 @@ export function mountInstrument(root: HTMLElement): void {
   handle.addEventListener('pointermove', (ev) => {
     if (!dragging) return;
     const r = stage.getBoundingClientRect();
-    movePull(uAt(clamp(ev.clientY - r.top, 4, h - 4)));
+    const y = clamp(ev.clientY - r.top, 4, h - 4);
+    // a 3 px detent on the level: the pointer catches on it and it counts as a touch
+    movePull(Math.abs(y - fr.l * h) <= 3 ? 1 : uAt(y));
   });
   const up = () => {
     if (!dragging) return;
@@ -777,9 +780,9 @@ export function mountInstrument(root: HTMLElement): void {
       const lY = fr.l * h;
       const qY = fr.q * h;
       const crosses = (a: number, b: number, line: number) => (a - line) * (b - line) < 0;
-      if (Math.abs(y0 - lY) > 0.5 && crosses(y0, y, lY)) y = lY;
-      else if (Math.abs(y0 - qY) > 0.5 && crosses(y0, y, qY + L.dir * 6)) y = qY + L.dir * 6;
-      movePull(uAt(clamp(y, 4, h - 4)));
+      if (Math.abs(y0 - lY) > 0.5 && crosses(y0, y, lY)) movePull(1);
+      else if (Math.abs(y0 - qY) > 0.5 && crosses(y0, y, qY + L.dir * 6)) movePull(uAt(qY + L.dir * 6));
+      else movePull(uAt(clamp(y, 4, h - 4)));
       clearTimeout(keyTimer);
       keyTimer = window.setTimeout(release, 1400);
     } else if (ev.key === 'Home' && mode === 'pull') {
