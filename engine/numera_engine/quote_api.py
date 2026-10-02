@@ -17,18 +17,22 @@ The request may name a `pool`; it must be in the allowlist (configured pool + de
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import math
 import os
 import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+from eth_abi import decode as abi_decode
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import MODEL_NAME
+from . import multicall as mc
 from .data import (
     INTERVAL_MS,
     MAINNET_INFO_URL,
@@ -62,6 +67,7 @@ from .pricing import (
     z_score,
 )
 from .quote import MAINNET_CHAIN_ID, ChainNotAllowedError, Quote, sign_quote
+from .rpc import DEFAULT_TESTNET_RPCS, FailoverRpc, host
 from .vol import sigma_estimate
 
 DEFAULT_TAIL_PATH = Path(__file__).resolve().parent.parent / "reports" / "tail_multipliers.json"
@@ -70,6 +76,20 @@ ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DEFAULT_POOL_NAME = "hypercore"  # deployments/<env>.json pool used when no pool is configured
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # Vite dev server (app/)
+DEFAULT_QUOTE_TTL_S = 30  # deadline - issue time (audit M1: was 60 s)
+# Level-distance floor (audit M1, stale-quote free option): a signed quote can be held for the TTL and used
+# only if the price has moved toward the level meanwhile. Refuse levels with |ln(level/spot)| < k sigma
+# sqrt(TTL). Under the pricing model (driftless GBM) the chance of touching a level k sigma sqrt(TTL) away
+# within the TTL is 2 Phi(-k): 4.6 % at k = 2, 0.27 % at k = 3, 0.006 % at k = 4. k = 3 keeps that option
+# well under 1 % of the payout even with crypto's fat 1-minute tails (several times the normal tail), while
+# for BTC (sigma ~ 0.5, TTL 30 s) it refuses only levels within ~0.15 % of spot, which no real liquidation
+# cover sits that close to; k = 4 would refuse more for a negligible gain.
+LEVEL_K_SIGMA = 3.0
+DEFAULT_RATE_PER_MIN = 10.0  # POST /quote per client IP (audit M4): token bucket refill rate
+DEFAULT_RATE_BURST = 5  # bucket size: a few quick re-quotes are fine, a flood is not
+DEFAULT_SPOT_CACHE_S = 2.0  # pool spot per (pool, perp) reused this long (audit M4)
+ENGINE_RPC_MAX_WAIT_S = 3.0  # a quote request never waits long on the RPC: it falls back to the Info API
+log = logging.getLogger("numera.engine")
 
 
 # -- configuration ---------------------------------------------------------------------------------
@@ -80,20 +100,40 @@ class Settings:
     env: str = "local"
     chain_id: int = 31337
     pool: str = ZERO_ADDRESS  # "" = not configured: deployment's HyperCore pool (resolve_default_pool)
-    signer_key: str | None = None
+    # Constructor input only: __post_init__ turns it into `signer` (an eth_account LocalAccount) and clears
+    # it, so no Settings field keeps the raw key; repr=False on both keeps them out of any repr/log line.
+    signer_key: str | None = field(default=None, repr=False, compare=False)
+    signer: Any = field(default=None, repr=False, compare=False)
     info_url: str = TESTNET_INFO_URL  # live oracle prices
     history_info_url: str = MAINNET_INFO_URL  # candles for sigma (read-only)
     tail_path: Path = DEFAULT_TAIL_PATH
     theta: float = THETA
     p_max: float = P_MAX
     fee: int = 0  # USDC base units added to every premium
-    quote_ttl_s: int = 60
+    quote_ttl_s: int = DEFAULT_QUOTE_TTL_S
+    level_k_sigma: float = LEVEL_K_SIGMA
     min_duration_s: int = 600
     max_duration_s: int = 7 * 86400
     max_payout: int = 100_000 * 10**6  # engine-side sanity cap; real capacity is enforced on-chain
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
-    rpc_url: str | None = None  # EVM RPC for pool price reads (default: deployments file `rpc`)
-    deployments_path: Path | None = None  # pool allowlist + price sources
+    rpc_url: str | None = None  # EVM RPC for pool price reads, first in the failover list
+    rpc_urls: tuple[str, ...] = ()  # NUMERA_RPCS failover list; empty = rpc_url, deployments rpc, defaults
+    deployments_path: Path | None = None  # pool + perp allowlists, price sources
+    rate_per_min: float = DEFAULT_RATE_PER_MIN  # POST /quote per client IP; 0 disables the limit
+    rate_burst: int = DEFAULT_RATE_BURST
+    trusted_proxies: tuple[str, ...] = ()  # NUMERA_TRUSTED_PROXIES: peers whose X-Forwarded-For is believed
+    spot_cache_s: float = DEFAULT_SPOT_CACHE_S  # pool spot reused per (pool, perp) for this long
+
+    def __post_init__(self) -> None:
+        if self.signer_key:
+            from eth_account import Account
+
+            self.signer = Account.from_key(self.signer_key)
+        self.signer_key = None
+
+    @property
+    def signer_address(self) -> str | None:
+        return self.signer.address if self.signer is not None else None
 
     @staticmethod
     def from_env() -> Settings:
@@ -109,7 +149,7 @@ class Settings:
             theta=float(e.get("NUMERA_THETA", str(THETA))),
             p_max=float(e.get("NUMERA_P_MAX", str(P_MAX))),
             fee=int(e.get("NUMERA_FEE", "0")),
-            quote_ttl_s=int(e.get("NUMERA_QUOTE_TTL_S", "60")),
+            quote_ttl_s=int(e.get("NUMERA_QUOTE_TTL_S", str(DEFAULT_QUOTE_TTL_S))),
             max_payout=int(e.get("NUMERA_MAX_PAYOUT", str(100_000 * 10**6))),
             cors_origins=tuple(
                 x.strip()
@@ -117,9 +157,16 @@ class Settings:
                 if x.strip()
             ),
             rpc_url=e.get("NUMERA_RPC_URL") or None,
+            rpc_urls=tuple(u.strip() for u in (e.get("NUMERA_RPCS") or "").split(",") if u.strip()),
             deployments_path=Path(e["NUMERA_DEPLOYMENTS"])
             if e.get("NUMERA_DEPLOYMENTS")
             else default_path(e.get("NUMERA_ENV", "local")),
+            rate_per_min=float(e.get("NUMERA_RATE_PER_MIN", str(DEFAULT_RATE_PER_MIN))),
+            rate_burst=int(e.get("NUMERA_RATE_BURST", str(DEFAULT_RATE_BURST))),
+            trusted_proxies=tuple(
+                x.strip() for x in (e.get("NUMERA_TRUSTED_PROXIES") or "").split(",") if x.strip()
+            ),
+            spot_cache_s=float(e.get("NUMERA_SPOT_CACHE_S", str(DEFAULT_SPOT_CACHE_S))),
         )
 
 
@@ -200,44 +247,208 @@ class SpotReader(Protocol):
         """Oracle price px6 as the pool's own price source reports it (raises on failure)."""
 
 
-PRICE_SOURCE_ABI = [
-    {"type": "function", "name": "oraclePx6", "stateMutability": "view",
-     "inputs": [{"name": "perpIndex", "type": "uint32"}], "outputs": [{"name": "", "type": "uint64"}]},
-]  # fmt: skip
-POOL_PRICE_SOURCE_ABI = [
-    {"type": "function", "name": "priceSource", "stateMutability": "view", "inputs": [],
-     "outputs": [{"name": "", "type": "address"}]},
-]  # fmt: skip
-
-
 class PoolSpotReader:
-    """eth_call reads of pool.priceSource().oraclePx6(perp); the price source address is taken from the
-    deployments file when listed there, else from the pool's `priceSource()` getter, and cached."""
+    """Raw ``eth_call`` reads of pool.priceSource().oraclePx6(perp) through ``rpc.FailoverRpc`` (the keeper's
+    client: endpoint list, -32005 backoff, failover; one HTTP request per read, no web3 round trips). The
+    price source address comes from the deployments file when listed there, else from the pool's
+    `priceSource()` getter, and is cached. Also reads the latest block timestamp (the engine's `now`, audit
+    L6). Calls are serialized: FailoverRpc keeps per-endpoint state."""
 
-    def __init__(self, rpc_url: str, deployment: Deployment | None = None, timeout_s: float = 5.0) -> None:
-        from web3 import Web3
-
-        self.w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": timeout_s}))
+    def __init__(self, rpc: FailoverRpc, deployment: Deployment | None = None) -> None:
+        self.rpc = rpc
         self.deployment = deployment
-        self._sources: dict[str, Any] = {}
+        self._sources: dict[str, str] = {}
+        self._lock = threading.Lock()
 
-    def _source(self, pool: str):
-        from web3 import Web3
+    def _eth_call(self, c: mc.Call) -> Any:
+        raw = self.rpc.call("eth_call", [{"to": c.target, "data": "0x" + c.data.hex()}, "latest"])
+        out = abi_decode(list(c.out), bytes.fromhex(str(raw).removeprefix("0x")))
+        return out[0]
 
+    def _source(self, pool: str) -> str:
         key = pool.lower()
         if key not in self._sources:
             info = self.deployment.find(key) if self.deployment else None
             addr = info.price_source if info and info.price_source else None
-            if addr is None:
-                c = self.w3.eth.contract(address=Web3.to_checksum_address(pool), abi=POOL_PRICE_SOURCE_ABI)
-                addr = c.functions.priceSource().call()
-            self._sources[key] = self.w3.eth.contract(
-                address=Web3.to_checksum_address(addr), abi=PRICE_SOURCE_ABI
-            )
+            self._sources[key] = addr or str(self._eth_call(mc.price_source(pool)))
         return self._sources[key]
 
     def px6(self, pool: str, perp_index: int) -> int:
-        return int(self._source(pool).functions.oraclePx6(perp_index).call())
+        with self._lock:
+            return int(self._eth_call(mc.oracle_px6(self._source(pool), perp_index)))
+
+    def block_timestamp(self) -> int:
+        with self._lock:
+            blk = self.rpc.call("eth_getBlockByNumber", ["latest", False])
+        return int(blk["timestamp"], 16)
+
+
+LOCAL_CHAIN_ID = 31337
+
+
+class AllowlistMissingError(RuntimeError):
+    """The engine would quote any pool/perp: refuse to start (audit review L-2)."""
+
+
+def check_allowlists(chain_id: int, deployment: Deployment | None) -> None:
+    """Fail closed. Outside local dev (31337) the deployments file must exist, be for this chain and list
+    pools and perps; otherwise the perp allowlist would silently be open. Mainnet (999) is exempt only
+    because the engine never signs for it (every /quote answers 403)."""
+    if chain_id in (LOCAL_CHAIN_ID, MAINNET_CHAIN_ID):
+        return
+    if deployment is None:
+        raise AllowlistMissingError(
+            f"chain {chain_id}: no deployments file (NUMERA_DEPLOYMENTS or deployments/<env>.json); "
+            "refusing to quote without a pool/perp allowlist"
+        )
+    if deployment.chain_id is not None and deployment.chain_id != chain_id:
+        raise AllowlistMissingError(
+            f"deployments file is for chain {deployment.chain_id}, the engine for {chain_id}"
+        )
+    if not deployment.pools or not deployment.perps:
+        missing = "pools" if not deployment.pools else "perps"
+        raise AllowlistMissingError(f"chain {chain_id}: deployments file lists no {missing}; not starting")
+
+
+def engine_rpc_urls(settings: Settings, deployment: Deployment | None) -> list[str]:
+    """Engine RPC failover list: NUMERA_RPCS, else NUMERA_RPC_URL + the deployments rpc (+ the public
+    testnet endpoints for chain 998). Its own FailoverRpc: an RPC budget separate from the keeper."""
+    if settings.rpc_urls:
+        urls = list(settings.rpc_urls)
+    else:
+        urls = [u for u in (settings.rpc_url, deployment.rpc if deployment else None) if u]
+        if urls and settings.chain_id == 998:
+            urls += list(DEFAULT_TESTNET_RPCS)
+    return list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
+
+
+class CachedSpotReader:
+    """Reuses a pool spot per (pool, perp) for ``ttl_s`` (audit M4: a quote flood costs one eth_call per
+    pair per window, not one per request). Failures are not cached."""
+
+    def __init__(self, inner: SpotReader, ttl_s: float, clock: Callable[[], float] = time.monotonic) -> None:
+        self.inner, self.ttl_s, self.clock = inner, ttl_s, clock
+        self._hits: dict[tuple[str, int], tuple[float, int]] = {}
+        self._lock = threading.Lock()
+
+    def px6(self, pool: str, perp_index: int) -> int:
+        key = (pool.lower(), perp_index)
+        now = self.clock()
+        with self._lock:
+            hit = self._hits.get(key)
+            if hit and now - hit[0] < self.ttl_s:
+                return hit[1]
+        px = int(self.inner.px6(pool, perp_index))
+        with self._lock:
+            self._hits[key] = (now, px)
+        return px
+
+    def block_timestamp(self) -> int:
+        return int(self.inner.block_timestamp())  # type: ignore[attr-defined]
+
+
+class BlockClock:
+    """`now` for deadline/expiry from the chain (audit L6): the latest block timestamp, re-read every
+    ``ttl_s`` and advanced by the local monotonic clock in between. Raises when the chain cannot be read."""
+
+    def __init__(self, fetch: Callable[[], int], ttl_s: float = 2.0,
+                 mono: Callable[[], float] = time.monotonic) -> None:  # fmt: skip
+        self.fetch, self.ttl_s, self.mono = fetch, ttl_s, mono
+        self._last: tuple[float, int] | None = None
+        self._lock = threading.Lock()
+
+    def __call__(self) -> int:
+        t = self.mono()
+        with self._lock:
+            if self._last and t - self._last[0] < self.ttl_s:
+                return self._last[1] + int(t - self._last[0])
+        ts = int(self.fetch())
+        with self._lock:
+            self._last = (t, ts)
+        return ts
+
+
+class ThrottledWarning:
+    """log.warning at most once per ``every_s`` per key (a persistent condition must not log per request)."""
+
+    def __init__(self, every_s: float = 60.0, mono: Callable[[], float] = time.monotonic) -> None:
+        self.every_s, self.mono = every_s, mono
+        self._at: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def __call__(self, key: str, msg: str, *args: Any) -> bool:
+        t = self.mono()
+        with self._lock:
+            if key in self._at and t - self._at[key] < self.every_s:
+                return False
+            self._at[key] = t
+        log.warning(msg, *args)
+        return True
+
+
+def _norm_ip(s: str) -> str:
+    """Canonical text of an IP address (so ::1 and 0:0::1 match); anything else as given, stripped."""
+    s = s.strip()
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        return s
+
+
+def client_ip(peer: str, xff: str | None, trusted: frozenset[str] | set[str]) -> str:
+    """Rate-limit key for a request. The direct peer, unless the peer is a trusted proxy (e.g. Caddy on the
+    same host): then the right-most X-Forwarded-For entry that is not itself a trusted proxy, i.e. the
+    address the first trusted hop actually saw. Entries left of it are client-supplied and can be spoofed,
+    so they are never used. Explicit on purpose: no reliance on uvicorn's --proxy-headers."""
+    peer = _norm_ip(peer)
+    if peer not in trusted or not xff:
+        return peer
+    hops = [_norm_ip(h) for h in xff.split(",") if h.strip()]
+    for hop in reversed(hops):
+        if hop not in trusted:
+            return hop
+    return peer  # every hop is a trusted proxy: the request came from the proxies themselves
+
+
+def rate_key(ip: str) -> str:
+    """Bucket key for a client address: IPv4 as is (IPv4-mapped IPv6 too), IPv6 by its /64, since one
+    subscriber usually holds a whole /64 and could otherwise rotate addresses to get fresh buckets."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(a, ipaddress.IPv6Address):
+        if a.ipv4_mapped is not None:
+            return str(a.ipv4_mapped)
+        return str(ipaddress.IPv6Network((a, 64), strict=False))
+    return str(a)
+
+
+class RateLimiter:
+    """Per-key token bucket (audit M4): ``burst`` requests at once, refilled at ``per_min`` per minute.
+    ``take(key)`` returns 0.0 when allowed, else the seconds until the next token.
+
+    Memory is bounded by ``max_keys``: buckets are kept in least-recently-used order and the oldest are
+    evicted as soon as the table is over the bound (an evicted client simply starts with a full bucket)."""
+
+    def __init__(self, per_min: float, burst: int, clock: Callable[[], float] = time.monotonic,
+                 max_keys: int = 10_000) -> None:  # fmt: skip
+        if per_min <= 0 or burst < 1 or max_keys < 1:
+            raise ValueError("rate limit needs per_min > 0, burst >= 1 and max_keys >= 1")
+        self.rate, self.burst, self.clock, self.max_keys = per_min / 60.0, float(burst), clock, max_keys
+        self._b: OrderedDict[str, tuple[float, float]] = OrderedDict()  # key -> (tokens, last refill time)
+        self._lock = threading.Lock()
+
+    def take(self, key: str) -> float:
+        now = self.clock()
+        with self._lock:
+            tokens, last = self._b.pop(key, (self.burst, now))
+            tokens = min(self.burst, tokens + (now - last) * self.rate)
+            ok = tokens >= 1.0
+            self._b[key] = (tokens - 1.0 if ok else tokens, now)  # (re)inserted last = most recent
+            while len(self._b) > self.max_keys:
+                self._b.popitem(last=False)  # evict the least recently used
+            return 0.0 if ok else (1.0 - tokens) / self.rate
 
 
 # -- API -------------------------------------------------------------------------------------------
@@ -273,7 +484,11 @@ def create_app(
     nonce_fn: Callable[[], int] | None = None,
     spot_reader: SpotReader | None = None,
     deployment: Deployment | None = None,
+    block_time: Callable[[], int] | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
+    """``clock`` is the wall-clock fallback for `now`; ``block_time`` (latest block timestamp) is preferred
+    and is built from the RPC when the pool reader is (tests pass their own or none)."""
     settings = settings or Settings.from_env()
     if market is None:
         market = LiveMarketData(
@@ -290,16 +505,64 @@ def create_app(
         for a in (default_pool, *(p.pool for p in (deployment.pools if deployment else ())))
         if _ADDRESS_RE.match(a or "")
     }
+    # Perps the engine quotes (audit M2): those cached for the pools in deployments/<env>.json `perps`. Only
+    # local dev (31337) may run without one (check_allowlists fails closed elsewhere); the universe check
+    # applies either way.
+    allowed_perps = set(deployment.perps.values()) if deployment and deployment.perps else None
+    check_allowlists(settings.chain_id, deployment)
+    perps_desc = dict(sorted(deployment.perps.items())) if allowed_perps is not None else "any (local dev)"
+    log.info("[engine] chain %d allowlist: pools %s, perps %s", settings.chain_id, sorted(allowlist),
+             perps_desc)  # fmt: skip
     if spot_reader is None:
-        rpc = settings.rpc_url or (deployment.rpc if deployment else None)
-        spot_reader = PoolSpotReader(rpc, deployment) if rpc else None
-    signer_addr = None
-    if settings.signer_key:
-        from eth_account import Account
+        urls = engine_rpc_urls(settings, deployment)
+        if urls:
+            rpc = FailoverRpc(urls, timeout_s=5.0, max_wait_s=ENGINE_RPC_MAX_WAIT_S, label="engine")
+            live = PoolSpotReader(rpc, deployment)
+            spot_reader = live
+            if block_time is None:
+                block_time = BlockClock(live.block_timestamp)
+            log.info("[engine] rpcs: %s", " > ".join(host(u) for u in urls))
+    if spot_reader is not None and settings.spot_cache_s > 0:
+        spot_reader = CachedSpotReader(spot_reader, settings.spot_cache_s)
+    if rate_limiter is None and settings.rate_per_min > 0:
+        rate_limiter = RateLimiter(settings.rate_per_min, settings.rate_burst)
+    signer_addr = settings.signer_address
+    warn_once = ThrottledWarning(60.0)
+    trusted = frozenset(_norm_ip(p) for p in settings.trusted_proxies)
 
-        signer_addr = Account.from_key(settings.signer_key).address
+    def now_s() -> int:
+        """Latest block timestamp; the wall clock when the chain cannot be read, or when the latest block
+        lags the wall clock by more than the quote TTL (a stalled chain/RPC: deadlines from it would be
+        dead on arrival). Both fallbacks log a WARNING at most once a minute."""
+        wall = int(clock())
+        if block_time is None:
+            return wall
+        try:
+            ts = int(block_time())
+        except Exception as exc:  # noqa: BLE001 - any RPC failure: fall back, quote stays usable
+            warn_once("rpc", "[engine] block timestamp unavailable (%s); using the wall clock", exc)
+            return wall
+        if wall - ts > settings.quote_ttl_s:
+            warn_once("lag", "[engine] latest block %d lags the wall clock %d by %d s (> TTL %d s); using "
+                      "the wall clock", ts, wall, wall - ts, settings.quote_ttl_s)  # fmt: skip
+            return wall
+        return ts
 
     app = FastAPI(title="Numera Quote API", version="1")
+
+    @app.middleware("http")
+    async def _rate_limit(request: Request, call_next):  # added before CORS: CORS wraps it (429 readable)
+        if rate_limiter is not None and request.method == "POST" and request.url.path == "/quote":
+            peer = request.client.host if request.client else "unknown"
+            ip = client_ip(peer, request.headers.get("x-forwarded-for"), trusted)
+            wait = rate_limiter.take(rate_key(ip))
+            if wait > 0:
+                retry = max(1, math.ceil(wait))
+                resp = _err(429, "rate_limited", f"too many quote requests; retry in {retry} s")
+                resp.headers["Retry-After"] = str(retry)
+                return resp
+        return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -337,7 +600,7 @@ def create_app(
     def quote(req: QuoteRequest) -> dict[str, Any]:
         if settings.chain_id == MAINNET_CHAIN_ID:
             raise ApiError(403, "chain_not_allowed", "engine never signs for chainId 999")
-        if not settings.signer_key:
+        if settings.signer is None:
             raise ApiError(503, "signer_unavailable", "QUOTE_SIGNER_KEY is not set")
         if not settings.min_duration_s <= req.durationSec <= settings.max_duration_s:
             raise ApiError(
@@ -350,6 +613,13 @@ def create_app(
         pool = req.pool or default_pool
         if pool.lower() not in allowlist:
             raise ApiError(400, "unknown_pool", f"pool {pool} is not in the allowlist")
+        if allowed_perps is not None and req.perpIndex not in allowed_perps:
+            raise ApiError(
+                400,
+                "perp_not_allowed",
+                f"perpIndex {req.perpIndex} is not one of the perps this deployment quotes "
+                f"({', '.join(f'{c}={i}' for c, i in sorted(deployment.perps.items()))})",
+            )
         spot6, spot_source = None, "info_api"
         if spot_reader is not None:
             try:
@@ -387,6 +657,14 @@ def create_app(
             raise ApiError(503, "market_data_unavailable", f"bad sigma {sigma}")
 
         S, H = spot6 / 1e6, req.level / 1e6
+        min_dist = settings.level_k_sigma * sigma * math.sqrt(settings.quote_ttl_s / SECONDS_PER_YEAR)
+        if abs(math.log(H / S)) < min_dist:
+            raise ApiError(
+                422,
+                "level_too_close",
+                f"level {req.level} is within {min_dist:.4%} of spot {spot6} "
+                f"({settings.level_k_sigma:g} sigma over the {settings.quote_ttl_s} s quote lifetime)",
+            )
         T = req.durationSec / SECONDS_PER_YEAR
         p = touch_prob(S, H, sigma, T)
         adj = tail.adjust(coin, req.isLong, req.durationSec, S, H, sigma)
@@ -394,7 +672,7 @@ def create_app(
             prem = premium(req.payout, p, adj.k, settings.theta, settings.p_max, settings.fee, adj.q)
         except QuoteRefusedError as exc:
             raise ApiError(422, exc.code, exc.reason) from None
-        now = int(clock())
+        now = now_s()
         q = Quote(
             buyer=req.buyer,
             perpIndex=req.perpIndex,
@@ -408,7 +686,7 @@ def create_app(
             nonce=nonce_fn(),
         )
         try:
-            sig = sign_quote(q, settings.chain_id, pool, settings.signer_key)
+            sig = sign_quote(q, settings.chain_id, pool, settings.signer)
         except ChainNotAllowedError as exc:
             raise ApiError(403, "chain_not_allowed", str(exc)) from None
         return {
@@ -435,8 +713,18 @@ def create_app(
     return app
 
 
+_APP: FastAPI | None = None
+
+
 def _lazy_app() -> FastAPI:
-    return create_app()
+    """Built once: uvicorn reads the `app` attribute more than once (seen: twice), which used to build two
+    apps (two RPC clients, two rate-limit tables)."""
+    global _APP
+    if _APP is None:
+        if not logging.getLogger().handlers:  # under uvicorn: show numera.* INFO lines (allowlist, rpcs)
+            logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+        _APP = create_app()
+    return _APP
 
 
 def __getattr__(name: str) -> Any:  # `uvicorn numera_engine.quote_api:app` builds from env on first use

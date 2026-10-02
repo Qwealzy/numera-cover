@@ -45,7 +45,7 @@ export function contractErrorMessage(name: string, args?: Args): string {
     case 'BuyerMismatch':
       return 'This quote was issued for a different address than the connected wallet. Get a new quote.';
     case 'QuoteDeadlinePassed':
-      return 'The quote expired (quotes are valid for about 60 s). Get a new quote.';
+      return 'The quote expired (quotes are valid for about 30 s). Get a new quote.';
     case 'NonceAlreadyUsed':
       return 'This quote was already used. Get a new quote.';
     // check 2
@@ -125,6 +125,12 @@ export function apiErrorMessage(code: string, reason?: string): string {
       return `Duration is outside what the engine quotes${r}.`;
     case 'unknown_perp':
       return `The engine does not list this perp${r}.`;
+    case 'perp_not_allowed':
+      return `Numera does not cover this perp yet: only the perps configured for the pools are quoted${r}.`;
+    case 'level_too_close':
+      return `The level is too close to the current price: it could be reached while the quote is still valid (30 s), so the pool does not sell it${r}. Move the level further away.`;
+    case 'rate_limited':
+      return `Too many quote requests in a short time${r}. Wait a few seconds and try again.`;
     case 'market_data_unavailable':
       return `The engine could not read market data right now${r}. Try again shortly.`;
     case 'signer_unavailable':

@@ -49,6 +49,17 @@ class RpcUnavailableError(Exception):
     """Every endpoint kept failing for longer than ``max_wait_s``."""
 
 
+def resolve_rpcs(cli: list[str] | None, env: str | None, deployment_rpc: str | None) -> list[str]:
+    """``--rpc`` (repeated) > ``NUMERA_RPCS`` (comma-separated) > deployments rpc + official + chain.link."""
+    if cli:
+        urls = cli
+    elif env and env.strip():
+        urls = env.split(",")
+    else:
+        urls = ([deployment_rpc] if deployment_rpc else []) + list(DEFAULT_TESTNET_RPCS)
+    return list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
+
+
 def host(url: str) -> str:
     return urlparse(url).netloc or url
 
@@ -107,11 +118,13 @@ class FailoverRpc:
         rand: Callable[[], float] = random.random,
         timeout_s: float = 10.0,
         max_wait_s: float = 120.0,
+        label: str = "keeper",
     ) -> None:
         urls = list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
         if not urls:
             raise ValueError("no RPC endpoints")
         self.endpoints = [Endpoint(u) for u in urls]
+        self.label = label  # log prefix: "keeper" or "engine" (each process has its own client and budget)
         self.post = post or _requests_post()
         self.clock = clock
         self.sleep = sleep
@@ -147,15 +160,16 @@ class FailoverRpc:
         if why == "rate":
             ep.rate_limits += 1
             self.rate_limits += 1
-            log.warning("[keeper] rate limited, backing off %.1fs (rpc=%s)", wait, host(ep.url))
+            log.warning("[%s] rate limited, backing off %.1fs (rpc=%s)", self.label, wait, host(ep.url))
         else:
             ep.errors += 1
-            log.warning("[keeper] rpc error (%s), backing off %.1fs (rpc=%s)", why, wait, host(ep.url))
+            log.warning("[%s] rpc error (%s), backing off %.1fs (rpc=%s)", self.label, why, wait,
+                        host(ep.url))
 
     def _use(self, ep: Endpoint) -> None:
         if self.current is not ep:
             if self.current is not None:
-                log.info("[keeper] switched rpc %s -> %s", host(self.current.url), host(ep.url))
+                log.info("[%s] switched rpc %s -> %s", self.label, host(self.current.url), host(ep.url))
             self.current = ep
 
     # -- call -----------------------------------------------------------------------------------------

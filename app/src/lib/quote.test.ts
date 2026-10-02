@@ -4,10 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { getAddress, type Hex } from 'viem';
 import {
   buildQuoteRequest,
+  buyBlocker,
   expectedPremium,
   fixtureQuote,
   isPoolFieldRejected,
   parseQuoteResponse,
+  premiumMatches,
+  QUOTE_TTL_S,
   quoteDigest,
   recoverQuoteSigner,
   touchProb,
@@ -94,7 +97,7 @@ describe('pricing mirror (fixture + verification)', () => {
     const q = fixtureQuote(r.body, 84_847_000_000n, 1_790_000_000);
     expect(q.ok).toBe(true);
     if (q.ok) {
-      expect(q.value.quote.deadline).toBe(1_790_000_060);
+      expect(q.value.quote.deadline).toBe(1_790_000_030);
       expect(q.value.quote.expiry).toBe(1_790_086_400);
       expect(q.value.breakdown.premium).toBe(q.value.quote.premium);
       expect(expectedPremium(q.value.quote.payout, q.value.breakdown)).toBe(q.value.quote.premium);
@@ -119,5 +122,31 @@ describe('EIP-712 (§4) agrees with the engine test vector', () => {
   it('a different pool (verifyingContract) recovers to someone else', async () => {
     const signer = await recoverQuoteSigner(vec.quote, vec.signature as Hex, vec.domain.chainId, pool);
     expect(signer).not.toBe(getAddress(vec.signer));
+  });
+});
+
+describe('Buy gate (audit L3): only a verified quote can be bought', () => {
+  const signer = '0x2d6154D11190E900B99e1EE164fF0a176b19532c';
+  it('blocks while the signature is being checked or the pool signer is unknown', () => {
+    expect(buyBlocker({ signerCheck: undefined, poolSigner: signer, premOk: true })).toMatch(/Checking/);
+    expect(buyBlocker({ signerCheck: signer, poolSigner: undefined, premOk: true })).toMatch(/Checking/);
+  });
+  it('blocks a signature that does not recover to the pool signer, with the reason', () => {
+    expect(buyBlocker({ signerCheck: null, poolSigner: signer, premOk: true })).toMatch(/does not recover to this pool’s quote signer/);
+    expect(buyBlocker({ signerCheck: buyer, poolSigner: signer, premOk: true })).toMatch(/buyCover would revert/);
+  });
+  it('blocks a premium that does not match the breakdown', () => {
+    expect(buyBlocker({ signerCheck: signer.toLowerCase(), poolSigner: signer, premOk: false })).toMatch(/premium does not match/);
+  });
+  it('allows a verified quote (signer match is case-insensitive)', () => {
+    expect(buyBlocker({ signerCheck: signer.toLowerCase(), poolSigner: signer, premOk: true })).toBeUndefined();
+  });
+  it('premiumMatches tolerates one base unit of rounding only', () => {
+    const b = { sigma: 0.5, touchProb: 0.01, loading: 0.2, premium: 0, model: 'm', pricedProb: 0.02, fee: 0 };
+    const q = { payout: 100_000_000, premium: 2_400_000 } as Parameters<typeof premiumMatches>[0];
+    expect(premiumMatches(q, b)).toBe(true);
+    expect(premiumMatches({ ...q, premium: 2_400_001 }, b)).toBe(true);
+    expect(premiumMatches({ ...q, premium: 2_400_002 }, b)).toBe(false);
+    expect(QUOTE_TTL_S).toBe(30);
   });
 });

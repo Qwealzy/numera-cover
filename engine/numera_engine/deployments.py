@@ -1,7 +1,7 @@
 """Read deployments/<env>.json (written by the contracts deploy scripts; read-only for the engine).
 
-Shape used (see deployments/testnet.json): {"chainId", "rpc", "pools": {name: {"pool", "priceSource",
-"txs": {"pool": <deploy tx hash>, ...}}}, "perps": {coin: index}}. Unknown keys are ignored.
+Shape used (see deployments/testnet.json): {"chainId", "rpc", "keeper", "pools": {name: {"pool",
+"priceSource", "txs": {"pool": <deploy tx hash>, ...}}}, "perps": {coin: index}}. Unknown keys are ignored.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ class Deployment:
     rpc: str | None
     pools: tuple[PoolInfo, ...]
     perps: dict[str, int]
+    keeper: str | None = None  # keeper EOA address (public), for the balance check in --dry-run
 
     def find(self, address: str) -> PoolInfo | None:
         a = address.lower()
@@ -54,6 +55,7 @@ def parse(blob: dict[str, Any]) -> Deployment:
         rpc=blob.get("rpc"),
         pools=tuple(pools),
         perps={str(k): int(v) for k, v in (blob.get("perps") or {}).items()},
+        keeper=str(blob["keeper"]) if blob.get("keeper") else None,
     )
 
 

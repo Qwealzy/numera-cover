@@ -67,7 +67,7 @@ struct Quote {
     uint256 premium;     // USDC (6 dec)
     uint64  expiry;      // cover end (unix s)
     uint64  spotRef;     // px6 oracle price the engine priced against
-    uint64  deadline;    // quote must be used before this (unix s), ~60 s after issue
+    uint64  deadline;    // quote must be used before this (unix s), ~30 s after issue
     uint256 nonce;       // unique per quote; contract marks used
 }
 ```
@@ -155,6 +155,18 @@ Added 2026-10-01 (D10, engine merge `de5690c`):
   with `verifyingContract = pool` and priced against that pool's own price source.
 - Extra breakdown fields: `z` (standardized distance, §7), `spotSource` (`pool` | `info_api`), `pool`.
 - `/health` also returns `pools` (the allowlist).
+
+Added 2026-10-02 (security audit M1, M2, M4, L6; engine-side only, contracts unchanged):
+- Quote TTL: `deadline = now + 30 s` (`NUMERA_QUOTE_TTL_S`, was 60 s); `now` is the latest block timestamp
+  read over the RPC, falling back to the engine's wall clock (logged as a warning).
+- 400 `perp_not_allowed`: `perpIndex` is not in `deployments/<env>.json` `perps` (checked when that file
+  lists perps; the universe check `unknown_perp` still applies).
+- 422 `level_too_close`: |ln(level/spot)| < 3·σ·√TTL, i.e. the level could plausibly be reached while the
+  signed quote is still valid (the stale-quote free option).
+- 429 `rate_limited`: per-client-IP limit on `POST /quote` (token bucket, default 10/min, burst 5;
+  `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header. Behind a reverse
+  proxy listed in `NUMERA_TRUSTED_PROXIES` (default empty) the client is the right-most untrusted
+  `X-Forwarded-For` entry; otherwise the direct peer.
 
 ## 7. Pricing model (engine, v4 — final, D13)
 

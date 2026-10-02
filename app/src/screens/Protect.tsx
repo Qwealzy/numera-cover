@@ -8,10 +8,12 @@ import { defaultLevel } from '../lib/liq';
 import { fmtDuration, fmtFixed, fmtPct, fmtProb, fmtPx6, fmtTime, fmtUsdc, px6ToNumber, shortAddr } from '../lib/format';
 import {
   buildQuoteRequest,
+  buyBlocker,
   engineServesPool,
   expectedPremium,
   fetchHealth,
   fixtureQuote,
+  premiumMatches,
   recoverQuoteSigner,
   requestQuote,
   type QuoteOk,
@@ -397,7 +399,9 @@ function ProtectPanel({ row }: { row: PositionRow }) {
   }
 
   const b = quote?.breakdown;
-  const premOk = quote && b ? Math.abs(expectedPremium(quote.quote.payout, b) - quote.quote.premium) <= 1 : false;
+  const premOk = quote && b ? premiumMatches(quote.quote, b) : false;
+  // audit L3: never send a quote the app could not verify (signature -> pool signer, premium -> breakdown)
+  const blocked = quote ? buyBlocker({ signerCheck, poolSigner, premOk }) : undefined;
 
   return (
     <section className="panel">
@@ -562,7 +566,7 @@ nonce   = ${quote.quote.nonce}`}
                 <span className="step__n">1</span>Approve {fmtUsdc(premium!, 6)} mUSDC
               </span>
               {needsApprove ? (
-                <button className="btn btn--small btn--primary" disabled={approveTx.busy || expired || !canBuy} onClick={approve}>
+                <button className="btn btn--small btn--primary" disabled={approveTx.busy || expired || !canBuy || !!blocked} title={blocked ?? ''} onClick={approve}>
                   Approve
                 </button>
               ) : (
@@ -574,11 +578,21 @@ nonce   = ${quote.quote.nonce}`}
                 <span className="step__n">2</span>Buy cover · quote valid {expired ? '' : 'for '}
                 <span className="tnum">{expired ? 'expired' : fmtDuration(secondsLeft)}</span>
               </span>
-              <button className="btn btn--small btn--primary" disabled={needsApprove || allowance === undefined || buyTx.busy || expired || !!boughtId || !canBuy} onClick={buy}>
+              <button
+                className="btn btn--small btn--primary"
+                disabled={needsApprove || allowance === undefined || buyTx.busy || expired || !!boughtId || !canBuy || !!blocked}
+                title={blocked ?? ''}
+                onClick={buy}
+              >
                 Buy cover
               </button>
             </div>
           </div>
+          {blocked && !boughtId && (
+            <p className="small soft" role="status">
+              {blocked}
+            </p>
+          )}
           {lowBalance && <Notice>Your mUSDC balance ({fmtUsdc(balance!)}) is below the premium. Use the faucet below.</Notice>}
           {expired && !boughtId && <Notice>The quote expired (deadline {fmtTime(quote.quote.deadline)}). Re-quote to get a fresh price.</Notice>}
           <div style={{ marginTop: 10 }}>

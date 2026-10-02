@@ -67,7 +67,7 @@ struct Quote {
     uint256 premium;     // USDC (6 dec)
     uint64  expiry;      // cover end (unix s)
     uint64  spotRef;     // px6 oracle price the engine priced against
-    uint64  deadline;    // quote must be used before this (unix s), ~60 s after issue
+    uint64  deadline;    // quote must be used before this (unix s), ~30 s after issue
     uint256 nonce;       // unique per quote; the contract marks it used
 }
 ```
@@ -149,9 +149,17 @@ or `{error, reason}`.
 - `pool` (optional): which pool the quote is for. It must be in the allowlist (the configured pool plus every
   pool in `deployments/<env>.json`), else 400 `unknown_pool`. The quote is signed with
   `verifyingContract = pool` and priced against that pool's own price source.
-- Error codes and HTTP status: 400 `invalid_request`, `unknown_perp`, `duration_out_of_range`,
-  `unknown_pool`; 403 `chain_not_allowed`; 422 refusals `level_already_breached`, `prob_too_high`,
-  `capacity`; 503 `market_data_unavailable`, `signer_unavailable`.
+- Error codes and HTTP status: 400 `invalid_request`, `unknown_perp`, `perp_not_allowed`,
+  `duration_out_of_range`, `unknown_pool`; 403 `chain_not_allowed`; 422 refusals `level_already_breached`,
+  `level_too_close`, `prob_too_high`, `capacity`; 429 `rate_limited`; 503 `market_data_unavailable`,
+  `signer_unavailable`.
+- `perp_not_allowed`: only the perps listed in `deployments/<env>.json` (`perps`) are quoted.
+- Quote lifetime: `deadline` is 30 s after issue. `now` comes from the latest block timestamp (the engine's
+  clock only if the RPC cannot be read). A level closer to spot than 3·σ·√(30 s) is refused with
+  `level_too_close`: the price could reach it before the quote expires, so a buyer could wait and only use
+  the quote once the move has happened.
+- `rate_limited`: `POST /quote` allows about 10 requests a minute per client IP (small burst), with a
+  `Retry-After` header.
 - `nonce` < 2^53 (safe as a JSON number for JS clients).
 - `capacity` is an engine-side sanity cap only; the on-chain utilization and per-perp checks are
   authoritative.

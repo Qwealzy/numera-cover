@@ -13,6 +13,11 @@ checks, so a decision cannot disagree with the contract) and the block timestamp
 The decision is a pure function (``decide``) over that active set; the RPC client (``rpc.FailoverRpc``)
 rotates through an endpoint list with exponential backoff on ``-32005``. Transactions are sent from
 KEEPER_KEY through the same client. Never sends transactions to chainId 999.
+
+Tx hygiene (audit L4): EIP-1559 fees under a maxFeePerGas ceiling (``--max-fee-gwei``), at most
+``--max-tx-per-poll`` txs per poll (triggers first), a resend after 30 s replaces our still-pending tx on the
+same nonce with bumped fees (RBF) instead of queueing behind it, and the keeper's HYPE balance is logged at
+startup and every ``--balance-every`` seconds, with a WARNING below ``--min-balance``.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from enum import IntEnum
 from typing import Any
 
 from . import multicall as mc
-from .rpc import DEFAULT_TESTNET_RPCS, FailoverRpc, host
+from .rpc import FailoverRpc, host, resolve_rpcs  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
 
 log = logging.getLogger("numera.keeper")
 
@@ -36,6 +41,14 @@ LOOKAHEAD = 2  # ids past the last seen one read every poll: a new cover is foun
 BACKFILL_CHUNK = 50  # getCover reads per extra eth_call when more new ids exist than the lookahead
 BACKFILL_MAX = 500  # new ids read per poll at most (startup on a busy pool spreads over several polls)
 RESEND_AFTER_S = 30.0  # a cover still active this long after our tx is retried (e.g. the tx reverted)
+GWEI = 10**9
+WEI_PER_HYPE = 10**18
+# maxFeePerGas ceiling (audit L4). Testnet base fee is 0.1 gwei (2026-10-02); 10 gwei is 100x that, and a
+# trigger (~60k gas) then costs at most ~0.0006 HYPE. Above the ceiling the keeper waits rather than overpays.
+DEFAULT_MAX_FEE_GWEI = 10.0
+DEFAULT_MAX_TX_PER_POLL = 5  # txs sent per poll at most (triggers first); the rest go next poll
+DEFAULT_MIN_BALANCE_HYPE = 0.01  # warn below this keeper balance (~16 triggers at the fee ceiling)
+DEFAULT_BALANCE_EVERY_S = 600.0  # balance re-checked this often (and at startup)
 
 
 class Status(IntEnum):  # mirrors `enum Status { None, Active, Paid, Expired }`
@@ -157,6 +170,49 @@ def due(actions: Iterable[Action], sent: Mapping[int, float], t: float,
 
 
 @dataclass(frozen=True)
+class SentTx:
+    hash: str
+    nonce: int
+    max_fee: int  # wei per gas
+    tip: int  # maxPriorityFeePerGas, wei per gas
+
+
+class GasCapError(RuntimeError):
+    """The fee needed now (or for a replacement) is above the configured maxFeePerGas ceiling."""
+
+
+def bump(x: int) -> int:
+    """+12.5 % and +1 wei: above the 10 % minimum nodes require to replace a pending tx (also from 0)."""
+    return x + x // 8 + 1
+
+
+def choose_nonce(latest: int, pending: int, prev: SentTx | None) -> int:
+    """Reuse our previous tx's nonce (replace-by-fee) only while that tx is really pending in the node:
+    ``latest <= prev.nonce < pending``. Otherwise ``pending``: the tx was mined (e.g. reverted), or it was
+    dropped together with a lower nonce, and reusing its nonce would sit behind a gap forever."""
+    if prev is not None and latest <= prev.nonce < pending:
+        return prev.nonce
+    return pending
+
+
+def choose_fees(base_fee: int, tip: int, cap: int, prev: SentTx | None = None) -> tuple[int, int]:
+    """(maxFeePerGas, maxPriorityFeePerGas) under the ceiling ``cap``.
+
+    Fresh tx: 2 x base fee + tip (headroom for base fee rises), clipped to ``cap``. Replacement: at least
+    ``bump`` of the previous fees. Raises GasCapError when the base fee itself, or a replacement's required
+    bump, is above the cap: better to wait a poll than overpay or send an underpriced replacement."""
+    if base_fee > cap:
+        raise GasCapError(f"base fee {base_fee} wei above the cap {cap} wei")
+    max_fee = 2 * base_fee + tip
+    if prev is not None:
+        max_fee, tip = max(max_fee, bump(prev.max_fee)), max(tip, bump(prev.tip))
+        if max_fee > cap:
+            raise GasCapError(f"replacement needs maxFeePerGas {max_fee} wei, above the cap {cap} wei")
+    max_fee = min(max_fee, cap)
+    return max_fee, min(tip, max_fee)
+
+
+@dataclass(frozen=True)
 class PoolPlan:
     pool: str
     label: str
@@ -178,17 +234,6 @@ def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
     return out
 
 
-def resolve_rpcs(cli: list[str] | None, env: str | None, deployment_rpc: str | None) -> list[str]:
-    """``--rpc`` (repeated) > ``NUMERA_RPCS`` (comma-separated) > deployments rpc + official + chain.link."""
-    if cli:
-        urls = cli
-    elif env and env.strip():
-        urls = env.split(",")
-    else:
-        urls = ([deployment_rpc] if deployment_rpc else []) + list(DEFAULT_TESTNET_RPCS)
-    return list(dict.fromkeys(u.strip() for u in urls if u and u.strip()))
-
-
 # -- chain I/O (thin) ------------------------------------------------------------------------------
 
 POOL_ABI: list[dict[str, Any]] = [
@@ -202,7 +247,8 @@ POOL_ABI: list[dict[str, Any]] = [
 class Sender:
     """Builds, signs and sends trigger/expire from KEEPER_KEY through the failover RPC (web3 for building)."""
 
-    def __init__(self, rpc: FailoverRpc, private_key: str) -> None:
+    def __init__(self, rpc: FailoverRpc, private_key: str,
+                 max_fee_wei: int = int(DEFAULT_MAX_FEE_GWEI * GWEI)) -> None:  # fmt: skip
         from eth_account import Account
         from web3 import Web3
 
@@ -211,23 +257,53 @@ class Sender:
         chain_id = int(rpc.call("eth_chainId"), 16)
         if chain_id == MAINNET_CHAIN_ID:
             raise RuntimeError("keeper refuses to send on chainId 999 (mainnet)")
+        if max_fee_wei <= 0:
+            raise ValueError("max_fee_wei must be > 0")
+        self.rpc = rpc
         self.w3 = Web3(failover_provider(rpc))
         self.account = Account.from_key(private_key)
         self.chain_id = chain_id
+        self.max_fee_wei = max_fee_wei
 
-    def send(self, pool: str, action: Action) -> str:
+    @property
+    def address(self) -> str:
+        return self.account.address
+
+    def _fee_inputs(self) -> tuple[int, int]:
+        blk = self.rpc.call("eth_getBlockByNumber", ["latest", False])
+        base = int(blk.get("baseFeePerGas") or self.rpc.call("eth_gasPrice"), 16)
+        try:
+            tip = int(self.rpc.call("eth_maxPriorityFeePerGas"), 16)
+        except Exception:  # noqa: BLE001 - not every node serves it; HyperEVM answers 0
+            tip = 0
+        return base, tip
+
+    def send(self, pool: str, action: Action, prev: SentTx | None = None) -> SentTx:
+        """Sign and send ``action``. With ``prev`` (our earlier tx for the same cover) still pending, the
+        same nonce is reused with bumped fees (replace-by-fee); fees never exceed ``max_fee_wei``."""
         from web3 import Web3
 
+        addr = self.account.address
+        latest = int(self.rpc.call("eth_getTransactionCount", [addr, "latest"]), 16)
+        pending = int(self.rpc.call("eth_getTransactionCount", [addr, "pending"]), 16)
+        nonce = choose_nonce(latest, pending, prev)
+        replacing = prev if prev is not None and nonce == prev.nonce else None
+        base, tip = self._fee_inputs()
+        max_fee, tip = choose_fees(base, tip, self.max_fee_wei, replacing)
         c = self.w3.eth.contract(address=Web3.to_checksum_address(pool), abi=POOL_ABI)
         fn = getattr(c.functions, action.kind)(action.cover_id)
         tx = fn.build_transaction({
-            "from": self.account.address,
-            "nonce": self.w3.eth.get_transaction_count(self.account.address, "pending"),
+            "from": addr,
+            "nonce": nonce,
             "chainId": self.chain_id,
+            "maxFeePerGas": max_fee,
+            "maxPriorityFeePerGas": tip,
         })  # fmt: skip
         signed = self.account.sign_transaction(tx)
         h = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        return "0x" + bytes(h).hex().removeprefix("0x")
+        if replacing:
+            log.info("[keeper] replacing %s (nonce %d) with maxFee %d wei", replacing.hash, nonce, max_fee)
+        return SentTx("0x" + bytes(h).hex().removeprefix("0x"), nonce, max_fee, tip)
 
 
 class Keeper:
@@ -242,6 +318,10 @@ class Keeper:
         dry_run: bool = False,
         price_source_override: str | None = None,
         clock: Callable[[], float] = time.monotonic,
+        max_tx_per_poll: int = DEFAULT_MAX_TX_PER_POLL,
+        balance_address: str | None = None,
+        min_balance_wei: int = int(DEFAULT_MIN_BALANCE_HYPE * WEI_PER_HYPE),
+        balance_every_s: float = DEFAULT_BALANCE_EVERY_S,
     ) -> None:
         if sender is None and not dry_run:
             raise ValueError("a Sender is needed unless dry_run")
@@ -254,7 +334,16 @@ class Keeper:
         self.override = price_source_override
         self.clock = clock
         self.sent: dict[str, dict[int, float]] = {b.pool: {} for b in self.books}
+        self.txs: dict[str, dict[int, SentTx]] = {b.pool: {} for b in self.books}  # last tx per cover (RBF)
         self.chain_id: int | None = None
+        if max_tx_per_poll < 1:
+            raise ValueError("max_tx_per_poll must be >= 1")
+        self.max_tx_per_poll = max_tx_per_poll
+        self.balance_address = balance_address
+        self.min_balance_wei = min_balance_wei
+        self.balance_every_s = balance_every_s
+        self._balance_at: float | None = None
+        self.last_balance: int | None = None
 
     # -- startup --------------------------------------------------------------------------------------
 
@@ -278,6 +367,27 @@ class Keeper:
                             b.label, b.source, listed[b.pool])  # fmt: skip
         for b in self.books:
             log.info("[keeper] watching %s pool=%s priceSource=%s", b.label, b.pool, b.source)
+        self.check_balance(self.clock())
+
+    def check_balance(self, t: float) -> int | None:
+        """Log the keeper's HYPE balance; WARNING when below ``min_balance_wei`` (audit L4). Runs at startup
+        and then every ``balance_every_s``; a failed read only logs."""
+        if self.balance_address is None:
+            return None
+        self._balance_at = t
+        try:
+            wei = int(self.rpc.call("eth_getBalance", [self.balance_address, "latest"]), 16)
+        except Exception as exc:  # noqa: BLE001 - a balance read must never stop the keeper
+            log.warning("[keeper] balance read failed for %s: %s", self.balance_address, exc)
+            return None
+        self.last_balance = wei
+        hype, floor = wei / WEI_PER_HYPE, self.min_balance_wei / WEI_PER_HYPE
+        if wei < self.min_balance_wei:
+            log.warning("[keeper] LOW BALANCE %s: %.6f HYPE < %.6f HYPE; trigger/expire txs may fail. "
+                        "Top up with testnet HYPE.", self.balance_address, hype, floor)  # fmt: skip
+        else:
+            log.info("[keeper] balance %s: %.6f HYPE (warn below %.6f)", self.balance_address, hype, floor)
+        return wei
 
     # -- one poll -------------------------------------------------------------------------------------
 
@@ -330,29 +440,46 @@ class Keeper:
 
     def poll(self) -> list[tuple[str, Action, str]]:
         r0 = self.rpc.requests
+        if self._balance_at is not None and self.clock() - self._balance_at >= self.balance_every_s:
+            self.check_balance(self.clock())
         now, prices = self.read()
         t = self.clock()
         done = []
+        todo: list[tuple[PoolBook, Action]] = []
         for b in self.books:
-            sent = self.sent[b.pool]
+            sent, txs = self.sent[b.pool], self.txs[b.pool]
             for cid in [c for c in sent if c not in b.active]:
                 del sent[cid]  # final now (or never was): forget
+                txs.pop(cid, None)
             assert b.source is not None
-            for a in due(decide(b.active.values(), prices.get(b.source, {}), now), sent, t):
-                sent[a.cover_id] = t
-                if self.dry_run:
-                    log.info("[keeper] dry-run: would send %s(%s) on %s (%s)", a.kind, a.cover_id, b.label,
-                             a.reason)  # fmt: skip
-                    done.append((b.label, a, "dry-run"))
-                    continue
-                assert self.sender is not None
-                try:
-                    txh = self.sender.send(b.pool, a)
-                except Exception as exc:  # noqa: BLE001 - e.g. reverted because the price moved back
-                    log.warning("[keeper] %s(%s) on %s failed: %s", a.kind, a.cover_id, b.label, exc)
-                    continue
-                log.info("[keeper] %s(%s) on %s sent %s (%s)", a.kind, a.cover_id, b.label, txh, a.reason)
-                done.append((b.label, a, txh))
+            todo += [(b, a) for a in due(decide(b.active.values(), prices.get(b.source, {}), now), sent, t)]
+        todo.sort(key=lambda ba: ba[1].kind != "trigger")  # stable: triggers (largest first) before expires
+        if len(todo) > self.max_tx_per_poll:
+            log.warning("[keeper] %d actions due, sending %d this poll (cap); the rest next poll", len(todo),
+                        self.max_tx_per_poll)  # fmt: skip
+        for b, a in todo[: self.max_tx_per_poll]:
+            self.sent[b.pool][a.cover_id] = t
+            if self.dry_run:
+                log.info("[keeper] dry-run: would send %s(%s) on %s (%s)", a.kind, a.cover_id, b.label,
+                         a.reason)  # fmt: skip
+                done.append((b.label, a, "dry-run"))
+                continue
+            assert self.sender is not None
+            prev = self.txs[b.pool].get(a.cover_id)
+            try:
+                tx = self.sender.send(b.pool, a, prev=prev)
+            except GasCapError as exc:
+                if prev is None:  # nothing went out: not "sent", so the next poll retries it
+                    del self.sent[b.pool][a.cover_id]
+                log.warning("[keeper] %s(%s) on %s held: %s", a.kind, a.cover_id, b.label, exc)
+                continue
+            except Exception as exc:  # noqa: BLE001 - e.g. reverted because the price moved back
+                log.warning("[keeper] %s(%s) on %s failed: %s", a.kind, a.cover_id, b.label, exc)
+                continue
+            self.txs[b.pool][a.cover_id] = tx
+            log.info("[keeper] %s(%s) on %s sent %s nonce=%d (%s)", a.kind, a.cover_id, b.label, tx.hash,
+                     tx.nonce, a.reason)  # fmt: skip
+            done.append((b.label, a, tx.hash))
         cur = self.rpc.current.url if self.rpc.current else "-"
         log.info("[keeper] poll ok pools=%d active=%d reqs=%d rpm=%d rpc=%s", len(self.books),
                  sum(len(b.active) for b in self.books), self.rpc.requests - r0, self.rpc.per_minute(),
@@ -398,7 +525,26 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--poll", type=float, default=3.0, help="seconds between polls (default 3)")
     ap.add_argument("--dry-run", action="store_true", help="read only: log the txs it would send")
     ap.add_argument("--duration", type=float, default=0.0, help="stop after this many seconds (0 = never)")
+    env = os.environ
+    ap.add_argument("--max-fee-gwei", type=float,
+                    default=float(env.get("NUMERA_KEEPER_MAX_FEE_GWEI", DEFAULT_MAX_FEE_GWEI)),
+                    help=f"maxFeePerGas ceiling in gwei (default {DEFAULT_MAX_FEE_GWEI:g})")  # fmt: skip
+    ap.add_argument("--max-tx-per-poll", type=int,
+                    default=int(env.get("NUMERA_KEEPER_MAX_TX_PER_POLL", DEFAULT_MAX_TX_PER_POLL)),
+                    help=f"txs sent per poll at most (default {DEFAULT_MAX_TX_PER_POLL})")  # fmt: skip
+    ap.add_argument("--min-balance", type=float,
+                    default=float(env.get("NUMERA_KEEPER_MIN_BALANCE_HYPE", DEFAULT_MIN_BALANCE_HYPE)),
+                    help=f"warn below this HYPE balance (default {DEFAULT_MIN_BALANCE_HYPE:g})")  # fmt: skip
+    ap.add_argument("--balance-every", type=float, default=DEFAULT_BALANCE_EVERY_S,
+                    help=f"seconds between balance checks (default {DEFAULT_BALANCE_EVERY_S:g})")  # fmt: skip
+    ap.add_argument("--keeper-address", default=None,
+                    help="address whose balance a --dry-run reports (default: KEEPER_KEY's, else the "
+                         "deployments file `keeper`)")  # fmt: skip
     args = ap.parse_args(argv)
+    if not args.max_fee_gwei > 0:  # also rejects NaN
+        ap.error("--max-fee-gwei must be > 0")
+    if args.max_tx_per_poll < 1:
+        ap.error("--max-tx-per-poll must be >= 1")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     key = os.environ.get("KEEPER_KEY", "").strip()
     if not key and not args.dry_run:
@@ -410,9 +556,22 @@ def main(argv: list[str] | None = None) -> None:
     rpc = FailoverRpc(urls)
     log.info("[keeper] rpcs: %s%s", " > ".join(host(u) for u in urls), " (dry run)" if args.dry_run else "")
     plans = plan_pools(dep, args.pool)
-    sender = None if args.dry_run else Sender(rpc, key)
+    sender = None if args.dry_run else Sender(rpc, key, max_fee_wei=int(args.max_fee_gwei * GWEI))
+    if sender is not None:
+        balance_addr = sender.address
+    elif key:
+        from eth_account import Account
+
+        balance_addr = Account.from_key(key).address
+    else:
+        balance_addr = args.keeper_address or (dep.keeper if dep else None)
+    log.info("[keeper] limits: maxFeePerGas <= %g gwei, <= %d txs/poll, balance warn < %g HYPE every %gs",
+             args.max_fee_gwei, args.max_tx_per_poll, args.min_balance, args.balance_every)  # fmt: skip
     keeper = Keeper(rpc, plans, watch_perps=dep.perps.values() if dep else (), sender=sender,
-                    dry_run=args.dry_run, price_source_override=args.price_source)  # fmt: skip
+                    dry_run=args.dry_run, price_source_override=args.price_source,
+                    max_tx_per_poll=args.max_tx_per_poll, balance_address=balance_addr,
+                    min_balance_wei=int(args.min_balance * WEI_PER_HYPE),
+                    balance_every_s=args.balance_every)  # fmt: skip
     keeper.start()
     keeper.run(args.poll, args.duration)
 
