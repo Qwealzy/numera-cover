@@ -15,10 +15,12 @@
 // reads it with vm.envUint). The dry run never passes DEPLOYER_KEY; it uses anvil's unlocked account 0.
 // forge runs with --skip-simulation --slow: forge's local pass uses precompile stand-ins, and its per-transaction
 // eth_estimateGas makes the node run the real HyperCore precompiles (an invalid perp aborts before gas is spent).
-// It also runs with --block-gas-limit 30000000: forge's local pass otherwise takes the RPC's 3M small-block limit
-// and the CoverPool creation runs out of gas there (2026-10-02 testnet run, "Failed to decode return value: 0x").
+// It also runs with --disable-block-gas-limit: forge's local pass otherwise caps each transaction at the gas limit
+// of the forked block (a 3M small block on HyperEVM) and the ~4.9M CoverPool creation runs out of gas there
+// (2026-10-02 testnet run, "Failed to decode return value: 0x").
 // Preflight, before the --yes check: eth_getCode on every existing contract the script calls (USDC), then the same
-// forge command WITHOUT --broadcast (forge's local pass only; nothing is sent), so a plan-only run catches it too.
+// forge command WITHOUT --broadcast against the testnet RPC (forge's local pass only; nothing is sent), so a
+// plan-only run catches it too; with --fork the preflight still forks the real testnet RPC, not the 30M anvil.
 // --fork and the preflight point FOUNDRY_BROADCAST at a temp folder, so they never touch contracts/broadcast/.../998.
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -177,8 +179,10 @@ async function main() {
     if (args.rpc && args.rpc !== deployments.rpc) say(`using --rpc ${host(args.rpc)} instead of ${host(deployments.rpc)}`);
   }
   let rpc;
+  let preflightRpc;
   if (args.fork) {
     const src = args.rpc ?? deployments.rpc;
+    preflightRpc = src;
     await requireChain(src, TESTNET_CHAIN_ID); // the fork source must be testnet (refuses a mainnet host first)
     if (!/^0x[0-9a-fA-F]{40}$/.test(deployments.deployer ?? '')) die('deployments/testnet.json has no deployer address');
     sender = deployments.deployer;
@@ -189,6 +193,7 @@ async function main() {
     rpc = args.rpc ?? (await startAnvil());
   } else rpc = args.rpc ?? deployments.rpc;
   await requireChain(rpc, want);
+  preflightRpc ??= rpc;
 
   // Stand-in / mock prices: --standin-px, else the testnet Info API (read-only).
   let px;
@@ -233,7 +238,7 @@ async function main() {
       ? 'anvil unlocked account 0'
       : 'DEPLOYER_KEY from .env (read inside the script)';
   say(`  broadcaster  ${who}`);
-  const fa = (broadcast) => forgeArgs({ rpc, unlockedSender: sender, gasPrice: args.gasPrice, broadcast });
+  const fa = (broadcast, url = rpc) => forgeArgs({ rpc: url, unlockedSender: sender, gasPrice: args.gasPrice, broadcast });
   say(`  forge        ${fa(true).filter((x) => x !== rpc && x !== '--rpc-url').join(' ')}`);
   say(`  writes       ${outLabel}`);
 
@@ -264,12 +269,12 @@ async function main() {
     const hits = lines.filter((l) => /error|revert|fail|outofgas/i.test(l)).slice(-8);
     return (hits.length ? hits : lines.slice(-15)).join('\n');
   };
-  const pre = forge(fa(false), path.join(tmpBroadcast, 'preflight'));
+  const pre = forge(fa(false, preflightRpc), path.join(tmpBroadcast, 'preflight'));
   if (pre.status !== 0) {
     console.error(errorTail(pre));
     die(`preflight: forge's local simulation failed (exit ${pre.status}). Nothing was sent.`);
   }
-  say('preflight    forge local simulation OK (no broadcast)');
+  say(`preflight    forge local simulation on ${host(preflightRpc)} OK (no broadcast)`);
   if (!args.yes) {
     say('nothing sent: re-run with --yes to broadcast');
     return;

@@ -66,12 +66,12 @@ test('childEnv: .env only in the child, never DEPLOYER_KEY in a dry run', () => 
   assert.equal(base.DEPLOYER_KEY, 'shell-key', 'parent env untouched');
 });
 
-test('forgeArgs: skip-simulation, slow and the big-block gas limit always; key never in argv', () => {
+test('forgeArgs: skip-simulation, slow and no block gas cap always; key never in argv', () => {
   const real = forgeArgs({ rpc: 'https://r' });
   assert.ok(real.includes('--skip-simulation') && real.includes('--slow') && real.includes('--broadcast'));
   assert.equal(real.some((x) => /key|unlocked/i.test(x)), false);
-  // 2026-10-02: without it forge's local pass used the RPC's 3M small block and the pool creation ran out of gas.
-  assert.equal(real[real.indexOf('--block-gas-limit') + 1], '30000000');
+  // 2026-10-02: without it forge's local pass capped the pool creation at the forked 3M small block (out of gas).
+  assert.ok(real.includes('--disable-block-gas-limit'));
   const sol = readFileSync(new URL('../../contracts/script/Deploy.s.sol', import.meta.url), 'utf8');
   const m = /BIG_BLOCK_GAS_LIMIT = ([\d_]+);/.exec(sol);
   assert.equal(Number(m?.[1].replaceAll('_', '')), BIG_BLOCK_GAS_LIMIT, 'must equal Deploy.BIG_BLOCK_GAS_LIMIT');
@@ -79,7 +79,7 @@ test('forgeArgs: skip-simulation, slow and the big-block gas limit always; key n
   assert.deepEqual(dry.slice(-5), ['--unlocked', '--sender', ANVIL_ACCOUNT0, '--with-gas-price', '7']);
   const pre = forgeArgs({ rpc: 'https://r', broadcast: false });
   assert.equal(pre.includes('--broadcast'), false, 'the preflight never broadcasts');
-  assert.ok(pre.includes('--block-gas-limit') && pre.includes('--skip-simulation'));
+  assert.ok(pre.includes('--disable-block-gas-limit') && pre.includes('--skip-simulation'));
 });
 
 test('hasCode: eth_getCode results', () => {

@@ -18,7 +18,7 @@ import {OraclePxStandIn, PerpAssetInfoStandIn, PositionStandIn} from "./HyperCor
 /// @title Deploy — CoverPool v2 + sources on local (31337) or testnet (998) ONLY
 /// @notice Normally run through `node scripts/deploy-v2.mjs` (ARCHITECTURE §5.9), which fills this env from
 ///         deployments/testnet.json, the Info API and .env, and passes --skip-simulation --slow
-///         --block-gas-limit 30000000 (BIG_BLOCK_GAS_LIMIT). Env:
+///         --disable-block-gas-limit (see BIG_BLOCK_GAS_LIMIT). Env:
 ///   QUOTE_SIGNER   (required) engine signer address
 ///   PERPS          (required) comma-separated perp indices, copied from deployments/<env>.json `perps`
 ///                  (never hardcoded: indices differ per network)
@@ -44,9 +44,11 @@ contract Deploy is Script {
     address internal constant POSITION_PRECOMPILE = 0x0000000000000000000000000000000000000800;
     address internal constant ORACLE_PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
     address internal constant PERP_INFO_PRECOMPILE = 0x000000000000000000000000000000000000080a;
-    /// @notice HyperEVM big-block gas limit (ARCHITECTURE §5.9). The CoverPool creation alone needs more than the
-    ///         3M small-block limit, and forge's local pass takes its block gas limit from the RPC's latest block
-    ///         (a 3M small block on HyperEVM) unless `--block-gas-limit` raises it; the wrapper passes this value.
+    /// @notice HyperEVM big-block gas limit (ARCHITECTURE §5.9). The CoverPool creation alone (~4.9M) needs more
+    ///         than the 3M small-block limit. forge's local pass forks the RPC's latest block, almost always a 3M
+    ///         small block on HyperEVM, and caps every broadcast transaction at that block's gas limit even with
+    ///         --block-gas-limit; only --disable-block-gas-limit lifts it (2026-10-02 testnet run: the pool
+    ///         creation ran out of gas and forge only said "Failed to decode return value: 0x").
     uint256 public constant BIG_BLOCK_GAS_LIMIT = 30_000_000;
 
     struct Deployment {
@@ -75,12 +77,6 @@ contract Deploy is Script {
     function run() external returns (Deployment memory) {
         // Mainnet lock before anything else (deploy() checks again).
         require(block.chainid == 998 || block.chainid == 31337, "Deploy: only testnet (998) or local (31337)");
-        // Without this the pool creation runs out of gas in forge's local pass and forge only reports
-        // "Failed to decode return value: 0x" (2026-10-02 testnet run).
-        require(
-            block.gaslimit >= BIG_BLOCK_GAS_LIMIT,
-            "Deploy: block gas limit below 30M; run forge with --block-gas-limit 30000000 (scripts/deploy-v2.mjs does)"
-        );
         uint256[] memory none = new uint256[](0);
         uint256[] memory perps = vm.envOr("PERPS", ",", none);
         uint256[] memory px = vm.envOr("MOCK_PX6", ",", none);

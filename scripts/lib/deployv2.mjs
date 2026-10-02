@@ -7,9 +7,11 @@ export const PRECOMPILES = [
   '0x0000000000000000000000000000000000000807',
   '0x000000000000000000000000000000000000080a',
 ];
-// HyperEVM big-block gas limit (docs/research/hyperliquid.md). forge's local pass otherwise takes the RPC's latest
-// block gas limit, a 3M small block on HyperEVM, and the CoverPool creation runs out of gas there (2026-10-02 run:
-// "Failed to decode return value: 0x"). Must equal Deploy.BIG_BLOCK_GAS_LIMIT.
+// HyperEVM big-block gas limit (docs/research/hyperliquid.md); the --fork anvil uses it. Must equal
+// Deploy.BIG_BLOCK_GAS_LIMIT. The CoverPool creation (~4.9M gas) does not fit a 3M small block, and forge's local
+// pass caps each broadcast transaction at the gas limit of the block it forks (the RPC's latest, almost always a
+// small block), even with --block-gas-limit; only --disable-block-gas-limit lifts it. 2026-10-02 testnet run: the
+// pool creation ran out of gas there and forge only said "Failed to decode return value: 0x".
 export const BIG_BLOCK_GAS_LIMIT = 30_000_000;
 // anvil's first default account (public dev account; the dry run broadcasts with --unlocked, no key).
 export const ANVIL_ACCOUNT0 = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
@@ -106,7 +108,7 @@ export function childEnv(base, dotenv, vars, { dryRun }) {
 export function forgeArgs({ rpc, unlockedSender = null, gasPrice = null, broadcast = true }) {
   const a = ['script', 'script/Deploy.s.sol', '--rpc-url', rpc];
   if (broadcast) a.push('--broadcast');
-  a.push('--skip-simulation', '--slow', '--block-gas-limit', String(BIG_BLOCK_GAS_LIMIT));
+  a.push('--skip-simulation', '--slow', '--disable-block-gas-limit');
   if (unlockedSender) a.push('--unlocked', '--sender', unlockedSender);
   if (gasPrice) a.push('--with-gas-price', gasPrice);
   return a;
