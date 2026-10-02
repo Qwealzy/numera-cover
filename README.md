@@ -153,11 +153,14 @@ Configuration: `app/.env.example` (engine URL, RPC, explorer). Without an engine
 ```sh
 node scripts/doctor.mjs      # read-only check: chain 998, contract code, pool quoteSigner, .env names, toolchain
 node scripts/dev.mjs         # engine on http://localhost:8000, app on http://localhost:5173; Ctrl-C stops both
+node scripts/dev.mjs --keeper       # engine + app + keeper (needs KEEPER_KEY in .env); Ctrl-C stops all three
+node scripts/dev.mjs --keeper-only  # only the keeper; add --keeper-dry-run for a read-only run without sending txs
 ```
 
 `dev.mjs` loads `.env`, refuses chain id 999, starts the Quote API (uvicorn) and the Vite dev server with
 `VITE_ENGINE_URL` pointing at the local engine, and waits until both answer. Options: `--env <file>`,
-`--engine-only`, `--app-only`, `--port <engine port>`, `--app-port <app port>`.
+`--engine-only`, `--app-only`, `--port <engine port>`, `--app-port <app port>`, `--keeper`, `--keeper-only`,
+`--keeper-dry-run`.
 
 ## Limitations
 
