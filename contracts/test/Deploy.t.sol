@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {CoverPool} from "../src/CoverPool.sol";
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
@@ -142,6 +143,55 @@ contract DeployTest is Test {
         OraclePxPrecompileMock(ORACLE_PX).set(3, 842456);
         vm.expectRevert(abi.encodeWithSelector(HyperCorePriceSource.PrecompileCallFailed.selector, PERP_INFO, 4));
         script.deploy(_cfg("hypercore"));
+    }
+
+    address internal constant POSITION = 0x0000000000000000000000000000000000000800;
+
+    function _isPrecompile(address a) internal pure returns (bool) {
+        return a == POSITION || a == ORACLE_PX || a == PERP_INFO;
+    }
+
+    /// @dev The §5.9 route: run() installs the stand-ins before the broadcast window; inside deploy() every
+    ///      access to a precompile address comes from the price source's internal reads, never from the
+    ///      broadcaster (i.e. no broadcast transaction targets a precompile).
+    function test_hypercore_standIns_noBroadcastTxToPrecompiles() public {
+        vm.chainId(998);
+        Deploy.Config memory c = _cfg("hypercore");
+        script.installStandIns(c.perps, c.mockPx6); // stand-in px6 (the wrapper passes STANDIN_PX6)
+
+        vm.startStateDiffRecording();
+        Deploy.Deployment memory d = script.deploy(c);
+        Vm.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
+
+        uint256 reads;
+        for (uint256 i; i < acc.length; ++i) {
+            if (!_isPrecompile(acc[i].account)) continue;
+            assertEq(acc[i].accessor, d.priceSource, "only the price source touches a precompile address");
+            assertTrue(acc[i].depth > 1, "never a top-level (broadcast) call");
+            reads++;
+        }
+        assertGt(reads, 0, "the stand-ins answered cachePerp and the constructor check");
+        assertTrue(CoverPool(d.pool).perpAllowed(3));
+        assertEq(CoverPool(d.pool).priceSource().oraclePx6(3), 84_000e6, "stand-in: szDecimals 0, raw = px6");
+    }
+
+    function test_revert_installStandIns_needsOnePricePerPerp() public {
+        uint32[] memory perps = new uint32[](2);
+        uint64[] memory px = new uint64[](1);
+        vm.expectRevert(bytes("Deploy: STANDIN_PX6 needs one price per perp"));
+        script.installStandIns(perps, px);
+    }
+
+    /// @dev DEPLOYER_KEY is read inside the script: the broadcaster is that key's address.
+    function test_deploy_withDeployerKey() public {
+        uint256 key = 0xD3910;
+        address deployer = vm.addr(key);
+        Deploy.Config memory c = _cfg("mock");
+        c.deployerKey = key;
+        uint64 n0 = vm.getNonce(deployer);
+        Deploy.Deployment memory d = script.deploy(c);
+        assertEq(vm.getNonce(deployer), n0 + 7, "MockUSDC, price source, 2x setPrice, transfer, position source, pool");
+        assertEq(MockPriceSource(d.priceSource).owner(), address(this), "handed from the key's address to the owner");
     }
 
     /// @dev The pool refuses strict = false off testnet/local even if a script were changed (§5.6).

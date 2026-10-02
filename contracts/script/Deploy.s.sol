@@ -13,27 +13,37 @@ import {HyperCorePositionSource} from "../src/sources/HyperCorePositionSource.so
 import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {MockPositionSource} from "../src/mocks/MockPositionSource.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {OraclePxStandIn, PerpAssetInfoStandIn, PositionStandIn} from "./HyperCoreStandIns.sol";
 
 /// @title Deploy — CoverPool v2 + sources on local (31337) or testnet (998) ONLY
-/// @notice Env:
+/// @notice Normally run through `node scripts/deploy-v2.mjs` (ARCHITECTURE §5.9), which fills this env from
+///         deployments/testnet.json, the Info API and .env, and passes --skip-simulation --slow. Env:
 ///   QUOTE_SIGNER   (required) engine signer address
 ///   PERPS          (required) comma-separated perp indices, copied from deployments/<env>.json `perps`
 ///                  (never hardcoded: indices differ per network)
 ///   MODE           `hypercore` (default; HyperCore precompile sources) | `mock` (MOCK demo pool)
-///   MOCK_PX6       (mock mode, required) comma-separated initial px6 prices, one per PERPS entry: the pool
+///   STANDIN_PX6    (hypercore, required) comma-separated px6 per PERPS entry for the LOCAL precompile stand-ins
+///                  (the wrapper fetches them from the Info API); never sent on chain
+///   MOCK_PX6       (mock, required) comma-separated initial px6 prices, one per PERPS entry: the pool
 ///                  constructor validates every perp through the price source, so the mock needs a price first
+///   DEPLOYER_KEY   (optional) broadcast key, read here so it never appears in a command line; unset -> forge's
+///                  sender (--sender / --unlocked on anvil)
 ///   USDC           (optional) existing USDC token; unset -> deploys MockUSDC
-///   OWNER          (optional) pool/mock owner; default the broadcasting sender
+///   OWNER          (optional) pool/mock owner; default the broadcaster
 ///   GUARDIAN       (optional) guardian pause key; default none (address 0)
 ///   CONFIG_DELAY / WITHDRAW_DELAY / CLAIM_WINDOW (optional) seconds; default the testnet values 600/600/3600
 ///   STRICT         (optional) default false; false is accepted only on 998/31337 (the pool enforces it too)
 /// @dev Deploy order (ARCHITECTURE §5.9): price and position sources -> cachePerp for each perp (hypercore) or
-///      setPrice (mock) -> pool. Forge's local EVM does not run HyperCore precompiles, so a hypercore-mode run
-///      only works where the precompiles answer (the chain itself, or tests that mock them).
-///   Local example: anvil & then
-///   QUOTE_SIGNER=0x... MODE=mock PERPS=3,4 MOCK_PX6=84000000000,3000000000 \
-///     forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+///      setPrice (mock) -> pool. Forge's local EVM has no HyperCore precompiles, so for MODE=hypercore `run()`
+///      etches stand-ins (script/HyperCoreStandIns.sol) and configures them BEFORE `vm.startBroadcast`.
+///      `deploy()` never etches and never calls a stand-in itself, so no transaction to a precompile address is
+///      recorded (DeployTest checks this). On chain, forge's per-transaction eth_estimateGas runs the real
+///      precompiles; on anvil the hypercore route therefore aborts at estimation, by design.
 contract Deploy is Script {
+    address internal constant POSITION_PRECOMPILE = 0x0000000000000000000000000000000000000800;
+    address internal constant ORACLE_PX_PRECOMPILE = 0x0000000000000000000000000000000000000807;
+    address internal constant PERP_INFO_PRECOMPILE = 0x000000000000000000000000000000000000080a;
+
     struct Deployment {
         address pool;
         address usdc;
@@ -54,34 +64,64 @@ contract Deploy is Script {
         uint64 withdrawDelay;
         uint64 claimWindow;
         bool strict;
+        uint256 deployerKey; // 0 = forge's sender; never logged
     }
 
     function run() external returns (Deployment memory) {
+        // Mainnet lock before anything else (deploy() checks again).
+        require(block.chainid == 998 || block.chainid == 31337, "Deploy: only testnet (998) or local (31337)");
         uint256[] memory none = new uint256[](0);
         uint256[] memory perps = vm.envOr("PERPS", ",", none);
         uint256[] memory px = vm.envOr("MOCK_PX6", ",", none);
+        uint256 key = vm.envOr("DEPLOYER_KEY", uint256(0));
         Config memory c = Config({
             quoteSigner: vm.envAddress("QUOTE_SIGNER"),
             mode: vm.envOr("MODE", string("hypercore")),
             usdc: vm.envOr("USDC", address(0)),
-            owner: vm.envOr("OWNER", msg.sender),
+            owner: vm.envOr("OWNER", key != 0 ? vm.addr(key) : msg.sender),
             guardian: vm.envOr("GUARDIAN", address(0)),
-            perps: new uint32[](perps.length),
-            mockPx6: new uint64[](px.length),
+            perps: _toUint32(perps),
+            mockPx6: _toUint64(px, "Deploy: bad MOCK_PX6"),
             configDelay: uint64(vm.envOr("CONFIG_DELAY", uint256(600))),
             withdrawDelay: uint64(vm.envOr("WITHDRAW_DELAY", uint256(600))),
             claimWindow: uint64(vm.envOr("CLAIM_WINDOW", uint256(3_600))),
-            strict: vm.envOr("STRICT", false)
+            strict: vm.envOr("STRICT", false),
+            deployerKey: key
         });
-        for (uint256 i; i < perps.length; ++i) {
-            require(perps[i] <= type(uint32).max, "Deploy: perp index out of range");
-            c.perps[i] = uint32(perps[i]);
-        }
-        for (uint256 i; i < px.length; ++i) {
-            require(px[i] > 0 && px[i] <= type(uint64).max, "Deploy: bad MOCK_PX6");
-            c.mockPx6[i] = uint64(px[i]);
+        if (keccak256(bytes(c.mode)) == keccak256("hypercore")) {
+            // LOCAL ONLY, before the broadcast window opens.
+            installStandIns(c.perps, _toUint64(vm.envOr("STANDIN_PX6", ",", none), "Deploy: bad STANDIN_PX6"));
         }
         return deploy(c);
+    }
+
+    /// @notice Etch and configure the HyperCore precompile stand-ins (forge's local pass only). Never call this
+    ///         while broadcasting.
+    function installStandIns(uint32[] memory perps, uint64[] memory px6) public {
+        require(perps.length > 0 && px6.length == perps.length, "Deploy: STANDIN_PX6 needs one price per perp");
+        vm.etch(ORACLE_PX_PRECOMPILE, address(new OraclePxStandIn()).code);
+        vm.etch(PERP_INFO_PRECOMPILE, address(new PerpAssetInfoStandIn()).code);
+        vm.etch(POSITION_PRECOMPILE, address(new PositionStandIn()).code);
+        for (uint256 i; i < perps.length; ++i) {
+            OraclePxStandIn(ORACLE_PX_PRECOMPILE).set(perps[i], px6[i]); // szDecimals 0: raw = px6
+            PerpAssetInfoStandIn(PERP_INFO_PRECOMPILE).set(perps[i]);
+        }
+    }
+
+    function _toUint32(uint256[] memory a) internal pure returns (uint32[] memory out) {
+        out = new uint32[](a.length);
+        for (uint256 i; i < a.length; ++i) {
+            require(a[i] <= type(uint32).max, "Deploy: perp index out of range");
+            out[i] = uint32(a[i]);
+        }
+    }
+
+    function _toUint64(uint256[] memory a, string memory err) internal pure returns (uint64[] memory out) {
+        out = new uint64[](a.length);
+        for (uint256 i; i < a.length; ++i) {
+            require(a[i] > 0 && a[i] <= type(uint64).max, err);
+            out[i] = uint64(a[i]);
+        }
     }
 
     /// @notice Testnet limits (ARCHITECTURE §5.2 table, "Testnet value" column).
@@ -112,7 +152,8 @@ contract Deploy is Script {
         d.mock = m == keccak256("mock");
         if (d.mock) require(c.mockPx6.length == c.perps.length, "Deploy: MOCK_PX6 needs one price per perp");
 
-        vm.startBroadcast();
+        if (c.deployerKey != 0) vm.startBroadcast(c.deployerKey);
+        else vm.startBroadcast();
         (, address sender,) = vm.readCallers();
         d.usdc = c.usdc == address(0) ? address(new MockUSDC()) : c.usdc;
         if (d.mock) {
