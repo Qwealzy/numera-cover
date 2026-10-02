@@ -25,6 +25,7 @@ import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -282,6 +283,33 @@ class PoolSpotReader:
         return int(blk["timestamp"], 16)
 
 
+LOCAL_CHAIN_ID = 31337
+
+
+class AllowlistMissingError(RuntimeError):
+    """The engine would quote any pool/perp: refuse to start (audit review L-2)."""
+
+
+def check_allowlists(chain_id: int, deployment: Deployment | None) -> None:
+    """Fail closed. Outside local dev (31337) the deployments file must exist, be for this chain and list
+    pools and perps; otherwise the perp allowlist would silently be open. Mainnet (999) is exempt only
+    because the engine never signs for it (every /quote answers 403)."""
+    if chain_id in (LOCAL_CHAIN_ID, MAINNET_CHAIN_ID):
+        return
+    if deployment is None:
+        raise AllowlistMissingError(
+            f"chain {chain_id}: no deployments file (NUMERA_DEPLOYMENTS or deployments/<env>.json); "
+            "refusing to quote without a pool/perp allowlist"
+        )
+    if deployment.chain_id is not None and deployment.chain_id != chain_id:
+        raise AllowlistMissingError(
+            f"deployments file is for chain {deployment.chain_id}, the engine for {chain_id}"
+        )
+    if not deployment.pools or not deployment.perps:
+        missing = "pools" if not deployment.pools else "perps"
+        raise AllowlistMissingError(f"chain {chain_id}: deployments file lists no {missing}; not starting")
+
+
 def engine_rpc_urls(settings: Settings, deployment: Deployment | None) -> list[str]:
     """Engine RPC failover list: NUMERA_RPCS, else NUMERA_RPC_URL + the deployments rpc (+ the public
     testnet endpoints for chain 998). Its own FailoverRpc: an RPC budget separate from the keeper."""
@@ -340,6 +368,24 @@ class BlockClock:
         return ts
 
 
+class ThrottledWarning:
+    """log.warning at most once per ``every_s`` per key (a persistent condition must not log per request)."""
+
+    def __init__(self, every_s: float = 60.0, mono: Callable[[], float] = time.monotonic) -> None:
+        self.every_s, self.mono = every_s, mono
+        self._at: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def __call__(self, key: str, msg: str, *args: Any) -> bool:
+        t = self.mono()
+        with self._lock:
+            if key in self._at and t - self._at[key] < self.every_s:
+                return False
+            self._at[key] = t
+        log.warning(msg, *args)
+        return True
+
+
 def _norm_ip(s: str) -> str:
     """Canonical text of an IP address (so ::1 and 0:0::1 match); anything else as given, stripped."""
     s = s.strip()
@@ -364,36 +410,45 @@ def client_ip(peer: str, xff: str | None, trusted: frozenset[str] | set[str]) ->
     return peer  # every hop is a trusted proxy: the request came from the proxies themselves
 
 
+def rate_key(ip: str) -> str:
+    """Bucket key for a client address: IPv4 as is (IPv4-mapped IPv6 too), IPv6 by its /64, since one
+    subscriber usually holds a whole /64 and could otherwise rotate addresses to get fresh buckets."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(a, ipaddress.IPv6Address):
+        if a.ipv4_mapped is not None:
+            return str(a.ipv4_mapped)
+        return str(ipaddress.IPv6Network((a, 64), strict=False))
+    return str(a)
+
+
 class RateLimiter:
     """Per-key token bucket (audit M4): ``burst`` requests at once, refilled at ``per_min`` per minute.
-    ``take(key)`` returns 0.0 when allowed, else the seconds until the next token. Memory is bounded: idle
-    buckets (full again) are dropped when the table grows past ``max_keys``."""
+    ``take(key)`` returns 0.0 when allowed, else the seconds until the next token.
+
+    Memory is bounded by ``max_keys``: buckets are kept in least-recently-used order and the oldest are
+    evicted as soon as the table is over the bound (an evicted client simply starts with a full bucket)."""
 
     def __init__(self, per_min: float, burst: int, clock: Callable[[], float] = time.monotonic,
                  max_keys: int = 10_000) -> None:  # fmt: skip
-        if per_min <= 0 or burst < 1:
-            raise ValueError("rate limit needs per_min > 0 and burst >= 1")
+        if per_min <= 0 or burst < 1 or max_keys < 1:
+            raise ValueError("rate limit needs per_min > 0, burst >= 1 and max_keys >= 1")
         self.rate, self.burst, self.clock, self.max_keys = per_min / 60.0, float(burst), clock, max_keys
-        self._b: dict[str, tuple[float, float]] = {}  # key -> (tokens, last refill time)
+        self._b: OrderedDict[str, tuple[float, float]] = OrderedDict()  # key -> (tokens, last refill time)
         self._lock = threading.Lock()
 
     def take(self, key: str) -> float:
         now = self.clock()
         with self._lock:
-            tokens, last = self._b.get(key, (self.burst, now))
+            tokens, last = self._b.pop(key, (self.burst, now))
             tokens = min(self.burst, tokens + (now - last) * self.rate)
-            if tokens >= 1.0:
-                self._b[key] = (tokens - 1.0, now)
-                if len(self._b) > self.max_keys:
-                    self._prune(now)
-                return 0.0
-            self._b[key] = (tokens, now)
-            return (1.0 - tokens) / self.rate
-
-    def _prune(self, now: float) -> None:
-        full_after = self.burst / self.rate
-        for k in [k for k, (_, last) in self._b.items() if now - last >= full_after]:
-            del self._b[k]
+            ok = tokens >= 1.0
+            self._b[key] = (tokens - 1.0 if ok else tokens, now)  # (re)inserted last = most recent
+            while len(self._b) > self.max_keys:
+                self._b.popitem(last=False)  # evict the least recently used
+            return 0.0 if ok else (1.0 - tokens) / self.rate
 
 
 # -- API -------------------------------------------------------------------------------------------
@@ -450,9 +505,14 @@ def create_app(
         for a in (default_pool, *(p.pool for p in (deployment.pools if deployment else ())))
         if _ADDRESS_RE.match(a or "")
     }
-    # Perps the engine quotes (audit M2): those cached for the pools in deployments/<env>.json `perps`. No
-    # deployments file or no `perps` (local dev) = no allowlist; the universe check applies either way.
+    # Perps the engine quotes (audit M2): those cached for the pools in deployments/<env>.json `perps`. Only
+    # local dev (31337) may run without one (check_allowlists fails closed elsewhere); the universe check
+    # applies either way.
     allowed_perps = set(deployment.perps.values()) if deployment and deployment.perps else None
+    check_allowlists(settings.chain_id, deployment)
+    perps_desc = dict(sorted(deployment.perps.items())) if allowed_perps is not None else "any (local dev)"
+    log.info("[engine] chain %d allowlist: pools %s, perps %s", settings.chain_id, sorted(allowlist),
+             perps_desc)  # fmt: skip
     if spot_reader is None:
         urls = engine_rpc_urls(settings, deployment)
         if urls:
@@ -467,16 +527,26 @@ def create_app(
     if rate_limiter is None and settings.rate_per_min > 0:
         rate_limiter = RateLimiter(settings.rate_per_min, settings.rate_burst)
     signer_addr = settings.signer_address
+    warn_once = ThrottledWarning(60.0)
     trusted = frozenset(_norm_ip(p) for p in settings.trusted_proxies)
 
     def now_s() -> int:
-        """Latest block timestamp; the wall clock (with a warning) only if the chain cannot be read."""
-        if block_time is not None:
-            try:
-                return int(block_time())
-            except Exception as exc:  # noqa: BLE001 - any RPC failure: fall back, quote stays usable
-                log.warning("[engine] block timestamp unavailable (%s); using the wall clock", exc)
-        return int(clock())
+        """Latest block timestamp; the wall clock when the chain cannot be read, or when the latest block
+        lags the wall clock by more than the quote TTL (a stalled chain/RPC: deadlines from it would be
+        dead on arrival). Both fallbacks log a WARNING at most once a minute."""
+        wall = int(clock())
+        if block_time is None:
+            return wall
+        try:
+            ts = int(block_time())
+        except Exception as exc:  # noqa: BLE001 - any RPC failure: fall back, quote stays usable
+            warn_once("rpc", "[engine] block timestamp unavailable (%s); using the wall clock", exc)
+            return wall
+        if wall - ts > settings.quote_ttl_s:
+            warn_once("lag", "[engine] latest block %d lags the wall clock %d by %d s (> TTL %d s); using "
+                      "the wall clock", ts, wall, wall - ts, settings.quote_ttl_s)  # fmt: skip
+            return wall
+        return ts
 
     app = FastAPI(title="Numera Quote API", version="1")
 
@@ -485,7 +555,7 @@ def create_app(
         if rate_limiter is not None and request.method == "POST" and request.url.path == "/quote":
             peer = request.client.host if request.client else "unknown"
             ip = client_ip(peer, request.headers.get("x-forwarded-for"), trusted)
-            wait = rate_limiter.take(ip)
+            wait = rate_limiter.take(rate_key(ip))
             if wait > 0:
                 retry = max(1, math.ceil(wait))
                 resp = _err(429, "rate_limited", f"too many quote requests; retry in {retry} s")
@@ -644,6 +714,8 @@ def create_app(
 
 
 def _lazy_app() -> FastAPI:
+    if not logging.getLogger().handlers:  # under uvicorn: make numera.* INFO lines (allowlist, rpcs) visible
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
     return create_app()
 
 

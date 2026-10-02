@@ -14,14 +14,17 @@ from numera_engine.pricing import SECONDS_PER_YEAR, TailTable
 from numera_engine.quote import Quote, recover_signer
 from numera_engine.quote_api import (
     LEVEL_K_SIGMA,
+    AllowlistMissingError,
     BlockClock,
     CachedSpotReader,
     PoolSpotReader,
     RateLimiter,
     Settings,
+    ThrottledWarning,
     client_ip,
     create_app,
     engine_rpc_urls,
+    rate_key,
 )
 from numera_engine.rpc import FailoverRpc
 
@@ -134,9 +137,30 @@ def test_real_testnet_deployment_lists_the_cached_perps():
     assert c.post("/quote", json=body(perpIndex=bad)).json()["error"] == "perp_not_allowed"
 
 
-def test_no_deployment_means_no_perp_allowlist():
-    r = client(deployment=None, pool=POOL).post("/quote", json=body(perpIndex=60000))
+def test_no_deployment_means_no_perp_allowlist_only_on_local():
+    r = client(deployment=None, pool=POOL, chain_id=31337).post("/quote", json=body(perpIndex=60000))
     assert r.json().get("error") != "perp_not_allowed"
+
+
+@pytest.mark.parametrize(
+    "deployment,match",
+    [
+        (None, "no deployments file"),
+        (parse({"chainId": 998, "pools": {"hypercore": {"pool": POOL}}}), "lists no perps"),
+        (parse({"chainId": 998, "perps": {"BTC": 3}}), "lists no pools"),
+        (parse({"chainId": 31337, "pools": {"h": {"pool": POOL}}, "perps": {"BTC": 3}}), "for chain 31337"),
+    ],
+)
+def test_testnet_engine_refuses_to_start_without_allowlists(deployment, match):
+    with pytest.raises(AllowlistMissingError, match=match):
+        client(deployment=deployment)
+
+
+def test_allowlist_is_logged_at_startup(caplog):
+    with caplog.at_level(logging.INFO, logger="numera.engine"):
+        client()
+    msg = next(r.getMessage() for r in caplog.records if "allowlist" in r.getMessage())
+    assert "chain 998" in msg and POOL in msg and "'BTC': 3" in msg and "'ETH': 4" in msg
 
 
 # -- M4: rate limit, spot cache, RPC failover ----------------------------------------------------------
@@ -156,14 +180,27 @@ def test_rate_limiter_burst_then_refill():
     assert rl.take("a") > 0
 
 
-def test_rate_limiter_memory_is_bounded():
+def test_rate_limiter_memory_is_bounded_by_lru_eviction():
     clk = Clock()
-    rl = RateLimiter(per_min=60, burst=1, clock=clk, max_keys=10)
-    for i in range(10):
+    rl = RateLimiter(per_min=10, burst=1, clock=clk, max_keys=1000)
+    rl.take("keep")
+    for i in range(5000):  # buckets still drained (no refill time): the old prune kept all of them
         rl.take(f"ip{i}")
-    clk.t = 5.0  # all buckets full again
-    rl.take("new")
-    assert len(rl._b) <= 2
+        if i % 500 == 0:
+            rl.take("keep")  # recently used: survives
+        assert len(rl._b) <= 1000
+    assert len(rl._b) == 1000 and "keep" in rl._b and "ip0" not in rl._b and "ip4999" in rl._b
+    assert rl.take("keep") > 0  # its drained bucket was kept, not reset
+
+
+def test_ipv6_clients_share_a_bucket_per_64():
+    assert rate_key("2001:db8:1:2:aaaa::1") == rate_key("2001:db8:1:2:ffff::9") == "2001:db8:1:2::/64"
+    assert rate_key("2001:db8:1:3::1") != rate_key("2001:db8:1:2::1")
+    assert rate_key("::ffff:1.2.3.4") == "1.2.3.4" and rate_key("1.2.3.4") == "1.2.3.4"
+    assert rate_key("testclient") == "testclient"
+    c = proxied_client("127.0.0.1", trusted=("127.0.0.1",))
+    assert codes(c, ["2001:db8::1", "2001:db8::2", "2001:db8::3"]) == [200, 200, 429]  # same /64
+    assert codes(c, ["2001:db8:0:1::1"]) == [200]  # next /64
 
 
 def test_quote_endpoint_answers_429_after_the_burst_with_cors_and_retry_after():
@@ -349,6 +386,34 @@ def test_now_falls_back_to_the_wall_clock_with_a_warning(caplog):
         q = client(block_time=broken).post("/quote", json=body()).json()["quote"]
     assert q["deadline"] == NOW + 30
     assert any("wall clock" in r.getMessage() for r in caplog.records)
+
+
+def test_rpc_failure_warning_is_logged_once_a_minute_not_per_request(caplog):
+    def broken():
+        raise RuntimeError("rpc down")
+
+    c = client(block_time=broken)
+    with caplog.at_level(logging.WARNING, logger="numera.engine"):
+        for _ in range(4):
+            assert c.post("/quote", json=body()).json()["quote"]["deadline"] == NOW + 30
+    assert sum("block timestamp unavailable" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_lagging_block_time_falls_back_to_the_wall_clock(caplog):
+    with caplog.at_level(logging.WARNING, logger="numera.engine"):
+        q = client(block_time=lambda: NOW - 31).post("/quote", json=body()).json()["quote"]
+    assert q["deadline"] == NOW + 30  # 31 s behind > TTL 30 s: wall clock
+    assert any("lags the wall clock" in r.getMessage() for r in caplog.records)
+    q = client(block_time=lambda: NOW - 30).post("/quote", json=body()).json()["quote"]
+    assert q["deadline"] == NOW  # within the TTL: block time is kept
+
+
+def test_throttled_warning():
+    mono = Clock()
+    w = ThrottledWarning(60.0, mono)
+    assert w("k", "x") and not w("k", "x") and w("other", "y")
+    mono.t = 60.0
+    assert w("k", "x")
 
 
 def test_block_clock_caches_and_advances_with_the_local_clock():
