@@ -38,9 +38,23 @@ declare global {
 
 export const hasInjectedWallet = () => typeof window !== 'undefined' && !!window.ethereum;
 
+/**
+ * Wallet writes go to the wallet exactly once. viem's sendTransaction re-sends a write as
+ * `wallet_sendTransaction` when `eth_sendTransaction` fails with -32000 / -32602 / -32601 / -32004; Rabby
+ * can answer -32000 after it has already broadcast the tx, and then opens a second prompt for the same
+ * approve (2026-10-02, v2 pools: two Approval logs per deposit, the second with a gas limit estimated after
+ * the first had set the allowance). Excluding the method makes viem surface the first error instead.
+ * retryCount 0: viem never retries a send anyway; this keeps any other wallet call from being repeated.
+ */
+export const WALLET_TRANSPORT_EXCLUDE = ['wallet_sendTransaction'] as const;
+
 export function walletClient(account: Address): WalletClient {
   if (!window.ethereum) throw new Error('No browser wallet found. Install MetaMask, Rabby or another EIP-1193 wallet.');
-  return createWalletClient({ account, chain: hyperEvmTestnet, transport: custom(window.ethereum) });
+  return createWalletClient({
+    account,
+    chain: hyperEvmTestnet,
+    transport: custom(window.ethereum, { retryCount: 0, methods: { exclude: [...WALLET_TRANSPORT_EXCLUDE] } }),
+  });
 }
 
 export async function requestAccounts(): Promise<Address[]> {
