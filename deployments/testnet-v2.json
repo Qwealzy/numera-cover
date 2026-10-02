@@ -131,6 +131,165 @@
             "status": 1
           }
         ]
+      },
+      "e2e_F9_2026-10-02": {
+        "proof": "F9: the keeper triggered the breached cover",
+        "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
+        "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+        "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "coverId": 1,
+        "quote": {
+          "spotRef": 86642900000,
+          "level": 85776471000,
+          "payout": 10000000,
+          "premium": 332772,
+          "durationSec": 3600,
+          "expiry": 1790953194,
+          "nonce": 3550234802362,
+          "touchProb": 0.01358829771928952,
+          "floorApplied": false,
+          "spotSource": "pool"
+        },
+        "trigger": {
+          "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
+          "oraclePx": 85347588645,
+          "payoutTransfer": 10000000
+        },
+        "timing": {
+          "priceBlock": 65834128,
+          "triggerBlock": 65834135,
+          "blocks": 7,
+          "blockTimestampDeltaS": 7,
+          "wallClockToPaidSeenS": 7.8
+        },
+        "txs": [
+          {
+            "purpose": "setPosition BTC long szi 230 entryNtl 200000000 lev 10",
+            "hash": "0xf84f5805ac3a3dfa8deaf46d1d03a229e33e497c8f3eee62a289f41cce4739db",
+            "block": 65834109,
+            "status": 1,
+            "gasUsed": 49523
+          },
+          {
+            "purpose": "setPrice BTC 86642900000 (live oracle)",
+            "hash": "0x4457e33be0e2fec2cce3eb6d984c1e011c4d7ff8c5a38fc492749ca8f3fa86ea",
+            "block": 65834112,
+            "status": 1,
+            "gasUsed": 30326
+          },
+          {
+            "purpose": "approve 0.332772 mUSDC (exact premium)",
+            "hash": "0x873ebe12af03ca9c0f45439d2b4791e578498f285494c304cd6c7488f7accbdb",
+            "block": 65834121,
+            "status": 1,
+            "gasUsed": 45921
+          },
+          {
+            "purpose": "buyCover payout 10.000000 premium 0.332772",
+            "hash": "0x18a764fe09d6977896416482ded7090ec449f14f72267e25976127392a132da4",
+            "block": 65834124,
+            "status": 1,
+            "gasUsed": 402769
+          },
+          {
+            "purpose": "setPrice BTC 85347588645 (breach: 50 bps below level 85776471000)",
+            "hash": "0x9fb5d5734ee6576344d32d1bbafd23d08dbbb309b601941dc4e1b51cdade5dd6",
+            "block": 65834128,
+            "status": 1,
+            "gasUsed": 30326
+          },
+          {
+            "purpose": "trigger(1) by the keeper",
+            "hash": "0x8617e3d1323e3768fa667301509c6a773c211f6afdb2a0f37cecd53beb6c5477",
+            "block": 65834135,
+            "status": 1,
+            "gasUsed": 161468,
+            "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
+          },
+          {
+            "purpose": "setPrice BTC 86563600000 (reset to the live oracle)",
+            "hash": "0x564673a51b9b1c3622a0f7d80433f31e09934069f4784002ee47648afe6daeb1",
+            "block": 65834142,
+            "status": 1,
+            "gasUsed": 30326
+          }
+        ]
+      },
+      "e2e_F9_2026-10-02_2": {
+        "proof": "F9: the keeper triggered the breached cover",
+        "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
+        "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+        "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "coverId": 2,
+        "quote": {
+          "spotRef": 86356000000,
+          "level": 85492440000,
+          "payout": 10000000,
+          "premium": 475606,
+          "durationSec": 3600,
+          "expiry": 1790954124,
+          "nonce": 6425089851002421,
+          "touchProb": 0.012342354191994266,
+          "floorApplied": false,
+          "spotSource": "pool"
+        },
+        "trigger": {
+          "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
+          "oraclePx": 85064977800,
+          "payoutTransfer": 10000000
+        },
+        "timing": {
+          "priceBlock": 65835073,
+          "triggerBlock": 65835079,
+          "blocks": 6,
+          "blockTimestampDeltaS": 6,
+          "wallClockToPaidSeenS": 6.4
+        },
+        "txs": [
+          {
+            "purpose": "setPrice BTC 86356000000 (live oracle)",
+            "hash": "0xeffa713fe006b7948eb5088172bad323b66d7a487b03af083dafbef21fada37e",
+            "block": 65835056,
+            "status": 1,
+            "gasUsed": 30314
+          },
+          {
+            "purpose": "approve 0.475606 mUSDC (exact premium)",
+            "hash": "0x763607869d2149a5b27d5239124ba8ce856f1ff6097881bcdce7ace0f3764066",
+            "block": 65835067,
+            "status": 1,
+            "gasUsed": 45921
+          },
+          {
+            "purpose": "buyCover payout 10.000000 premium 0.475606",
+            "hash": "0xb980543db25486f65f42bb587e4f03b2c8b2be290243e169eb7498f2c041774c",
+            "block": 65835070,
+            "status": 1,
+            "gasUsed": 311329
+          },
+          {
+            "purpose": "setPrice BTC 85064977800 (breach: 50 bps below level 85492440000)",
+            "hash": "0xb150bbe9e2badb7ea8d931619df0ec2f8047d4f845b73c55bb40a51a82adcd22",
+            "block": 65835073,
+            "status": 1,
+            "gasUsed": 30326
+          },
+          {
+            "purpose": "trigger(2) by the keeper",
+            "hash": "0xc63d624cae0aad9a6cf599298affa7f4df0cdb659dcb669e915d3031a0d8a0d2",
+            "block": 65835079,
+            "status": 1,
+            "gasUsed": 115744,
+            "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
+          },
+          {
+            "purpose": "setPrice BTC 86295400000 (reset to the live oracle)",
+            "hash": "0x7d80ac2b98e3e755931c97c2b7206c410b0b8705661f46c2b60162e9e16d8335",
+            "block": 65835085,
+            "status": 1,
+            "gasUsed": 30326
+          }
+        ]
       }
     },
     "hypercore": {
