@@ -67,7 +67,7 @@ struct Quote {
     uint256 premium;     // USDC (6 dec)
     uint64  expiry;      // cover end (unix s)
     uint64  spotRef;     // px6 oracle price the engine priced against
-    uint64  deadline;    // quote must be used before this (unix s), ~60 s after issue
+    uint64  deadline;    // quote must be used before this (unix s), ~30 s after issue
     uint256 nonce;       // unique per quote; contract marks used
 }
 ```
@@ -164,7 +164,9 @@ Added 2026-10-02 (security audit M1, M2, M4, L6; engine-side only, contracts unc
 - 422 `level_too_close`: |ln(level/spot)| < 3·σ·√TTL, i.e. the level could plausibly be reached while the
   signed quote is still valid (the stale-quote free option).
 - 429 `rate_limited`: per-client-IP limit on `POST /quote` (token bucket, default 10/min, burst 5;
-  `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header.
+  `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header. Behind a reverse
+  proxy listed in `NUMERA_TRUSTED_PROXIES` (default empty) the client is the right-most untrusted
+  `X-Forwarded-For` entry; otherwise the direct peer.
 
 ## 7. Pricing model (engine, v4 — final, D13)
 

@@ -67,7 +67,7 @@ struct Quote {
     uint256 premium;     // USDC (6 dec)
     uint64  expiry;      // cover end (unix s)
     uint64  spotRef;     // px6 oracle price the engine priced against
-    uint64  deadline;    // quote must be used before this (unix s), ~60 s after issue
+    uint64  deadline;    // quote must be used before this (unix s), ~30 s after issue
     uint256 nonce;       // unique per quote; the contract marks it used
 }
 ```
