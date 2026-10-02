@@ -1,15 +1,19 @@
 #!/usr/bin/env node
-// One-command local start: engine Quote API (uvicorn) + app (Vite dev server), from .env.
+// One-command local start: engine Quote API (uvicorn) + app (Vite dev server) [+ keeper], from .env.
 // Works the same from Windows PowerShell 5.1, pwsh, cmd and Git Bash: `node scripts/dev.mjs`.
 //
 //   node scripts/dev.mjs [--env <path>] [--engine-only | --app-only] [--port <engine port, default 8000>]
 //                        [--app-port <default 5173>] [--timeout <readiness seconds, default 90>] [--smoke]
-//                        [--allow-unverified-rpc]
+//                        [--allow-unverified-rpc] [--keeper | --keeper-only] [--keeper-dry-run]
 //
 // --env     .env file to load (default <repo root>/.env). KEY=VALUE lines; values already set in the shell win.
 // --smoke   start, wait until both answer HTTP, make one request to each, stop everything, exit 0/1.
+//           With the keeper: also wait for its first `[keeper] poll ok` line before READY.
+// --keeper  also start the keeper (python -m numera_engine.keeper) as a third child, with KEEPER_KEY from
+//           .env/shell and NUMERA_RPCS set to the RPC list verified below. --keeper-only starts the keeper alone;
+//           --keeper-dry-run runs it read-only (--dry-run, KEEPER_KEY optional) and implies --keeper.
 //
-// Ctrl-C (or either child exiting) stops both; on Windows the whole child tree is killed with taskkill /T /F so
+// Ctrl-C (or any child exiting) stops all; on Windows the whole child tree is killed with taskkill /T /F so
 // no uvicorn/vite process is left behind. Testnet only: refuses CHAIN_ID / NUMERA_CHAIN_ID 999 and an RPC that
 // is a mainnet host, and refuses to start unless every configured RPC answers chain id 998 (31337 local);
 // --allow-unverified-rpc lets an unreachable RPC through with a WARN. Secret values are never printed.
@@ -21,17 +25,12 @@ import path from 'node:path';
 import { venvPython } from './venv.mjs';
 import { repoRoot, mainCheckout } from './lib/tools.mjs';
 import { readDotenv } from './lib/env.mjs';
-import { makeClient, looksLikeMainnetRpc, host, MAINNET_CHAIN_ID, TESTNET_CHAIN_ID } from './lib/rpc.mjs';
+import { makeClient, looksLikeMainnetRpc, host, engineTestnetRpcs, MAINNET_CHAIN_ID, TESTNET_CHAIN_ID } from './lib/rpc.mjs';
+import { parseDevArgs, keeperSpawn, withoutKeys, KEEPER_READY_RE } from './lib/dev.mjs';
 
 const LOCAL_CHAIN_ID = 31337; // anvil (network `local`)
 
 const isWin = process.platform === 'win32';
-const argv = process.argv.slice(2);
-const opt = (name, dflt) => {
-  const i = argv.indexOf(name);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : dflt;
-};
-const flag = (name) => argv.includes(name);
 const say = (msg) => console.log(`[dev] ${msg}`);
 // Errors end the run by setting process.exitCode and letting the event loop drain, never process.exit():
 // Node 24 on Windows aborts (libuv assertion, exit 127) when process.exit runs shortly after a fetch.
@@ -40,14 +39,13 @@ const die = (msg) => {
   throw new DevExit(msg);
 };
 
-const envPath = path.resolve(opt('--env', path.join(repoRoot, '.env')));
-const enginePort = Number(opt('--port', '8000'));
-const readyTimeoutS = Number(opt('--timeout', '90'));
-const SMOKE = flag('--smoke');
-const ALLOW_UNVERIFIED_RPC = flag('--allow-unverified-rpc'); // escape hatch: start even if an RPC does not answer (999 is still refused)
-const runEngine = !flag('--app-only');
-const runApp = !flag('--engine-only');
-const APP_PORT = Number(opt('--app-port', '5173')); // app/vite.config.ts default 5173 (strictPort); passed as --port
+let args = null;
+try {
+  args = parseDevArgs(process.argv.slice(2), { defaultEnvPath: path.join(repoRoot, '.env') });
+} catch (e) {
+  console.error(`[dev] ERROR: ${e.message}`);
+  process.exitCode = 1;
+}
 const children = [];
 
 // Kill a child and everything it started (Windows: taskkill /T /F; POSIX: its process group).
@@ -72,8 +70,12 @@ function killTree(c) {
 }
 
 async function main() {
-  if (!runEngine && !runApp) die('--engine-only and --app-only exclude each other');
-  for (const [n, v] of [['--port', enginePort], ['--app-port', APP_PORT]]) if (!Number.isInteger(v) || v < 1 || v > 65535) die(`${n} must be a TCP port number`);
+  const envPath = path.resolve(args.envPath);
+  const { enginePort, runEngine, runApp, runKeeper, keeperDryRun } = args;
+  const readyTimeoutS = args.timeoutS;
+  const SMOKE = args.smoke;
+  const ALLOW_UNVERIFIED_RPC = args.allowUnverifiedRpc; // escape hatch: start even if an RPC does not answer (999 is still refused)
+  const APP_PORT = args.appPort; // app/vite.config.ts default 5173 (strictPort); passed as --port
 
   // ---- environment ---------------------------------------------------------------------------------
   const fileEnv = readDotenv(envPath);
@@ -82,6 +84,9 @@ async function main() {
     say(`no .env at ${envPath}${alt !== envPath && existsSync(alt) ? ` (main checkout has one: --env ${alt})` : ''}; using the shell environment only`);
   } else say(`loaded ${Object.keys(fileEnv).length} keys from ${envPath} (names: ${Object.keys(fileEnv).join(', ')})`);
   const env = { ...(fileEnv ?? {}), ...process.env }; // shell wins over .env
+
+  if (runKeeper && !keeperDryRun && !(env.KEEPER_KEY ?? '').trim())
+    die(`KEEPER_KEY is not set (looked in ${envPath} and the shell). The keeper cannot send trigger/expire txs without it. Use --keeper-dry-run for a read-only keeper.`);
 
   const deployments = (() => {
     try {
@@ -98,12 +103,15 @@ async function main() {
   const APP_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.development.local'];
   const rpcs = new Map(); // url -> labels
   const addRpc = (label, url) => url && rpcs.set(url, [...(rpcs.get(url) ?? []), label]);
+  if (runKeeper) for (const u of (env.NUMERA_RPCS ?? '').split(',')) addRpc('NUMERA_RPCS', u.trim());
   for (const k of ['NUMERA_RPC_URL', 'RPC_URL', 'VITE_RPC_URL']) addRpc(k, env[k]);
   for (const f of APP_ENV_FILES) addRpc(`app/${f} VITE_RPC_URL`, readDotenv(path.join(appDir, f))?.VITE_RPC_URL);
   addRpc('deployments rpc', deployments?.rpc);
+  if (runKeeper) for (const u of engineTestnetRpcs(repoRoot)) addRpc('keeper fallback', u); // the keeper's failover list
   for (const k of ['CHAIN_ID', 'NUMERA_CHAIN_ID']) if (Number(env[k]) === MAINNET_CHAIN_ID) die(`${k}=999 is mainnet. Numera runs on testnet (998) only.`);
   for (const [url, labels] of rpcs) if (looksLikeMainnetRpc(url)) die(`${labels.join(', ')} points at a mainnet host (${host(url)}). Testnet only.`);
   const ALLOWED_CHAIN_IDS = [TESTNET_CHAIN_ID, LOCAL_CHAIN_ID];
+  const verifiedRpcs = []; // url, chain id; handed to the keeper as NUMERA_RPCS in this priority order
   for (const [url, labels] of rpcs) {
     const label = `${labels.join(' + ')} (${host(url)})`;
     let id = null;
@@ -121,13 +129,27 @@ async function main() {
     if (id === MAINNET_CHAIN_ID) die(`${label} answers chain id 999 (mainnet). Testnet only.`);
     if (!ALLOWED_CHAIN_IDS.includes(id)) die(`${label} answers chain id ${id}; expected ${ALLOWED_CHAIN_IDS.join(' or ')}.`);
     say(`RPC ${label} chain id ${id}`);
+    verifiedRpcs.push({ url, id });
+  }
+
+  // Keeper: only RPCs that answered, all on the same chain as the first one (never mix 31337 and 998 in one
+  // failover list). Fails early, naming KEEPER_KEY but never printing it, unless --keeper-dry-run.
+  let keeper = null;
+  if (runKeeper) {
+    const keeperRpcs = verifiedRpcs.filter((r) => r.id === verifiedRpcs[0]?.id).map((r) => r.url);
+    if (!keeperRpcs.length) die('no verified RPC for the keeper (every RPC was unverified). Fix the RPC and retry.');
+    try {
+      keeper = keeperSpawn({ repoRoot, env, rpcs: keeperRpcs, dryRun: keeperDryRun, host });
+    } catch (e) {
+      die(e.message);
+    }
   }
 
   if (runEngine && !(env.QUOTE_SIGNER_KEY ?? '').trim())
     die(`QUOTE_SIGNER_KEY is not set (looked in ${envPath} and the shell). The engine cannot sign quotes without it. Use --app-only to run only the app.`);
 
-  const py = runEngine ? venvPython(repoRoot) : null;
-  if (runEngine && !py) die('engine venv not found (engine/.venv). Create it: python -m venv engine/.venv; pip install -e "engine[dev]"');
+  const py = runEngine || runKeeper ? venvPython(repoRoot) : null;
+  if ((runEngine || runKeeper) && !py) die('engine venv not found (engine/.venv). Create it: python -m venv engine/.venv; pip install -e "engine[dev]"');
   if (runApp && !existsSync(path.join(repoRoot, 'app', 'node_modules'))) die('app/node_modules missing. Run: npm --prefix app ci');
 
   // Vite binds ::1 on Windows, uvicorn 127.0.0.1: a port is free only if both loopbacks are free.
@@ -144,7 +166,7 @@ async function main() {
   if (runApp && !(await portFree(APP_PORT))) die(`port ${APP_PORT} is already in use (another Vite?). Stop it or pass --app-port.`);
 
   // Engine settings (engine/numera_engine/quote_api.py Settings.from_env). Values from .env/shell win.
-  const engineEnv = { ...env, PYTHONUNBUFFERED: '1' };
+  const engineEnv = { ...withoutKeys(env, ['KEEPER_KEY']), PYTHONUNBUFFERED: '1' };
   engineEnv.NUMERA_ENV ??= 'testnet';
   engineEnv.NUMERA_CHAIN_ID ??= env.CHAIN_ID || '998';
   if (env.RPC_URL) engineEnv.NUMERA_RPC_URL ??= env.RPC_URL;
@@ -155,7 +177,7 @@ async function main() {
 
   // App: point VITE_ENGINE_URL at the local engine unless app/.env* or the shell sets it.
   const engineUrl = `http://localhost:${enginePort}`;
-  const appEnv = { ...env };
+  const appEnv = withoutKeys(env, ['KEEPER_KEY', 'QUOTE_SIGNER_KEY']); // Vite needs neither key
   const exampleHasEngineUrl = /^VITE_ENGINE_URL=/m.test(existsSync(path.join(appDir, '.env.example')) ? readFileSync(path.join(appDir, '.env.example'), 'utf8') : '');
   const appFileSets = APP_ENV_FILES.find((f) => readDotenv(path.join(appDir, f))?.VITE_ENGINE_URL);
   if (runApp && exampleHasEngineUrl && !appFileSets && !process.env.VITE_ENGINE_URL) appEnv.VITE_ENGINE_URL = engineUrl;
@@ -165,8 +187,12 @@ async function main() {
   let stopping = false;
   let exitCode = 0;
 
+  let keeperPollOk = false; // set by the first `[keeper] poll ok` line (smoke readiness)
   function pipe(stream, tag, out) {
-    readline.createInterface({ input: stream }).on('line', (l) => out.write(`${tag} ${l}\n`));
+    readline.createInterface({ input: stream }).on('line', (l) => {
+      out.write(`${tag} ${l}\n`);
+      if (tag === '[keeper]' && KEEPER_READY_RE.test(l)) keeperPollOk = true;
+    });
   }
 
   function start(tag, cmd, args, opts) {
@@ -232,6 +258,11 @@ async function main() {
     }
   }
 
+  if (runKeeper) {
+    say(keeper.describe);
+    start('[keeper]', py, keeper.args, { cwd: keeper.cwd, env: keeper.env });
+  }
+
   // ---- readiness -----------------------------------------------------------------------------------
   async function get(url) {
     try {
@@ -278,6 +309,17 @@ async function main() {
     if (!r) await new Promise(() => {});
     lines.push(`app     http://localhost:${APP_PORT}/  (HTTP ${r.status}; engine URL ${appEngineUrl})`);
   }
+  if (runKeeper && SMOKE) {
+    const t0 = Date.now();
+    while (!stopping && !keeperPollOk && Date.now() - t0 < readyTimeoutS * 1000) await new Promise((r) => setTimeout(r, 200));
+    if (stopping) await new Promise(() => {}); // a child exited; stop() sets the exit code
+    if (!keeperPollOk) {
+      say(`keeper printed no "poll ok" line within ${readyTimeoutS}s`);
+      await stop(1);
+      return;
+    }
+    lines.push(`keeper  first poll ok after ${((Date.now() - t0) / 1000).toFixed(1)}s${keeperDryRun ? ' (dry run)' : ''}`);
+  } else if (runKeeper) lines.push(`keeper  started${keeperDryRun ? ' (dry run)' : ''}; its poll ok / balance lines follow`);
   say('READY');
   for (const l of lines) say(`  ${l}`);
 
@@ -295,10 +337,10 @@ async function main() {
       ok &&= r?.status === 200;
     }
     await stop(ok ? 0 : 1);
-  } else say('press Ctrl-C to stop both');
+  } else say('press Ctrl-C to stop everything');
 }
 
-main().catch((e) => {
+if (args) main().catch((e) => {
   if (!(e instanceof DevExit)) throw e;
   console.error(`[dev] ERROR: ${e.message}`);
   for (const c of children) killTree(c);
