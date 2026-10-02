@@ -135,7 +135,8 @@ The keeper polls about every 3 s, so a shorter wick can be missed; anyone watchi
 
 ## 5. Mitigated off-chain (2026-10-02)
 
-These changes are in the engine (`engine/`) and the app (`app/`); the contracts are unchanged.
+These changes are in the engine (`engine/`) and the app (`app/`); they apply to the deployed v1 contracts,
+which are unchanged. The on-chain mitigations in v2 are listed after this list.
 
 - **M1:** quote lifetime 30 s; levels within 3·σ·√TTL of spot are refused (`level_too_close`).
 - **M2:** the engine quotes only the perps in the deployment file and fails closed on chain 998 when the
@@ -150,9 +151,30 @@ These changes are in the engine (`engine/`) and the app (`app/`); the contracts 
 - **Clock:** quote deadline and expiry are computed from the latest block timestamp, with a fallback to
   the wall clock when the chain cannot be read or lags.
 
+### CoverPool v2 (in the repository, not deployed)
+
+A second version of the pool contract is merged into the repository but is **not deployed**. The pools
+running on testnet today are still v1, so everything in section 4 still describes the live testnet
+contracts. v2 implements:
+
+- on-chain `minPremiumBps` and `minLevelDistanceBps` floors, a sale-window throttle, and a payout circuit
+  breaker that pauses sales when payouts in a window exceed a cap (an owner unpause also resets the
+  breaker window);
+- a timelock on `setQuoteSigner`, `setLimits` and the allowlist, `Ownable2Step`, disabled renounce, and a
+  guardian that can cancel queued changes; queued changes expire 3 days after they become executable;
+- asynchronous LP exits (request, wait `withdrawDelay`, claim);
+- an on-chain, owner-set perp allowlist;
+- bounds on `setLimits`;
+- a pull-payment fallback when a direct payout transfer fails.
+
+v2 had an internal design review and an internal code audit (no Critical or High findings; mutation
+checks on the new guards were caught). That is still not an independent audit.
+
 ## 6. Mainnet blockers
 
-None of these are done. All must be fixed before any deployment that holds real funds:
+The v2 contract addresses blockers 1 to 6 below in code, but v2 is not deployed and has not been
+independently audited, so none of them is closed on a live deployment. All must hold on a deployment that
+has real funds:
 
 1. On-chain `minPremiumBps` and `minLevelDistanceBps`, and per-buyer (or per-block) caps, so a signer
    compromise cannot sell covers that lose money by construction (H1, M1).
@@ -167,6 +189,19 @@ None of these are done. All must be fixed before any deployment that holds real 
 7. A deploy gas plan: the current deploy uses most of HyperEVM's small-block gas limit, so the contract
    additions above will likely need big blocks.
 8. An independent audit.
+
+Residual risks that remain even with v2 as written:
+
+- **Throttle and exit queue only bind in strict mode.** The attacker who also supplies capital (deposit,
+  sell covers, request an exit) is only bounded when `withdrawDelay` is longer than the maximum cover
+  duration. The testnet configuration uses a 10-minute delay, so there the throttle and the queue narrow
+  the race and do not close it. A mainnet deployment must use strict delays; the constructor refuses
+  non-strict delays outside chains 998 and 31337.
+- **Patient-path loss.** Within the floors, throttle and breaker, a compromised signer can still sell
+  covers over time that lose money; the loss is bounded by `maxUtilization` of the pool, not zero.
+- **Full owner compromise.** An owner key that stays compromised through the timelock delay, with no
+  working guardian cancel, can still queue and execute harmful changes. Multisig custody and an honest
+  guardian are operational requirements, not something the contract can enforce.
 
 ## 7. Tests backing these claims
 
