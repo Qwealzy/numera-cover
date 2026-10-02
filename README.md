@@ -5,6 +5,8 @@ liquidation price before expiry. The position stays open; the payout comes from 
 
 Status: **HyperEVM testnet only** (chain 998). No mainnet deployment, no real funds.
 
+Security: see [`SECURITY.md`](SECURITY.md).
+
 ## Problem
 
 Leveraged perp positions are closed by short, sharp wicks that touch the liquidation price and then
@@ -172,9 +174,12 @@ node scripts/dev.mjs         # engine on http://localhost:8000, app on http://lo
 - **Calibration uncertainty is understated.** The Wilson bounds assume independent windows; in reality the
   same window is counted at several distances, coins move together and volatility clusters, so the true
   uncertainty is wider. Touches are measured on trade-price candles, not on the oracle.
-- **Quotes are signed off-chain.** A wrong quote can misprice a premium but cannot make the pool insolvent:
-  reserves, caps and position checks are enforced by the contract.
-- Not audited.
+- **Quotes are signed off-chain.** Reserves, caps and position checks are enforced by the contract, so
+  every sold cover is fully reserved and a buyer whose cover triggers is always paid. The contract does not
+  enforce a minimum premium or level distance: a wrong quote misprices a premium, and a compromised quote
+  signer (or owner) can sell money-losing covers whose losses the underwriters absorb.
+- **Not independently audited.** The code had an internal security review (2026-10-02), not an independent
+  audit. Trust model, known risks and mainnet blockers: [`SECURITY.md`](SECURITY.md).
 
 ## License
 
