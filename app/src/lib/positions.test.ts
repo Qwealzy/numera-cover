@@ -8,7 +8,7 @@ import { PartialData, isRateLimited, retryRateLimited } from './rpc';
 import { clearAbstractionCache, fetchAbstraction as realFetchAbstraction, spotCollateralTotal } from './info';
 
 // Founder wallet test 2026-10-02: Info API BTC long 0.00117 @ 85065, 10x cross; position source
-// position(wallet, BTC) -> (117, 99526050, 10), cap 9.952605 (backlog.md checkpoint).
+// position(wallet, BTC) -> (117, 99526050, 10), cap 9.952605 (docs/history/backlog-2026-10-01-02.md, app explorer + cap fix checkpoint).
 const WALLET = getAddress('0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7');
 const BTC = perpIndexOf('BTC')!;
 const account: ApiAccount = {
