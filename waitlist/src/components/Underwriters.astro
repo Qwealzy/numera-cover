@@ -34,10 +34,10 @@ const Lg = U.ledger;
             <span class="tray-label mono">{T.premiums}</span>
           </div>
           <div class="toy-ctl">
-            <button type="button" class="btn btn-primary btn-small" data-toy-act="sell">{T.sell}</button>
-            <button type="button" class="icon-btn" data-toy-act="none">{T.settleNone}</button>
-            <button type="button" class="icon-btn" data-toy-act="touch">{T.settleTouch}</button>
-            <button type="button" class="icon-btn" data-toy-act="reset">{T.reset}</button>
+            <button type="button" class="btn btn-primary btn-small js-only" data-toy-act="sell">{T.sell}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="none">{T.settleNone}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="touch">{T.settleTouch}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="reset">{T.reset}</button>
             <p class="toy-meter mono" data-toy-meter>{T.status(0)}</p>
             <p class="toy-say" data-toy-say role="status" aria-live="polite">{T.empty}</p>
           </div>
@@ -48,7 +48,7 @@ const Lg = U.ledger;
     <div class="ledger" data-ledger-root data-pool={MOCK_POOL} data-chain={TESTNET_CHAIN_ID} data-reveal>
       <div class="ledger-head">
         <h3>{Lg.heading}</h3>
-        <span class="tag tag-live" data-ledger-tag data-state="waiting">{Lg.live} · {Lg.pool} · {Lg.waiting}</span>
+        <span class="tag tag-live js-only" data-ledger-tag data-state="waiting">{Lg.live} · {Lg.pool} · {Lg.waiting}</span>
         <span class="badge mono">{Lg.badge}</span>
       </div>
       <dl class="tiles">
@@ -61,6 +61,7 @@ const Lg = U.ledger;
       <p class="addr mono">{Lg.pool} <span>{MOCK_POOL}</span></p>
       <p class="demo">{stats.demoNote}</p>
       <p class="note">{stats.note}</p>
+      <noscript><p class="note">{Lg.noscript}</p></noscript>
     </div>
 
     <div class="exit" data-exit data-reveal>

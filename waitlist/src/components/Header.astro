@@ -23,7 +23,7 @@ const base = page === 'home' ? '' : '/';
       <a href={`${base}#proof`}>{nav.proof}</a>
     </nav>
     <div class="nav-actions">
-      <button type="button" class="motion" data-motion-toggle aria-pressed="true">
+      <button type="button" class="motion js-only" data-motion-toggle aria-pressed="true">
         <span class="motion-track" aria-hidden="true"><span class="motion-knob"></span></span>
         <span class="motion-text">{nav.motion} <span data-motion-state>{nav.motionOn}</span></span>
       </button>
@@ -129,9 +129,6 @@ const base = page === 'home' ? '' : '/';
   }
   .motion:hover {
     color: var(--text-strong);
-  }
-  :global(html:not(.js)) .motion {
-    display: none;
   }
   .motion-track {
     position: relative;

@@ -53,9 +53,9 @@ const LH = 132;
         ))
       }
       <div class="scrub">
-        <button type="button" class="icon-btn" data-lanes-replay><span aria-hidden="true">↺</span> {Wc.replay}</button>
-        <label class="visually-hidden" for="wick-scrub">{Wc.scrubber}</label>
-        <input id="wick-scrub" class="range" type="range" min="0" max="1000" step="5" value="1000" data-lanes-scrub aria-valuetext="end of the wick" />
+        <button type="button" class="icon-btn js-only" data-lanes-replay><span aria-hidden="true">↺</span> {Wc.replay}</button>
+        <label class="visually-hidden js-only" for="wick-scrub">{Wc.scrubber}</label>
+        <input id="wick-scrub" class="range js-only" type="range" min="0" max="1000" step="5" value="1000" data-lanes-scrub aria-valuetext="end of the wick" />
         <span class="tag tag-sim">{Wc.scripted}</span>
       </div>
     </div>

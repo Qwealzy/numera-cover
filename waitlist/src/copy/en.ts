@@ -71,9 +71,8 @@ export const instrument = {
   keeper: 'Keeper check every ~3 s; every 1 s near the level',
   handle: 'Price. Drag it, or use the arrow keys, to pull a wick.',
   hint: 'Drag the price head down to the level, or focus it and press the arrow keys.',
-  pullHint: 'pull the wick',
+  pullHint: 'pull the wick ↓',
   pause: 'Pause',
-  play: 'Play',
   replay: 'Replay',
   verdicts: {
     none: 'No touch. No payout; the premium stays with the pool.',
@@ -330,6 +329,7 @@ export const underwriters = {
     no: 'no',
     readAt: 'read',
     waiting: 'reading…',
+    noscript: 'The live ledger is read by your browser and needs JavaScript; without it no number is shown.',
   },
   exit: {
     heading: 'Exits are queued (testnet settings)',

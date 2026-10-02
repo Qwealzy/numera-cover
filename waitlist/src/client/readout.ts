@@ -11,7 +11,7 @@ import {
   defaultLevel,
   px6ToUsd,
 } from '../lib/pricing.ts';
-import { readout as R, controls as C } from '../copy/en.ts';
+import { readout as R, controls as C, instrument as I } from '../copy/en.ts';
 import { state, on, patchSetup, set, type Role } from './store.ts';
 import { motionOn } from './motion.ts';
 
@@ -24,6 +24,7 @@ export function mountReadout(root: HTMLElement): void {
   const back = root.querySelector<HTMLElement>('[data-face-back]')!;
   const r = (k: string) => root.querySelector<HTMLElement>(`[data-r="${k}"]`)!;
   const summary = root.querySelector<HTMLElement>('[data-summary]')!;
+  const roLive = root.querySelector<HTMLElement>('[data-ro-live]')!;
   const roles = root.querySelectorAll<HTMLInputElement>('input[name="role"]');
 
   form.addEventListener('submit', (e) => e.preventDefault());
@@ -76,15 +77,22 @@ export function mountReadout(root: HTMLElement): void {
     if (px !== null) {
       const entry = px6ToUsd(px);
       const liq = liqPrice(entry, s.lev, s.maxLev, s.side);
-      liqUsd = `${fmtPrice(liq)} (testnet oracle)`;
-      lvlUsd = `${fmtPrice(defaultLevel(liq, s.side))} (testnet oracle)`;
+      liqUsd = fmtPrice(liq);
+      lvlUsd = fmtPrice(defaultLevel(liq, s.side));
     }
     r('liq').textContent = liqTxt;
     r('lvl').textContent = lvlTxt;
     r('liq-usd').textContent = liqUsd;
     r('lvl-usd').textContent = lvlUsd;
+    const lv = state.live;
+    roLive.textContent =
+      lv.oracleState === 'ok' && lv.oracleAt
+        ? `${I.livePrefix} ${lv.oracleAt.toISOString().slice(11, 19)} UTC · $ = entry at that price`
+        : lv.oracleState === 'failed'
+          ? I.liveFailed
+          : I.liveWaiting;
     if (liqUsd) {
-      liqTxt += ` (${liqUsd})`;
+      liqTxt += ` (${liqUsd} at the testnet oracle price)`;
       lvlTxt += ` (${lvlUsd})`;
     }
     r('p').textContent = e.refusal === 'level_too_close' ? '—' : fmtProb(e.p);

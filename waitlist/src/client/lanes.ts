@@ -13,6 +13,7 @@ export function mountLanes(root: HTMLElement): void {
   let t = 1;
   let playing = false;
   let t0 = 0;
+  let endTimer = 0;
 
   function render() {
     for (const s of svgs) {
@@ -45,6 +46,14 @@ export function mountLanes(root: HTMLElement): void {
     playing = true;
     render();
     run.start();
+    // if the lanes scroll out of view mid-play the loop pauses; the events still end on time
+    window.clearTimeout(endTimer);
+    endTimer = window.setTimeout(() => {
+      if (!playing) return;
+      playing = false;
+      t = 1;
+      render();
+    }, PLAY_S * 1000 + 150);
   }
   scrub.addEventListener('input', () => {
     playing = false;

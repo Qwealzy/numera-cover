@@ -47,7 +47,7 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
         </ol>
         <div class="bracket" style={`--a:${blocks.indexOf(R.drop.block)};--b:${blocks.indexOf(R.trigger.block)};--n:${blocks.length}`} aria-hidden="true"></div>
         <p class="bracket-label mono">{Pf.bracket}</p>
-        <div class="playhead-row">
+        <div class="playhead-row js-only">
           <button type="button" class="icon-btn" data-run-replay><span aria-hidden="true">↺</span> {Pf.replay}</button>
           <label class="label" for="run-playhead">{Pf.playhead}</label>
           <input id="run-playhead" class="range" type="range" min="0" max={blocks.length - 1} step="1" value={blocks.length - 1} data-run-playhead aria-valuetext={`block ${fmt(last)}`} />
@@ -69,7 +69,7 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
                 <code title={e.hash}>
                   <span>{e.hash.slice(0, 12)}</span><span class="h-mid">{e.hash.slice(12, -10)}</span><span class="h-dots" aria-hidden="true">…</span><span>{e.hash.slice(-10)}</span>
                 </code>
-                <button type="button" class="icon-btn copy" data-copy={cmd(e.hash)} aria-label={`${Pf.copy}, block ${fmt(e.block)}`}>{Pf.copy}</button>
+                <button type="button" class="icon-btn copy js-only" data-copy={cmd(e.hash)} aria-label={`${Pf.copy}, block ${fmt(e.block)}`}>{Pf.copy}</button>
               </p>
             </li>
           ))

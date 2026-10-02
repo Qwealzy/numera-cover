@@ -39,10 +39,11 @@ export function mountInstrument(root: HTMLElement): void {
   const levelVal = stage.querySelector<HTMLElement>('[data-level-val]')!;
   const liqVal = stage.querySelector<HTMLElement>('[data-liq-val]')!;
   const entryPx = stage.querySelector<HTMLElement>('[data-entry-px]')!;
+  const levelPx = stage.querySelector<HTMLElement>('[data-level-px]')!;
+  const liqPx = stage.querySelector<HTMLElement>('[data-liq-px]')!;
   const expiryVal = stage.querySelector<HTMLElement>('[data-expiry-val]')!;
   const liveTag = stage.querySelector<HTMLElement>('[data-live-tag]')!;
   const pauseBtn = root.querySelector<HTMLButtonElement>('[data-pause]')!;
-  const pauseLabel = root.querySelector<HTMLElement>('[data-pause-label]')!;
   const replayBtn = root.querySelector<HTMLButtonElement>('[data-replay]')!;
 
   let ctx: CanvasRenderingContext2D | null = null;
@@ -193,17 +194,15 @@ export function mountInstrument(root: HTMLElement): void {
     const side = state.setup.side;
     const sign = side === 'long' ? '−' : '+';
     const px = state.live.oraclePx6;
-    let lv = `${sign}${fmtPct(est.lvlDist)}`;
-    let lq = `${sign}${fmtPct(est.liqDist)}`;
+    levelVal.textContent = `${sign}${fmtPct(est.lvlDist)}`;
+    liqVal.textContent = `${sign}${fmtPct(est.liqDist)}`;
     if (px !== null) {
       const entry = px6ToUsd(px);
       const liq = liqPrice(entry, state.setup.lev, state.setup.maxLev, side);
-      lv += ` · ${fmtPrice(defaultLevel(liq, side))}`;
-      lq += ` · ${fmtPrice(liq)}`;
-      entryPx.textContent = `· ${fmtPrice(entry)}`;
-    } else entryPx.textContent = '';
-    levelVal.textContent = lv;
-    liqVal.textContent = lq;
+      levelPx.textContent = ` · ${fmtPrice(defaultLevel(liq, side))}`;
+      liqPx.textContent = ` · ${fmtPrice(liq)}`;
+      entryPx.textContent = ` · ${fmtPrice(entry)}`;
+    } else entryPx.textContent = levelPx.textContent = liqPx.textContent = '';
     const dl = { 3600: '1h', 14400: '4h', 86400: '1d', 259200: '3d', 604800: '7d' } as Record<number, string>;
     expiryVal.textContent = dl[state.setup.dur] ?? '';
   }
@@ -795,6 +794,7 @@ export function mountInstrument(root: HTMLElement): void {
   on('setup', () => {
     relayout(true);
     ariaValue();
+    if (pullHint) pullHint.textContent = state.setup.side === 'long' ? I.pullHint : I.pullHint.replace('↓', '↑');
   });
   on('live', () => {
     liveTagText();
@@ -802,7 +802,6 @@ export function mountInstrument(root: HTMLElement): void {
   });
   onMotion((m) => {
     pauseBtn.setAttribute('aria-pressed', String(!m));
-    pauseLabel.textContent = m ? I.pause : I.play;
     if (!m) {
       if (mode === 'intro') endIntroNow();
       if (mode === 'release') mode = 'idle';
@@ -828,8 +827,8 @@ export function mountInstrument(root: HTMLElement): void {
   });
 
   // ---- boot --------------------------------------------------------------------------------------------------
+  // a toggle button keeps its label; aria-pressed and the glyph carry the state
   pauseBtn.setAttribute('aria-pressed', String(!motionOn()));
-  pauseLabel.textContent = motionOn() ? I.pause : I.play;
   labels();
   liveTagText();
   if (!ctx) {

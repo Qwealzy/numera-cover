@@ -24,6 +24,21 @@ function guarded(name: string, f: () => void) {
 
 export function boot(): void {
   // section reveals: once, on entry (the hero headline rises by CSS on load)
+  // section headings: wrap each word for the mask rise (text and spacing unchanged)
+  if (motionOn())
+    for (const h of document.querySelectorAll<HTMLElement>('[data-reveal] h2')) {
+      const words = (h.textContent ?? '').trim().split(/\s+/);
+      h.textContent = '';
+      words.forEach((w, i) => {
+        const outer = document.createElement('span');
+        outer.className = 'rise';
+        const inner = document.createElement('span');
+        inner.style.setProperty('--i', String(i));
+        inner.textContent = w;
+        outer.append(inner);
+        h.append(outer, i < words.length - 1 ? ' ' : '');
+      });
+    }
   for (const el of document.querySelectorAll<HTMLElement>('[data-reveal]')) {
     if (!motionOn()) el.classList.add('in');
     else onceVisible(el, () => el.classList.add('in'), 0.2);
@@ -68,7 +83,8 @@ export function boot(): void {
     a.addEventListener('click', (e) => {
       if (!join || !joinSection) return;
       e.preventDefault();
-      joinSection.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
+      const target = window.innerWidth > 900 ? joinSection.querySelector('[data-ticket]') ?? joinSection : joinSection;
+      target.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
       join.focusForm();
     });
   }

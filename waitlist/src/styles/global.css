@@ -26,7 +26,7 @@ body {
   font-family: var(--font-body);
   font-size: 1.0625rem;
   line-height: 1.6;
-  font-variation-settings: 'wdth' 100;
+  font-stretch: 100%;
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
@@ -75,7 +75,7 @@ h3 {
 }
 h2 {
   font-size: clamp(2.1rem, 1.4rem + 3vw, 3.9rem);
-  font-variation-settings: 'wdth' 80;
+  font-stretch: 80%;
   font-weight: 650;
   text-wrap: balance;
 }
@@ -449,6 +449,11 @@ canvas {
   outline: var(--focus);
   outline-offset: 2px;
 }
+@media (max-width: 760px) {
+  .seg span {
+    min-height: 44px;
+  }
+}
 .seg label:hover input:not(:checked) + span {
   color: var(--text-strong);
   background: rgb(248 242 239 / 0.06);
@@ -496,6 +501,31 @@ html.js[data-motion='on'] [data-words] .rise > span {
   to {
     transform: none;
   }
+}
+
+/* controls that only work with JavaScript are not shown without it (the static content stays) */
+@media (scripting: none) {
+  .js-only {
+    display: none !important;
+  }
+}
+
+/* section headings: words rise from masks on entry; the kicker rule draws */
+html.js[data-motion='on'] [data-reveal] h2 .rise > span {
+  transform: translateY(110%);
+  transition: transform 900ms var(--ease-out);
+  transition-delay: calc(120ms + var(--i, 0) * 45ms);
+}
+html.js[data-motion='on'] [data-reveal].in h2 .rise > span {
+  transform: none;
+}
+html.js[data-motion='on'] [data-reveal] .kicker::after {
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 1.2s var(--ease-out) 250ms;
+}
+html.js[data-motion='on'] [data-reveal].in .kicker::after {
+  transform: none;
 }
 
 /* motion off (OS setting or the nav toggle): nothing animates, every state shows at once */

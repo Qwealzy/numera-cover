@@ -59,11 +59,30 @@ export function mountProof(root: HTMLElement): void {
         await navigator.clipboard.writeText(text);
         ok = true;
       } catch {
-        ok = false;
+        ok = legacyCopy(text);
       }
       copied.textContent = ok ? `${Pf.copied}: ${text}` : Pf.copyFailed;
       b.textContent = ok ? Pf.copied : Pf.copy;
       window.setTimeout(() => (b.textContent = Pf.copy), 1800);
     });
   }
+}
+
+/** Clipboard fallback for browsers without the async Clipboard API permission. */
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
 }

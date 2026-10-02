@@ -18,7 +18,7 @@ const st = Hw.station;
     </div>
 
     <div class="parts" data-parts data-reveal>
-      <div class="tabs" role="tablist" aria-label={Hw.tablist}>
+      <div class="tabs js-only" role="tablist" aria-label={Hw.tablist}>
         {
           steps.map((s, i) => (
             <button
@@ -79,7 +79,7 @@ const st = Hw.station;
                 {s.id === 'oracle' && (
                   <div class="oracle">
                     <p class="d-line"><strong>{st.oracle.title}.</strong> {st.oracle.note}</p>
-                    <p class="oracle-read">
+                    <p class="oracle-read js-only">
                       <span class="tag tag-live" data-oracle-tag data-state="waiting">{I.liveWaiting}</span>
                       <span class="oracle-px mono" data-oracle-px>…</span>
                     </p>

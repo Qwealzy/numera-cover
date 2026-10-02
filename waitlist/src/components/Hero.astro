@@ -84,20 +84,20 @@ const summary =
 
         <div class="hud" aria-hidden="true">
           <div class="hud-tags">
-            <span class="tag tag-live" data-live-tag data-state="waiting">{I.liveWaiting}</span>
+            <span class="tag tag-live js-only" data-live-tag data-state="waiting">{I.liveWaiting}</span>
             <span class="tag tag-sim">{I.sim}</span>
           </div>
           <div class="wallet" data-wallet data-paid="1">
             <span class="label">{I.wallet}</span>
             <span class="wallet-value mono" data-wallet-value>{I.walletPaid}</span>
           </div>
-          <span class="lbl lbl-entry mono" data-lbl="entry" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.entry)}`}><b>{I.entry}</b> <span data-entry-px></span></span>
-          <span class="lbl lbl-level mono" data-lbl="level" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.level)}`}><b>{I.level}</b> <span data-level-val>−{fmtPct(e.lvlDist)}</span></span>
-          <span class="lbl lbl-liq mono" data-lbl="liq" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.liq)}`}><b>{I.liquidation}</b> <span data-liq-val>−{fmtPct(e.liqDist)}</span></span>
+          <span class="lbl lbl-entry mono" data-lbl="entry" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.entry)}`}><b>{I.entry}</b><span class="lbl-px" data-entry-px></span></span>
+          <span class="lbl lbl-level mono" data-lbl="level" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.level)}`}><b>{I.level}</b> <span data-level-val>−{fmtPct(e.lvlDist)}</span><span class="lbl-px" data-level-px></span></span>
+          <span class="lbl lbl-liq mono" data-lbl="liq" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.liq)}`}><b>{I.liquidation}</b> <span data-liq-val>−{fmtPct(e.liqDist)}</span><span class="lbl-px" data-liq-px></span></span>
           <span class="lbl lbl-expiry mono" data-lbl="expiry" style={`--x:${pctX(L.expiryX)};--y:100`}>{I.expiry} · <span data-expiry-val>{durLabel}</span></span>
           <span class="stamp mono" data-stamp data-on="1" style={`--x:${pctX(touchX)};--y:${pctY(L.levelY)}`}>{I.trigger}</span>
           <span class="chip mono" data-chip>{I.payoutChip}</span>
-          <span class="pull-hint mono" data-pull-hint style={`--x:${pctX(L.headX)};--y:${pctY(L.entryY)}`}>{I.pullHint}</span>
+          <span class="pull-hint mono js-only" data-pull-hint style={`--x:${pctX(L.headX)};--y:${pctY(L.entryY)}`}>{I.pullHint}</span>
           <div class="position" data-position data-state="open">
             <span class="position-text mono" data-position-text>{I.positionOpen}</span>
             <span class="position-bar"><span data-position-fill></span></span>
@@ -105,7 +105,7 @@ const summary =
         </div>
 
         <div
-          class="handle"
+          class="handle js-only"
           data-handle
           role="slider"
           tabindex="0"
@@ -123,15 +123,15 @@ const summary =
 
       <div class="inst-bar">
         <p class="verdict" data-verdict role="status" aria-live="polite">{I.introVerdict}</p>
-        <div class="inst-actions">
+        <div class="inst-actions js-only">
           <button type="button" class="icon-btn" data-pause aria-pressed="false"><span class="pause-glyph" aria-hidden="true"></span><span data-pause-label>{I.pause}</span></button>
           <button type="button" class="icon-btn" data-replay><span class="replay-glyph" aria-hidden="true">↺</span>{I.replay}</button>
         </div>
       </div>
-      <p class="inst-hint" id="inst-hint">{I.hint} <span class="keeper-note">{I.keeper}.</span></p>
+      <p class="inst-hint js-only" id="inst-hint">{I.hint} <span class="keeper-note">{I.keeper}.</span></p>
 
       <div class="panel">
-        <form class="controls" data-controls aria-label={C.legend}>
+        <form class="controls js-only" data-controls aria-label={C.legend}>
           <fieldset class="ctl">
             <legend class="label">{C.side}</legend>
             <div class="seg">
@@ -163,7 +163,7 @@ const summary =
         </form>
 
         <div class="readout-wrap">
-          <div class="seg role" role="radiogroup" aria-label={C.role}>
+          <div class="seg role js-only" role="radiogroup" aria-label={C.role}>
             <label><input type="radio" name="role" value="trader" checked /><span>{C.trade}</span></label>
             <label><input type="radio" name="role" value="underwriter" /><span>{C.underwrite}</span></label>
           </div>
@@ -183,6 +183,7 @@ const summary =
                 </div>
                 <div><dt>{R.touch} <span class="note">({R.touchNote})</span></dt><dd class="mono" data-r="p">{fmtProb(e.p)}</dd></div>
               </dl>
+              <p class="ro-live mono js-only" data-ro-live>{I.liveWaiting}</p>
               <p class="refusal" data-r="refusal"></p>
               <p class="cap">{R.cap}</p>
             </div>
@@ -235,7 +236,7 @@ const summary =
     line-height: 0.95;
     letter-spacing: -0.035em;
     font-weight: 660;
-    font-variation-settings: 'wdth' 76;
+    font-stretch: 76%;
   }
   .display .line {
     display: block;
@@ -345,7 +346,7 @@ const summary =
     display: grid;
     justify-items: start;
     gap: 6px;
-    max-width: calc(100% - 210px);
+    max-width: calc(100% - 252px);
   }
   .hud-tags .tag-sim {
     background: rgb(12 21 32 / 0.72);
@@ -356,7 +357,7 @@ const summary =
     top: 12px;
     display: grid;
     gap: 2px;
-    width: 190px;
+    width: 216px;
     padding: 0.55rem 0.75rem;
     border-radius: 10px;
     border: 1px solid var(--line-strong);
@@ -423,6 +424,9 @@ const summary =
   .stamp[data-on='1'] {
     opacity: 1;
   }
+  .stage[data-dir='-1'] .pull-hint {
+    transform: translate(calc(var(--x) * 1cqw - 100% + 8px), calc(var(--y) * 1cqh - 100% - 18px));
+  }
   .stage[data-dir='-1'] .stamp {
     transform: translate(calc(var(--x) * 1cqw - 100% - 6px), calc(var(--y) * 1cqh - 100% - 8px));
   }
@@ -444,7 +448,7 @@ const summary =
     position: absolute;
     left: 0;
     top: 0;
-    transform: translate(calc(var(--x) * 1cqw + 18px), calc(var(--y) * 1cqh + 14px));
+    transform: translate(calc(var(--x) * 1cqw - 100% + 8px), calc(var(--y) * 1cqh + 18px));
     padding: 0.15rem 0.45rem;
     border-radius: 6px;
     border: 1px dashed var(--line-strong);
@@ -745,6 +749,12 @@ const summary =
     max-width: 14rem;
     text-align: right;
   }
+  .ro-live {
+    font-size: 0.68rem;
+    line-height: 1.4;
+    color: var(--text-label);
+    min-height: 2.8em;
+  }
   .refusal {
     display: none;
     font-family: var(--font-mono);
@@ -786,7 +796,7 @@ const summary =
     vertical-align: 1px;
   }
 
-  @media (max-width: 1100px) {
+  @media (max-width: 980px) {
     .hero-grid {
       grid-template-columns: [full-start] var(--gutter) [copy-start inst-start] minmax(0, 1fr) [copy-end inst-end] var(--gutter) [full-end];
       row-gap: 2rem;
@@ -815,11 +825,20 @@ const summary =
     .panel {
       grid-template-columns: minmax(0, 1fr);
     }
+    .lbl-px {
+      display: none;
+    }
     .display {
       font-size: clamp(2.5rem, 0.6rem + 9.6vw, 4rem);
     }
+    .lbl-expiry {
+      display: none;
+    }
+  }
+  /* a narrow instrument (phones, tablets): tags take the top row, the wallet moves to the bottom right */
+  @container (max-width: 640px) {
     .hud-tags {
-      max-width: calc(100% - 28px);
+      max-width: calc(100% - 20px);
       top: 10px;
       left: 10px;
     }
@@ -830,8 +849,11 @@ const summary =
       top: auto;
       right: 10px;
       bottom: 10px;
-      width: 150px;
+      width: 172px;
       padding: 0.4rem 0.6rem;
+    }
+    .wallet-value {
+      font-size: 0.74rem;
     }
     .position {
       left: 10px;
