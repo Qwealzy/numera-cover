@@ -31,6 +31,8 @@ class FakeChain:
         return cid
 
     def sub(self, target, data):
+        if data[:4] not in SEL:  # e.g. the v2 probe minPremiumBps(): a v1 pool reverts
+            return False, b""
         sig, args = SEL[data[:4]], data[4:]
         t = target.lower()
         if sig == "getCurrentBlockTimestamp()":
