@@ -97,6 +97,13 @@ MIN_MAX_FEE_WEI = GWEI // 10
 # `pending` count may not include a tx it accepted a moment ago (two covers sent in one poll). Past it, or
 # once the node's pending count reaches the floor, the node's count rules again (a dropped tx leaves no gap).
 NONCE_FLOOR_TTL_S = 10.0
+# Retry backoff per cover after an attempt that broadcast nothing (revert on estimate, an error answer to the
+# send such as insufficient funds): next try after 1, 2, 4, ... s, at most RETRY_MAX_S, so a stuck cover does
+# not cost ~3 requests every fast poll. The first retry is the next fast poll (RETRY_SLACK_S absorbs poll
+# jitter). Reset by a success, or when the cover's decision changes (no longer due, or another action kind).
+RETRY_BASE_S = 1.0
+RETRY_MAX_S = 30.0
+RETRY_SLACK_S = 0.25
 GAS_HEADROOM_DIV = 5  # gas limit = estimate + estimate / 5 (the state can change between estimate and block)
 # Adaptive polling (F9: trigger within 5 s of a breach). A cover whose oracle price is within NEAR_PCT of its
 # level (or past it) switches polling to FAST_POLL_S; each approach may keep fast mode on for FAST_MAX_S at
@@ -423,12 +430,21 @@ class Sender:
               "maxPriorityFeePerGas": tip}  # fmt: skip
         signed = self.account.sign_transaction(tx)
         local = SentTx("0x" + bytes(signed.hash).hex(), nonce, max_fee, tip, int(tx["gas"]))
+        errs0 = sum(e.errors for e in self.rpc.endpoints)
         try:
             h = self.rpc.call("eth_sendRawTransaction", ["0x" + bytes(signed.raw_transaction).hex()], ep=ep)
         except RpcError as e:
-            if not any(k in e.message.lower() for k in ALREADY_KNOWN):
+            msg = e.message.lower()
+            if any(k in msg for k in ALREADY_KNOWN):
+                h = local.hash  # the node already has this exact tx: it is out
+            elif "nonce too low" in msg and sum(x.errors for x in self.rpc.endpoints) > errs0:
+                # an endpoint timed out on this very send, then failover found the nonce used: most likely
+                # by this tx, which the first endpoint took. Treat as sent (local hash, 30 s guard).
+                log.warning("[keeper] %s(%s): nonce %d too low after a send timeout; assuming %s went out",
+                            action.kind, action.cover_id, nonce, local.hash)  # fmt: skip
+                h = local.hash
+            else:
                 raise SendError(f"{action.kind}({action.cover_id}) rejected: {e}") from e
-            h = local.hash  # the node already has this exact tx: it is out
         except Exception as e:  # noqa: BLE001 - no answer: the tx may be in a mempool
             self._note_nonce(nonce)
             raise SendError(f"{action.kind}({action.cover_id}) may have gone out (no answer): {e}",
@@ -485,6 +501,8 @@ class Keeper:
         self.fast = False  # current polling mode (run() sleeps fast_poll_s when True)
         self._near_since: dict[tuple[str, int], float] = {}  # (pool, cover) -> start of its current approach
         self._capped: set[tuple[str, int]] = set()  # approaches past fast_max_s (logged once)
+        self._retry: dict[tuple[str, int], tuple[int, float, str]] = {}  # (pool, cover) -> (failures in a
+        # row, next try at, action kind) after attempts that broadcast nothing (RETRY_BASE_S backoff)
         self._seen: dict[tuple[str, int], tuple[int | None, int, float, float]] = {}  # breach first seen:
         # (block, block ts, wall, clock)
         self._probe_at: float | None = None
@@ -717,7 +735,11 @@ class Keeper:
             for a in acts:
                 if a.kind == "trigger" and (b.pool, a.cover_id) not in self._seen:
                     self._breach_seen(b, a, now)
-            todo += [(b, a) for a in due(acts, self.sent[b.pool], t)]
+            kinds = {a.cover_id: a.kind for a in acts}
+            for k in [k for k in self._retry if k[0] == b.pool and kinds.get(k[1]) != self._retry[k][2]]:
+                del self._retry[k]  # the decision changed: a new attempt starts without backoff
+            todo += [(b, a) for a in due(acts, self.sent[b.pool], t)
+                     if t >= self._retry.get((b.pool, a.cover_id), (0, 0.0, ""))[1] - RETRY_SLACK_S]
         todo.sort(key=lambda ba: ba[1].kind != "trigger")  # stable: triggers (largest first) before expires
         if len(todo) > budget[0]:
             log.warning("[keeper] %d actions due, sending %d this poll (cap); the rest next poll", len(todo),
@@ -739,23 +761,17 @@ class Keeper:
                 tx = self.sender.send(b.pool, a, prev=prev, ep=self.read_ep)
             except SendError as exc:
                 if exc.tx is None:
-                    self._unmark(b.pool, a.cover_id, before)
-                    log.warning("[keeper] %s(%s) on %s failed, retry next poll: %s", a.kind, a.cover_id,
-                                b.label, exc)  # fmt: skip
+                    self._unmark(b.pool, a, before, t, exc)
                 else:  # may be pending: keep it (RESEND_AFTER_S guard, RBF on its nonce if still pending)
+                    self._retry.pop((b.pool, a.cover_id), None)
                     self.txs[b.pool][a.cover_id] = exc.tx
                     log.warning("[keeper] %s(%s) on %s %s; next attempt after %.0fs replaces %s", a.kind,
                                 a.cover_id, b.label, exc, RESEND_AFTER_S, exc.tx.hash)  # fmt: skip
                 continue
-            except GasCapError as exc:
-                self._unmark(b.pool, a.cover_id, before)  # nothing went out
-                log.warning("[keeper] %s(%s) on %s held: %s", a.kind, a.cover_id, b.label, exc)
+            except Exception as exc:  # noqa: BLE001 - gas cap, or a revert because the price moved back
+                self._unmark(b.pool, a, before, t, exc)  # raised before the send: nothing went out
                 continue
-            except Exception as exc:  # noqa: BLE001 - e.g. reverted because the price moved back
-                self._unmark(b.pool, a.cover_id, before)  # raised before the send: nothing went out
-                log.warning("[keeper] %s(%s) on %s failed, retry next poll: %s", a.kind, a.cover_id, b.label,
-                            exc)  # fmt: skip
-                continue
+            self._retry.pop((b.pool, a.cover_id), None)
             self.txs[b.pool][a.cover_id] = tx
             seen = self._seen.get((b.pool, a.cover_id))
             since = f" seen->sent={self.clock() - seen[3]:.2f}s" if seen else ""
@@ -767,13 +783,21 @@ class Keeper:
             done.append((b.label, a, tx.hash))
         return done
 
-    def _unmark(self, pool: str, cid: int, before: float | None) -> None:
+    def _unmark(self, pool: str, a: Action, before: float | None, t: float, exc: Exception) -> None:
         """Nothing was broadcast by this attempt: drop the send mark (or restore the previous send's, which
-        is already past ``RESEND_AFTER_S``), so the next poll tries again instead of waiting 30 s."""
+        is already past ``RESEND_AFTER_S``) instead of waiting 30 s, and back off this cover's next try
+        1, 2, 4, ... s up to ``RETRY_MAX_S`` (the first retry is the next fast poll)."""
+        cid = a.cover_id
         if before is None:
             del self.sent[pool][cid]
         else:
             self.sent[pool][cid] = before
+        fails = self._retry.get((pool, cid), (0, 0.0, a.kind))[0] + 1
+        delay = min(RETRY_MAX_S, RETRY_BASE_S * 2 ** (fails - 1))
+        self._retry[(pool, cid)] = (fails, t + delay, a.kind)
+        what = "held" if isinstance(exc, GasCapError) else "failed"
+        log.warning("[keeper] %s(%s) on %s %s (attempt %d), retry in %.0fs: %s", a.kind, cid,
+                    self._label(pool), what, fails, delay, exc)  # fmt: skip
 
     def _breach_seen(self, b: PoolBook, a: Action, now: int) -> None:
         """First poll that sees cover ``a.cover_id`` breached: log block, wall time and block-to-seen lag."""

@@ -17,8 +17,11 @@ decision read), so the nonce, the gas estimate and ``eth_sendRawTransaction`` se
 saw. A pinned endpoint that is cooling down is replaced by a ``fresh`` pick.
 
 Chain guard: ``verify_chain`` asks every endpoint for ``eth_chainId`` (directly, no failover). Any endpoint
-answering an id outside the allowed set, or endpoints disagreeing, is an error; an endpoint that cannot be
-reached is dropped from the list (never used, never compared for lag). Callers that send run it first.
+answering an id outside the allowed set, or endpoints disagreeing, is an error (refuse to start), and so is
+no endpoint answering at all. An endpoint that is rate-limited or unreachable then stays *unverified*: it
+serves no read or send and is not compared for lag; it is asked ``eth_chainId`` again once its cooldown is
+over (at most once per cooldown) and admitted only when it answers the verified id. An endpoint that later
+answers a different id is dropped for good. Callers that send run ``verify_chain`` first.
 
 ``FailoverProvider`` lets web3 (used only to build and send the rare keeper transactions) go through the
 same client, so sends are counted and fail over too.
@@ -126,6 +129,7 @@ class Endpoint:
     errors: int = 0
     head: int | None = None  # last head block seen through this endpoint
     head_at: float = 0.0  # clock time of that observation
+    verified: bool = True  # False: chain id not confirmed yet (verify_chain); excluded until it is
 
 
 class FailoverRpc:
@@ -179,9 +183,9 @@ class FailoverRpc:
     # -- endpoint choice ------------------------------------------------------------------------------
 
     def healthy(self, now: float | None = None) -> list[Endpoint]:
-        """Endpoints not cooling down, in priority order."""
+        """Verified endpoints not cooling down, in priority order."""
         now = self.clock() if now is None else now
-        return [e for e in self.endpoints if e.cool_until <= now]
+        return [e for e in self.endpoints if e.verified and e.cool_until <= now]
 
     def note_head(self, block: int | None, ep: Endpoint | None = None) -> None:
         """Record ``block`` as the head seen through ``ep`` (default: the endpoint of the last call)."""
@@ -296,9 +300,12 @@ class FailoverRpc:
         pin = ep
         while True:
             now = self.clock()
+            self._recheck(now)
             ep = self._pick(now, fresh, pin)
             if ep is None:
                 wait = max(0.0, min(e.cool_until for e in self.endpoints) - now)
+                if wait == 0.0:  # only unverified endpoints are off cooldown and none verified just now
+                    wait = BACKOFF_BASE_S
                 if waited + wait > self.max_wait_s:
                     raise RpcUnavailableError(f"all RPC endpoints failing for {waited:.0f}s ({what})")
                 self.sleep(wait)
@@ -332,44 +339,75 @@ class FailoverRpc:
         self._recent.append(now)
         self._trim(now)
 
+    def _chain_id_of(self, ep: Endpoint) -> int | None:
+        """``eth_chainId`` on ``ep`` alone (counted); None on a rate limit, transport error or bad answer,
+        which also cools ``ep`` (so the next try waits for the cooldown)."""
+        now = self.clock()
+        self._count(ep, now)
+        try:
+            status, body = self.post(ep.url, self._payload("eth_chainId", []), self.timeout_s)
+        except Exception as exc:  # noqa: BLE001 - unreachable now: stays unverified
+            self._cool(ep, now, type(exc).__name__)
+            return None
+        if is_rate_limit(status, body):
+            self._cool(ep, now, "rate")
+            return None
+        if status >= 500 or not isinstance(body, dict) or not isinstance(body.get("result"), str):
+            self._cool(ep, now, f"http {status}")
+            return None
+        ep.fails = 0
+        return int(body["result"], 16)
+
     def verify_chain(self, allowed: Collection[int], attempts: int = 3) -> int:
         """``eth_chainId`` on every endpoint (no failover; counted). Raises RuntimeError when an endpoint
-        answers an id outside ``allowed`` or the endpoints disagree; drops an endpoint that gives no usable
-        answer after ``attempts`` tries (logged), so it is never used nor compared for lag. Returns the id.
+        answers an id outside ``allowed``, the endpoints disagree, or none answers in ``attempts`` rounds.
+        An endpoint without an answer stays unverified (module docstring). Returns the chain id.
         Runs once per client: later calls only check the verified id against ``allowed``."""
         if self.chain_id is not None:
             if self.chain_id not in allowed:
                 raise RuntimeError(f"chainId {self.chain_id} not allowed: {sorted(allowed)}")
             return self.chain_id
         ids: dict[str, int] = {}
-        for ep in list(self.endpoints):
-            got: int | None = None
-            for i in range(attempts):
-                now = self.clock()
-                self._count(ep, now)
-                try:
-                    status, body = self.post(ep.url, self._payload("eth_chainId", []), self.timeout_s)
-                    if status < 500 and isinstance(body, dict) and isinstance(body.get("result"), str):
-                        got = int(body["result"], 16)
-                        break
-                except Exception:  # noqa: BLE001 - unreachable now: retried, then dropped
-                    pass
-                if i + 1 < attempts:
-                    self.sleep(BACKOFF_BASE_S)
-            if got is None:
-                log.warning("[%s] rpc %s gave no chain id; not used", self.label, host(ep.url))
-                self.endpoints.remove(ep)
-                continue
-            if got not in allowed:
-                raise RuntimeError(f"rpc {host(ep.url)} is on chainId {got}; allowed: {sorted(allowed)}")
-            ids[ep.url] = got
+        for i in range(attempts):
+            for ep in self.endpoints:
+                if ep.url in ids or ep.cool_until > self.clock():
+                    continue
+                got = self._chain_id_of(ep)
+                if got is None:
+                    continue
+                if got not in allowed:
+                    raise RuntimeError(f"rpc {host(ep.url)} is on chainId {got}; allowed: {sorted(allowed)}")
+                ids[ep.url] = got
+            if ids or i + 1 == attempts:
+                break
+            self.sleep(max(0.0, min(e.cool_until for e in self.endpoints) - self.clock()))
         if not ids:
-            raise RuntimeError("no RPC endpoint answered eth_chainId")
+            raise RuntimeError("no RPC endpoint answered eth_chainId; refusing to start")
         if len(set(ids.values())) > 1:
             seen = ", ".join(f"{host(u)}={c}" for u, c in ids.items())
             raise RuntimeError(f"RPC endpoints differ in chainId: {seen}")
         self.chain_id = next(iter(ids.values()))
+        for ep in self.endpoints:
+            ep.verified = ep.url in ids
+            if not ep.verified:
+                log.warning("[%s] rpc %s gave no chain id yet; unused until it answers %d", self.label,
+                            host(ep.url), self.chain_id)  # fmt: skip
         return self.chain_id
+
+    def _recheck(self, now: float) -> None:
+        """Ask each unverified endpoint whose cooldown is over for ``eth_chainId`` (once per cooldown): the
+        verified id admits it, another id drops it for good, no answer cools it again."""
+        for ep in [e for e in self.endpoints if not e.verified and e.cool_until <= now]:
+            got = self._chain_id_of(ep)
+            if got is None:
+                continue
+            if got == self.chain_id:
+                ep.verified = True
+                log.info("[%s] rpc %s verified (chainId %d); in use", self.label, host(ep.url), got)
+            else:
+                self.endpoints.remove(ep)
+                log.error("[%s] rpc %s answers chainId %d, not %s; dropped", self.label, host(ep.url), got,
+                          self.chain_id)  # fmt: skip
 
     def probe_head(self, ep: Endpoint) -> int | None:
         """``eth_blockNumber`` on ``ep`` alone (no failover; counted). Records and returns the head, or None

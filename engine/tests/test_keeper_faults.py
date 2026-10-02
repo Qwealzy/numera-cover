@@ -277,20 +277,130 @@ def test_local_chain_is_allowed_and_endpoints_must_agree():
         FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep).verify_chain({998, 31337})
 
 
-def test_unverifiable_endpoint_is_dropped_and_never_used_for_lag():
+class Flaky:
+    """Endpoint B in front of a FaultNode: ``mode`` "429" (rate limited), "down" (refused) or "ok"."""
+
+    def __init__(self, a, b):
+        self.a, self.b, self.mode, self.b_calls = a, b, "429", []
+
+    def __call__(self, url, payload, timeout):
+        if url == A:
+            return self.a(url, payload, timeout)
+        self.b_calls.append(payload["method"] if isinstance(payload, dict) else "batch")
+        if self.mode == "429":
+            return 429, None
+        if self.mode == "down":
+            raise FaultError("refused")
+        return self.b(url, payload, timeout)
+
+
+def flaky_pair(b_chain=998):
     clock = Clock()
-    a = FaultNode(clock, [(0, NEAR)])
+    net = Flaky(FaultNode(clock, [(0, NEAR)]), FaultNode(clock, [(0, NEAR)], chain_id=b_chain))
+    return clock, net, FailoverRpc([A, B], post=net, clock=clock, sleep=clock.sleep)
+
+
+@pytest.mark.parametrize("mode", ["429", "down"])
+def test_endpoint_without_chain_id_at_startup_stays_unverified_then_is_admitted(mode):
+    clock, net, rpc = flaky_pair()
+    net.mode = mode
+    assert rpc.verify_chain({998, 31337}) == 998
+    a, b = rpc.endpoints
+    assert [e.url for e in rpc.endpoints] == [A, B] and a.verified and not b.verified  # kept, not dropped
+    rpc.note_head(1000, a)
+    rpc.note_head(2000, b)
+    assert rpc.lag(a) is None and rpc.healthy() == [a]  # not compared, not used
+    a.cool_until = 1e9  # A rate-limited: B must not serve until it is verified
+    net.b_calls.clear()
+    clock.t = b.cool_until - 0.5  # B still cooling: no recheck yet (at most once per cooldown)
+    rpc._recheck(clock.t)
+    assert net.b_calls == []
+    net.mode = "ok"
+    clock.t = b.cool_until
+    assert rpc.call("eth_chainId") == "0x3e6"  # recheck admits B, then B serves the call
+    assert b.verified and net.b_calls == ["eth_chainId", "eth_chainId"]
+
+
+def test_unverified_endpoint_answering_another_chain_later_is_dropped():
+    clock, net, rpc = flaky_pair(b_chain=999)
+    net.mode = "down"
+    rpc.verify_chain({998, 31337})
+    net.mode = "ok"
+    clock.t = rpc.endpoints[1].cool_until
+    rpc.call("eth_chainId")
+    assert [e.url for e in rpc.endpoints] == [A]
+
+
+def test_refuses_to_start_when_no_endpoint_answers_chain_id():
+    clock = Clock()
 
     def post(url, payload, timeout):
-        if url == B:
-            raise FaultError("refused")
-        return a(url, payload, timeout)
+        return 429, None
 
-    rpc = FailoverRpc([A, B], post=post, clock=clock, sleep=clock.sleep)
-    assert rpc.verify_chain({998, 31337}) == 998
-    assert [e.url for e in rpc.endpoints] == [A]
-    rpc.note_head(1000, rpc.endpoints[0])
-    assert rpc.lag(rpc.endpoints[0]) is None  # nothing unverified to compare against
+    with pytest.raises(RuntimeError, match="no RPC endpoint answered"):
+        FailoverRpc([A, B], post=post, clock=clock, sleep=clock.sleep).verify_chain({998, 31337})
+
+
+# -- review follow-up M2: a cover whose attempts broadcast nothing backs off 1, 2, 4 ... 30 s ---------------
+
+
+def test_failing_cover_backs_off_exponentially_and_first_retry_is_the_next_fast_poll():
+    clock, node, rpc = one_node()
+    k, _ = keeper(rpc, clock)
+    node.buy(POOL_A, level=LEVEL)
+    node.send_mode = "reject"  # e.g. insufficient funds: an error answer, nothing went out
+    at = []
+    real = node.one
+
+    def rec(url, p):
+        if p["method"] == "eth_sendRawTransaction":
+            at.append(clock.t)
+        return real(url, p)
+
+    node.one = rec
+    k.run(poll_s=3.0, duration_s=60, sleep=clock.sleep)
+    assert k.fast and at[:2] == [0.0, 1.0]  # the first retry is the next 1 s poll (H2 latency kept)
+    assert at == [0.0, 1.0, 3.0, 7.0, 15.0, 31.0]  # then 2, 4, 8, 16 s; 30 s cap (next at 61)
+    node.send_mode = "ok"
+    clock.t = 61.0
+    assert len(k.poll()) == 1 and k._retry == {}  # success resets
+
+
+def test_backoff_resets_when_the_decision_changes():
+    clock, node, rpc = one_node(schedule=[(0, BREACH)])
+    k, _ = keeper(rpc, clock)
+    node.buy(POOL_A, level=LEVEL)
+    node.send_mode = "reject"
+    for t in (0.0, 1.0, 2.0, 3.0):
+        clock.t = t
+        k.poll()
+    assert k._retry[(POOL_A, 1)][0] == 3  # attempts at 0, 1, 3; next at 7
+    node.schedule = [(0, NEAR)]  # price leaves the level: no trigger decided
+    clock.t = 4.0
+    k.poll()
+    assert k._retry == {}
+    node.schedule, node.send_mode = [(0, BREACH)], "ok"
+    clock.t = 5.0  # breached again before the old 7 s backoff: tried at once
+    assert len(k.poll()) == 1
+
+
+# -- review follow-up L1: timeout after the node took the tx, failover answers "nonce too low" -----------
+
+
+def test_nonce_too_low_after_a_send_timeout_counts_as_sent():
+    clock = Clock()
+    a, b = FaultNode(clock, [(0, BREACH)]), FaultNode(clock, [(0, BREACH)])
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep)
+    k, _ = keeper(rpc, clock)
+    a.buy(POOL_A, level=LEVEL)
+    b.buy(POOL_A, level=LEVEL)
+    a.send_mode, b.send_mode = "transport", "reject"  # A takes the tx and times out; B: nonce too low
+    done = k.poll()
+    assert [x[1].cover_id for x in done] == [1] and len(a.mempool) == 1
+    h = "0x" + keccak(HexBytes(a.mempool[0])).hex()
+    assert k.txs[POOL_A][1].hash == h and 1 in k.sent[POOL_A]  # local hash kept, 30 s guard on
+    clock.t = 1.0
+    assert k.poll() == []  # not resent
 
 
 # -- 5. empty env values and a zero fee ------------------------------------------------------------------
