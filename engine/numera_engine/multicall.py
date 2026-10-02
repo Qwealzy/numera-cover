@@ -90,11 +90,13 @@ def decode_aggregate3(calls: Sequence[Call], result_hex: str) -> list[Any]:
     return out
 
 
-def aggregate(rpc: Any, calls: Sequence[Call], block: str = "latest") -> list[Any]:
-    """Run ``calls`` as one ``eth_call`` to Multicall3 through ``rpc`` (anything with ``.call``)."""
+def aggregate(rpc: Any, calls: Sequence[Call], block: str = "latest", fresh: bool = False) -> list[Any]:
+    """Run ``calls`` as one ``eth_call`` to Multicall3 through ``rpc`` (anything with ``.call``).
+    ``fresh`` asks the RPC client to avoid an endpoint whose head lags (rpc.FailoverRpc)."""
     if not calls:
         return []
-    res = rpc.call("eth_call", [{"to": MULTICALL3, "data": encode_aggregate3(calls)}, block])
+    params = [{"to": MULTICALL3, "data": encode_aggregate3(calls)}, block]
+    res = rpc.call("eth_call", params, fresh=True) if fresh else rpc.call("eth_call", params)
     if not isinstance(res, str) or res in ("0x", ""):
         raise RuntimeError(f"Multicall3 returned no data (is it deployed at {MULTICALL3}?)")
     return decode_aggregate3(calls, res)

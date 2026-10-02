@@ -135,6 +135,75 @@ def test_web3_provider_wraps_results_and_errors():
     assert p.make_request("eth_call", [])["error"] == {"code": 3, "message": "reverted", "data": "0x12"}
 
 
+class BatchNet:
+    """Answers single calls and batches; ``refuse``: URLs that reject batches; ``limited``: URLs that
+    rate-limit one item of the next batch."""
+
+    def __init__(self, refuse=(), limited=()):
+        self.refuse, self.limited, self.posts = set(refuse), set(limited), []
+
+    def __call__(self, url, payload, timeout):
+        self.posts.append((url, "batch" if isinstance(payload, list) else payload["method"]))
+        if isinstance(payload, list):
+            if url in self.refuse:
+                return 200, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "no batch"}}
+            if url in self.limited:
+                self.limited.discard(url)
+                rl = {"code": -32005, "message": "rate limited"}
+                return 200, [{"id": p["id"], "error": rl} for p in payload]
+            return 200, list(reversed([self.one(p) for p in payload]))  # any order: matched by id
+        return 200, self.one(payload)
+
+    def one(self, p):
+        if p["method"] == "eth_estimateGas":
+            return {"jsonrpc": "2.0", "id": p["id"], "error": {"code": 3, "message": "execution reverted"}}
+        return {"jsonrpc": "2.0", "id": p["id"], "result": f"{p['method']}:{p['params']}"}
+
+
+def test_batch_is_one_request_and_returns_errors_in_place():
+    net = BatchNet()
+    rpc = FailoverRpc([A, B], post=net)
+    out = rpc.batch([("eth_getTransactionCount", ["0x1", "pending"]), ("eth_estimateGas", [{}])])
+    assert out[0] == "eth_getTransactionCount:['0x1', 'pending']" and isinstance(out[1], RpcError)
+    assert out[1].code == 3 and net.posts == [(A, "batch")] and rpc.requests == 1
+
+
+def test_batch_falls_back_to_single_calls_and_fails_over_on_rate_limits():
+    net = BatchNet(refuse=[A])
+    rpc = FailoverRpc([A, B], post=net)
+    assert rpc.batch([("x", []), ("y", [])]) == ["x:[]", "y:[]"]
+    assert net.posts == [(A, "batch"), (A, "x"), (A, "y")]
+    clock = Clock()
+    net2 = BatchNet(limited=[A])
+    rpc2 = FailoverRpc([A, B], post=net2, clock=clock, sleep=clock.sleep, rand=lambda: 0.5)
+    assert rpc2.batch([("x", [])]) == ["x:[]"]
+    assert net2.posts == [(A, "batch"), (B, "batch")] and rpc2.rate_limits == 1
+
+
+def test_fresh_pick_skips_an_endpoint_lagging_more_than_max_head_lag():
+    rpc, net, clock = make({A: [ok("0xa")], B: [ok("0xb")]})
+    a, b = rpc.endpoints
+    rpc.note_head(100, a)
+    rpc.note_head(102, b)
+    assert rpc.call("x", fresh=True) == "0xa"  # 2 behind: tolerated
+    rpc.note_head(103, b)
+    assert rpc.lag(a) == 3 and rpc.call("x", fresh=True) == "0xb" and rpc.call("x") == "0xa"
+    clock.t += 5  # heads extrapolate at one block a second: the lag stays 3
+    assert rpc.est_head(a) == 105 and rpc.call("x", fresh=True) == "0xb"
+    b.cool_until = clock.t + 10  # the fresher one is not healthy: the lagging one still answers
+    assert rpc.call("x", fresh=True) == "0xa"
+    b.cool_until = 0.0
+    clock.t += 31  # observations older than HEAD_FRESH_S are not compared
+    assert rpc.lag(a) is None and rpc.call("x", fresh=True) == "0xa"
+
+
+def test_probe_head_records_the_head_and_never_raises():
+    rpc, net, clock = make({A: [ok("0x64")], B: [RL]})
+    a, b = rpc.endpoints
+    assert rpc.probe_head(a) == 100 and a.head == 100 and rpc.requests == 1
+    assert rpc.probe_head(b) is None and b.cool_until > clock.t and rpc.rate_limits == 1
+
+
 def test_endpoint_list_is_deduplicated_and_required():
     assert [e.url for e in FailoverRpc([A, " " + A, B, ""], post=lambda *a: ok()).endpoints] == [A, B]
     with pytest.raises(ValueError):
