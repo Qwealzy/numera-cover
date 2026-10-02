@@ -307,7 +307,34 @@ export const testnetV2: unknown = {
           "gasUsed": 4866173,
           "status": 1
         }
-      ]
+      ],
+      "e2e_2026-10-02": {
+        "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
+        "note": "LP deposit and exit on MOCK v2 by the founder wallet; receipts read with cast on 2026-10-02",
+        "txs": [
+          {
+            "purpose": "deposit 2000 mUSDC",
+            "hash": "0xf82489568debf759909329af626c8c266705c28a56a62fa02f7e63ba7702aad6",
+            "block": 65825557,
+            "gasUsed": 114603,
+            "status": 1
+          },
+          {
+            "purpose": "requestRedeem 2000 shares (claimableAt 1790941831, deadline 1790945431, reported)",
+            "hash": "0x9ea37c8c58ae2756e0269810422faca9308ddc7e30ddf30c4ea45ea9efee1bfb",
+            "block": 65825616,
+            "gasUsed": 119380,
+            "status": 1
+          },
+          {
+            "purpose": "claim: Withdraw 2000 assets for 2000 shares after the delay; pool totalAssets back to 0",
+            "hash": "0x4d7000d7f53316997ed53648e2414e9817a3b4e2d6bcefb9514935c8d86c0099",
+            "block": 65827849,
+            "gasUsed": 67270,
+            "status": 1
+          }
+        ]
+      }
     },
     "hypercore": {
       "deployedAt": "2026-10-02",
@@ -410,7 +437,20 @@ export const testnetV2: unknown = {
           "gasUsed": 4883053,
           "status": 1
         }
-      ]
+      ],
+      "e2e_2026-10-02": {
+        "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
+        "note": "LP deposit on Real v2 by the founder wallet; totalAssets 1900 mUSDC after; a reverted deposit (insufficient wallet balance, app bug) and duplicate approvals in the v2 deposit path (app bug) are in backlog.md, not listed here",
+        "txs": [
+          {
+            "purpose": "deposit 1900 mUSDC",
+            "hash": "0xa6ee4511c734e6134fb24ee4674d5fb3b0049016ecabe84d4444e45db0198986",
+            "block": 65825665,
+            "gasUsed": 114603,
+            "status": 1
+          }
+        ]
+      }
     }
   }
 };
