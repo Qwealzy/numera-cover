@@ -109,16 +109,20 @@ async function startAnvil(forkUrl = null) {
     a.push('--gas-limit', String(BIG_BLOCK_GAS_LIMIT), '--auto-impersonate');
   } else a.push('--chain-id', String(LOCAL_CHAIN_ID));
   anvil = spawn(bin('anvil'), a, { stdio: 'ignore', windowsHide: true });
+  let exited = null;
+  anvil.once('exit', (code) => (exited = code));
   const url = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < (forkUrl ? 150 : 50); i++) {
+  // A fork fetches the remote head first; give it up to 2 minutes (a busy public RPC can be slow).
+  const deadline = Date.now() + (forkUrl ? 120_000 : 10_000);
+  while (Date.now() < deadline && exited === null) {
     try {
       await chainIdOf(url);
       return url;
     } catch {
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 250));
     }
   }
-  die('anvil did not start');
+  die(exited !== null ? `anvil exited with code ${exited}${forkUrl ? ` (fork of ${host(forkUrl)} failed?)` : ''}` : 'anvil did not start');
 }
 
 function stopAnvil() {
