@@ -713,10 +713,18 @@ def create_app(
     return app
 
 
+_APP: FastAPI | None = None
+
+
 def _lazy_app() -> FastAPI:
-    if not logging.getLogger().handlers:  # under uvicorn: make numera.* INFO lines (allowlist, rpcs) visible
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
-    return create_app()
+    """Built once: uvicorn reads the `app` attribute more than once (seen: twice), which used to build two
+    apps (two RPC clients, two rate-limit tables)."""
+    global _APP
+    if _APP is None:
+        if not logging.getLogger().handlers:  # under uvicorn: show numera.* INFO lines (allowlist, rpcs)
+            logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+        _APP = create_app()
+    return _APP
 
 
 def __getattr__(name: str) -> Any:  # `uvicorn numera_engine.quote_api:app` builds from env on first use

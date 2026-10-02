@@ -408,6 +408,15 @@ def test_lagging_block_time_falls_back_to_the_wall_clock(caplog):
     assert q["deadline"] == NOW  # within the TTL: block time is kept
 
 
+def test_module_app_is_built_once(monkeypatch):
+    import numera_engine.quote_api as qa
+
+    built = []
+    monkeypatch.setattr(qa, "_APP", None)
+    monkeypatch.setattr(qa, "create_app", lambda: built.append(1) or object())
+    assert qa.app is qa.app and len(built) == 1
+
+
 def test_throttled_warning():
     mono = Clock()
     w = ThrottledWarning(60.0, mono)
