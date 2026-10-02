@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.24;
 
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {BaseTest} from "./Base.t.sol";
+import {BlocklistUSDC} from "./utils/BlocklistUSDC.sol";
 
-/// @notice trigger pays exactly once on breach before expiry; expire releases after expiry.
+/// @notice trigger pays exactly once on breach before expiry (or defers to claimPayout when the token refuses);
+///         expire releases after expiry; both release the unearned premium; the payout breaker pauses sales.
 contract TriggerExpireTest is BaseTest {
     address internal keeper = makeAddr("keeper");
 
@@ -42,6 +45,10 @@ contract TriggerExpireTest is BaseTest {
         assertEq(usdc.balanceOf(keeper), 0);
         assertEq(pool.lockedAssets(), 0);
         assertEq(pool.lockedByPerp(BTC), 0);
+        assertEq(pool.unearnedPremium(), 0, "premium earned on settlement");
+        assertEq(pool.owed(buyer), 0, "credit reversed after a successful transfer");
+        assertEq(pool.owedAssets(), 0);
+        assertEq(pool.totalAssets(), LP_DEPOSIT + q.premium - q.payout);
         assertEq(uint8(pool.getCover(id).status), uint8(ICoverPool.Status.Paid));
     }
 
@@ -127,17 +134,206 @@ contract TriggerExpireTest is BaseTest {
 
     function test_trigger_worksWhilePaused() public {
         (uint256 id,) = _longCover();
-        vm.prank(owner);
-        pool.setPaused(true);
+        _pause();
         _setPrice(BTC, 70_000e6);
         pool.trigger(id);
     }
 
+    // ================================================================ deferred payout (pull payment)
+
+    function test_trigger_blocklistedBuyer_defersAndNeverReverts() public {
+        (uint256 id, ICoverPool.Quote memory q) = _longCover();
+        usdc.setBlocked(buyer, true);
+        _setPrice(BTC, 70_000e6);
+        uint256 poolBefore = usdc.balanceOf(address(pool));
+        uint256 assetsBefore = pool.totalAssets();
+
+        vm.expectEmit(address(pool));
+        emit ICoverPool.CoverTriggered(id, 70_000e6, keeper);
+        vm.expectEmit(address(pool));
+        emit ICoverPool.PayoutDeferred(id, buyer, q.payout);
+        vm.prank(keeper);
+        pool.trigger(id);
+
+        assertEq(uint8(pool.getCover(id).status), uint8(ICoverPool.Status.Paid), "Paid even when deferred");
+        assertEq(usdc.balanceOf(address(pool)), poolBefore, "nothing left the pool");
+        assertEq(pool.owed(buyer), q.payout);
+        assertEq(pool.owedAssets(), q.payout);
+        assertEq(pool.totalAssets(), assetsBefore + q.premium - q.payout, "owed payout is not pool money");
+
+        // claim fails while still blocked and leaves the balance owed
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(BlocklistUSDC.Blocked.selector, buyer));
+        pool.claimPayout();
+        assertEq(pool.owed(buyer), q.payout);
+
+        usdc.setBlocked(buyer, false);
+        _pause(); // claims work while paused
+        uint256 buyerBefore = usdc.balanceOf(buyer);
+        vm.expectEmit(address(pool));
+        emit ICoverPool.PayoutClaimed(buyer, q.payout);
+        vm.prank(buyer);
+        pool.claimPayout();
+        assertEq(usdc.balanceOf(buyer), buyerBefore + q.payout);
+        assertEq(pool.owed(buyer), 0);
+        assertEq(pool.owedAssets(), 0);
+    }
+
+    function test_trigger_tokenReturnsFalse_defers() public {
+        (uint256 id, ICoverPool.Quote memory q) = _longCover();
+        usdc.setSilent(buyer, true);
+        _setPrice(BTC, 70_000e6);
+        vm.expectEmit(address(pool));
+        emit ICoverPool.PayoutDeferred(id, buyer, q.payout);
+        pool.trigger(id);
+        assertEq(pool.owed(buyer), q.payout);
+    }
+
+    function test_revert_claimPayout_nothingOwed() public {
+        vm.prank(buyer);
+        vm.expectRevert(ICoverPool.NothingOwed.selector);
+        pool.claimPayout();
+    }
+
+    /// @dev No redirect: only the buyer's own call pays, and only to the buyer.
+    function test_claimPayout_onlyOwnBalance() public {
+        (uint256 id,) = _longCover();
+        usdc.setBlocked(buyer, true);
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id);
+        vm.prank(keeper);
+        vm.expectRevert(ICoverPool.NothingOwed.selector);
+        pool.claimPayout();
+    }
+
+    /// @dev LP claims cannot take owed USDC: freeAssets excludes it.
+    function test_owedPayout_notClaimableByLps() public {
+        (uint256 id, ICoverPool.Quote memory q) = _longCover();
+        usdc.setBlocked(buyer, true);
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id);
+        _requestAllAndMature(lp);
+        uint256 free = pool.freeAssets();
+        assertEq(free, LP_DEPOSIT + q.premium - q.payout);
+        vm.prank(lp);
+        pool.withdraw(free, lp, lp);
+        assertEq(usdc.balanceOf(address(pool)), q.payout, "only the owed payout remains");
+        usdc.setBlocked(buyer, false);
+        vm.prank(buyer);
+        pool.claimPayout();
+        assertEq(usdc.balanceOf(address(pool)), 0);
+    }
+
+    // ================================================================ payout breaker
+
+    /// @dev Testnet: maxPaidPerWindowBps 15 % of B at the breaker window's start (100k) = 15,000.
+    function test_breaker_tripsAbovePaidCap_pausesNeverReverts() public {
+        address[] memory bs = new address[](3);
+        uint256[] memory ids = new uint256[](3);
+        for (uint256 i; i < 3; ++i) {
+            bs[i] = makeAddr(string.concat("b", vm.toString(i)));
+            _bigPosition(bs[i], BTC);
+            _fund(bs[i]);
+            ICoverPool.Quote memory q = _quote();
+            q.buyer = bs[i];
+            q.payout = i < 2 ? 6_250e6 : 2_500e6 + 1; // 6,250 + 6,250 + 2,500.000001 = 15,000.000001
+            q.premium = 100e6;
+            ids[i] = _buy(q);
+        }
+        _setPrice(BTC, 70_000e6);
+        uint256 b = pool.capacityBase();
+        pool.trigger(ids[0]);
+        assertEq(pool.paidWindowStart(), vm.getBlockTimestamp());
+        assertEq(pool.paidWindowAssets(), b, "B as read before the trigger's own accounting");
+        pool.trigger(ids[1]);
+        assertFalse(pool.paused());
+        assertEq(pool.paidInWindow(), 12_500e6);
+
+        uint256 cap = b * 1_500 / 10_000;
+        vm.expectEmit(address(pool));
+        emit Pausable.Paused(address(this));
+        vm.expectEmit(address(pool));
+        emit ICoverPool.LossBreakerTripped(15_000e6 + 1, cap);
+        pool.trigger(ids[2]); // does not revert
+        assertTrue(pool.paused());
+        assertEq(uint8(pool.getCover(ids[2]).status), uint8(ICoverPool.Status.Paid));
+        assertEq(usdc.balanceOf(bs[2]), 1_000_000e6 - 100e6 + 2_500e6 + 1, "still paid");
+
+        // sales and deposits are now blocked until the owner unpauses
+        _expectBuyRevert(_quote(), abi.encodeWithSelector(Pausable.EnforcedPause.selector));
+        _unpause();
+        _setPrice(BTC, BTC_PX);
+        _buy(_quote());
+    }
+
+    function test_breaker_atCapDoesNotTrip() public {
+        address a = makeAddr("a");
+        _bigPosition(a, BTC);
+        _fund(a);
+        _bigPosition(buyer, BTC);
+        ICoverPool.Quote memory q = _quote();
+        q.payout = 6_250e6;
+        q.premium = 100e6;
+        uint256 id1 = _buy(q);
+        q = _quote();
+        q.buyer = a;
+        q.payout = 6_250e6;
+        q.premium = 100e6;
+        uint256 id2 = _buy(q);
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id1);
+        pool.trigger(id2);
+        assertEq(pool.paidInWindow(), 12_500e6);
+        assertFalse(pool.paused(), "12,500 <= 15,000");
+    }
+
+    function test_breaker_alreadyPaused_noEvent() public {
+        (uint256 id,) = _longCover();
+        ICoverPool.Limits memory l = pool.limits();
+        l.maxPaidPerWindowBps = 1; // 0.01 % of 100k = 10 USDC
+        _setLimits(l);
+        _pause();
+        _setPrice(BTC, 70_000e6);
+        vm.recordLogs();
+        pool.trigger(id);
+        assertTrue(pool.paused());
+        // CoverTriggered + the token's Transfer only: no Paused, no LossBreakerTripped
+        assertEq(vm.getRecordedLogs().length, 2);
+    }
+
+    function test_breaker_windowResets() public {
+        ICoverPool.Limits memory l = pool.limits();
+        l.maxPaidPerWindowBps = 150; // 1.5 % of 100k = 1,500
+        _setLimits(l);
+        (uint256 id1,) = _longCover(); // 1,000
+        (uint256 id2,) = _longCover(); // 1,000
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id1);
+        uint64 start = pool.paidWindowStart();
+        vm.warp(start + 3_600); // next breaker window
+        pool.trigger(id2);
+        assertEq(pool.paidWindowStart(), vm.getBlockTimestamp());
+        assertEq(pool.paidInWindow(), 1_000e6, "reset, not 2,000");
+        assertFalse(pool.paused());
+    }
+
+    function test_breaker_deferredPayoutCounts() public {
+        ICoverPool.Limits memory l = pool.limits();
+        l.maxPaidPerWindowBps = 50; // 500 USDC on 100k
+        _setLimits(l);
+        (uint256 id,) = _longCover(); // 1,000
+        usdc.setBlocked(buyer, true);
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id);
+        assertTrue(pool.paused(), "a deferred payout counts as paid");
+    }
+
     // ================================================================ expire
 
-    function test_expire_afterExpiry_releasesLock() public {
+    function test_expire_afterExpiry_releasesLockAndPremium() public {
         (uint256 id, ICoverPool.Quote memory q) = _longCover();
         uint256 poolBalance = usdc.balanceOf(address(pool));
+        uint256 assetsBefore = pool.totalAssets();
         vm.warp(q.expiry + 1);
         vm.expectEmit(true, false, false, true, address(pool));
         emit ICoverPool.CoverExpired(id);
@@ -145,7 +341,9 @@ contract TriggerExpireTest is BaseTest {
         pool.expire(id);
         assertEq(pool.lockedAssets(), 0);
         assertEq(pool.lockedByPerp(BTC), 0);
-        assertEq(usdc.balanceOf(address(pool)), poolBalance, "no transfer on expiry; LPs keep premium");
+        assertEq(pool.unearnedPremium(), 0);
+        assertEq(pool.totalAssets(), assetsBefore + q.premium, "LPs earn the premium on settlement");
+        assertEq(usdc.balanceOf(address(pool)), poolBalance, "no transfer on expiry");
         assertEq(uint8(pool.getCover(id).status), uint8(ICoverPool.Status.Expired));
     }
 
@@ -187,6 +385,13 @@ contract TriggerExpireTest is BaseTest {
         _setPrice(BTC, 70_000e6);
         vm.expectRevert(abi.encodeWithSelector(ICoverPool.CoverNotActive.selector, id));
         pool.trigger(id);
+    }
+
+    function test_expire_worksWhilePaused() public {
+        (uint256 id, ICoverPool.Quote memory q) = _longCover();
+        _pause();
+        vm.warp(q.expiry + 1);
+        pool.expire(id);
     }
 
     function test_perPerpLocks_independent() public {

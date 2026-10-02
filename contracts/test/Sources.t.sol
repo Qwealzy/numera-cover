@@ -9,6 +9,9 @@ import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {HyperCorePriceSource} from "../src/sources/HyperCorePriceSource.sol";
 import {HyperCorePositionSource} from "../src/sources/HyperCorePositionSource.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {IPriceSource} from "../src/interfaces/IPriceSource.sol";
+import {IPositionSource} from "../src/interfaces/IPositionSource.sol";
+import {PoolConfig} from "./utils/PoolConfig.sol";
 
 // ---------------------------------------------------------------- precompile stand-ins (vm.etch'd)
 // HyperCore precompiles take raw abi.encode(args) with no selector. The stand-ins decode the same input in
@@ -230,9 +233,21 @@ contract SourcesTest is Test {
     // ================================================================ CoverPool on HyperCore sources, end to end
 
     function test_coverPool_onHyperCoreSources_buyAndTrigger() public {
+        // A realistic clock: the sale window opens at the first sale once now >= windowStart(0) + saleWindow.
+        vm.warp(1_790_000_000);
         uint256 key = 0xA11CE;
         MockUSDC usdc = new MockUSDC();
-        CoverPool pool = new CoverPool(IERC20(address(usdc)), address(this), vm.addr(key), priceSrc, posSrc);
+        // The constructor validates BTC through the price source (precompile stand-ins answer here).
+        CoverPool pool = PoolConfig.deploy(
+            IERC20(address(usdc)),
+            address(this),
+            vm.addr(key),
+            address(0),
+            IPriceSource(address(priceSrc)),
+            IPositionSource(address(posSrc)),
+            PoolConfig.testnetLimits(),
+            PoolConfig.perps1(BTC)
+        );
         usdc.mint(address(this), 100_000e6);
         usdc.approve(address(pool), 100_000e6);
         pool.deposit(100_000e6, address(this));
@@ -250,9 +265,9 @@ contract SourcesTest is Test {
             level: 80_000e6,
             payout: 4_000e6,
             premium: 50e6,
-            expiry: uint64(block.timestamp + 1 days),
+            expiry: uint64(vm.getBlockTimestamp() + 1 days),
             spotRef: 84_245_600_000,
-            deadline: uint64(block.timestamp + 60),
+            deadline: uint64(vm.getBlockTimestamp() + 60),
             nonce: 7
         });
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, pool.quoteDigest(q));
@@ -263,5 +278,23 @@ contract SourcesTest is Test {
         pool.trigger(id);
         assertEq(usdc.balanceOf(trader), 100e6 - 50e6 + 4_000e6);
         assertEq(pool.lockedAssets(), 0);
+    }
+
+    /// @dev A bad perp index fails the pool deploy with the price source's own error (§5.5).
+    function test_revert_coverPool_constructorValidatesPerps() public {
+        MockUSDC usdc = new MockUSDC();
+        vm.expectRevert(
+            abi.encodeWithSelector(HyperCorePriceSource.PrecompileCallFailed.selector, PERP_INFO, UNKNOWN)
+        );
+        PoolConfig.deploy(
+            IERC20(address(usdc)),
+            address(this),
+            address(1),
+            address(0),
+            IPriceSource(address(priceSrc)),
+            IPositionSource(address(posSrc)),
+            PoolConfig.testnetLimits(),
+            PoolConfig.perps3(BTC, UNKNOWN, ETH)
+        );
     }
 }

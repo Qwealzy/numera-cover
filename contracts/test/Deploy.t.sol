@@ -3,13 +3,18 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {CoverPool} from "../src/CoverPool.sol";
+import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {HyperCorePriceSource} from "../src/sources/HyperCorePriceSource.sol";
 import {Deploy} from "../script/Deploy.s.sol";
+import {OraclePxPrecompileMock, PerpAssetInfoPrecompileMock} from "./Sources.t.sol";
 
-/// @notice Deploy script refuses mainnet and wires the right sources per MODE.
+/// @notice Deploy script refuses mainnet, wires the right sources per MODE and passes the v2 constructor args.
 /// @dev Calls `deploy(Config)` directly: env vars are process-global and tests run in parallel.
 contract DeployTest is Test {
+    address internal constant ORACLE_PX = 0x0000000000000000000000000000000000000807;
+    address internal constant PERP_INFO = 0x000000000000000000000000000000000000080a;
+
     Deploy internal script;
     address internal signer = makeAddr("signer");
 
@@ -17,8 +22,17 @@ contract DeployTest is Test {
         script = new Deploy();
     }
 
-    function _cfg(string memory mode) internal view returns (Deploy.Config memory) {
-        return Deploy.Config({quoteSigner: signer, mode: mode, usdc: address(0), owner: address(this)});
+    function _cfg(string memory mode) internal view returns (Deploy.Config memory c) {
+        c.quoteSigner = signer;
+        c.mode = mode;
+        c.owner = address(this);
+        c.perps = new uint32[](2);
+        (c.perps[0], c.perps[1]) = (3, 4); // values as in deployments/testnet.json; the script reads PERPS
+        c.mockPx6 = new uint64[](2);
+        (c.mockPx6[0], c.mockPx6[1]) = (84_000e6, 3_000e6);
+        c.configDelay = 600;
+        c.withdrawDelay = 600;
+        c.claimWindow = 3_600;
     }
 
     function test_revert_mainnetChainId() public {
@@ -45,6 +59,20 @@ contract DeployTest is Test {
         script.deploy(c);
     }
 
+    function test_revert_noPerps() public {
+        Deploy.Config memory c = _cfg("mock");
+        c.perps = new uint32[](0);
+        vm.expectRevert(bytes("Deploy: PERPS required (from deployments/<env>.json)"));
+        script.deploy(c);
+    }
+
+    function test_revert_mockPricesMismatch() public {
+        Deploy.Config memory c = _cfg("mock");
+        c.mockPx6 = new uint64[](1);
+        vm.expectRevert(bytes("Deploy: MOCK_PX6 needs one price per perp"));
+        script.deploy(c);
+    }
+
     function test_deploy_mock_local() public {
         Deploy.Deployment memory d = script.deploy(_cfg("mock"));
         CoverPool pool = CoverPool(d.pool);
@@ -53,17 +81,77 @@ contract DeployTest is Test {
         assertEq(pool.owner(), address(this));
         assertEq(pool.asset(), d.usdc);
         assertEq(address(pool.priceSource()), d.priceSource);
-        assertEq(MockPriceSource(d.priceSource).owner(), address(this));
+        assertEq(MockPriceSource(d.priceSource).owner(), address(this), "handed to the owner after seeding");
+        assertEq(MockPriceSource(d.priceSource).px6Of(3), 84_000e6);
+        assertTrue(pool.perpAllowed(3));
+        assertTrue(pool.perpAllowed(4));
+        assertFalse(pool.perpAllowed(0));
+        assertEq(pool.configDelay(), 600);
+        assertEq(pool.withdrawDelay(), 600);
+        assertEq(pool.claimWindow(), 3_600);
+        assertFalse(pool.strict());
+        assertEq(pool.guardian(), address(0));
+        assertEq(abi.encode(pool.limits()), abi.encode(script.testnetLimits()));
     }
 
+    function test_testnetLimits_matchSpecTable() public view {
+        ICoverPool.Limits memory l = script.testnetLimits();
+        assertEq(l.maxUtilizationBps, 8_000);
+        assertEq(l.perPerpCapBps, 5_000);
+        assertEq(l.maxDuration, 604_800);
+        assertEq(l.maxSpotDeviationBps, 30);
+        assertEq(l.minPayout, 1e6);
+        assertEq(l.minPremiumBps, 20);
+        assertEq(l.minLevelDistanceBps, 25);
+        assertEq(l.saleWindow, 3_600);
+        assertEq(l.maxSoldPerWindowBps, 2_500);
+        assertEq(l.maxBuyerWindowShareBps, 2_500);
+        assertEq(l.maxPaidPerWindowBps, 1_500);
+    }
+
+    /// @dev HyperCore precompiles are stood in by vm.etch'd mocks; on chain the real ones answer.
     function test_deploy_hypercore_testnet_existingUsdc() public {
         vm.chainId(998);
+        vm.etch(ORACLE_PX, address(new OraclePxPrecompileMock()).code);
+        vm.etch(PERP_INFO, address(new PerpAssetInfoPrecompileMock()).code);
+        PerpAssetInfoPrecompileMock(PERP_INFO).set(3, "BTC", 5);
+        PerpAssetInfoPrecompileMock(PERP_INFO).set(4, "ETH", 4);
+        OraclePxPrecompileMock(ORACLE_PX).set(3, 842456);
+        OraclePxPrecompileMock(ORACLE_PX).set(4, 301250);
+
         Deploy.Config memory c = _cfg("hypercore");
         c.usdc = address(0x2B3370eE501B4a559b57D449569354196457D8Ab); // testnet USDC (research table)
+        c.guardian = makeAddr("guardian");
         Deploy.Deployment memory d = script.deploy(c);
         assertFalse(d.mock);
-        assertEq(CoverPool(d.pool).asset(), c.usdc);
-        assertEq(address(CoverPool(d.pool).positionSource()), d.positionSource);
+        CoverPool pool = CoverPool(d.pool);
+        assertEq(pool.asset(), c.usdc);
+        assertEq(address(pool.positionSource()), d.positionSource);
+        assertEq(pool.guardian(), c.guardian);
         assertEq(HyperCorePriceSource(d.priceSource).ORACLE_PX_PRECOMPILE(), address(0x807));
+        (bool cached, uint8 szDecimals) = HyperCorePriceSource(d.priceSource).cachedPerp(3);
+        assertTrue(cached, "cachePerp ran before the pool");
+        assertEq(szDecimals, 5);
+        assertTrue(pool.perpAllowed(4));
+    }
+
+    function test_revert_hypercore_unknownPerpFailsDeploy() public {
+        vm.etch(ORACLE_PX, address(new OraclePxPrecompileMock()).code);
+        vm.etch(PERP_INFO, address(new PerpAssetInfoPrecompileMock()).code);
+        PerpAssetInfoPrecompileMock(PERP_INFO).set(3, "BTC", 5);
+        OraclePxPrecompileMock(ORACLE_PX).set(3, 842456);
+        vm.expectRevert(abi.encodeWithSelector(HyperCorePriceSource.PrecompileCallFailed.selector, PERP_INFO, 4));
+        script.deploy(_cfg("hypercore"));
+    }
+
+    /// @dev The pool refuses strict = false off testnet/local even if a script were changed (§5.6).
+    function test_strictFlag_passedThrough() public {
+        Deploy.Config memory c = _cfg("mock");
+        c.strict = true;
+        c.configDelay = 48 hours;
+        c.withdrawDelay = 7 days;
+        c.claimWindow = 1 days;
+        Deploy.Deployment memory d = script.deploy(c);
+        assertTrue(CoverPool(d.pool).strict());
     }
 }

@@ -9,6 +9,7 @@ import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {MockPriceSource} from "../src/mocks/MockPriceSource.sol";
 import {MockPositionSource} from "../src/mocks/MockPositionSource.sol";
+import {PoolConfig} from "./utils/PoolConfig.sol";
 
 /// @notice Shared EIP-712 test vector (docs/how-it-works.md §4). The engine computes the same values independently.
 ///         The committed file test/vectors/quote_vector.json is checked here; regenerate it from this code
@@ -34,9 +35,10 @@ contract QuoteVectorTest is Test {
         usdc = new MockUSDC();
         prices = new MockPriceSource(address(this));
         positions = new MockPositionSource(address(this));
+        prices.setPrice(3, 84000000000); // the v2 constructor validates perp 3 through the price source
         deployCodeTo(
             "CoverPool.sol:CoverPool",
-            abi.encode(address(usdc), address(this), SIGNER, address(prices), address(positions)),
+            PoolConfig.ctorArgs(address(usdc), address(this), SIGNER, address(prices), address(positions), PoolConfig.perps1(3)),
             POOL
         );
         pool = CoverPool(POOL);
