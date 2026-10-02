@@ -156,6 +156,16 @@ Added 2026-10-01 (D10, engine merge `de5690c`):
 - Extra breakdown fields: `z` (standardized distance, §7), `spotSource` (`pool` | `info_api`), `pool`.
 - `/health` also returns `pools` (the allowlist).
 
+Added 2026-10-02 (security audit M1, M2, M4, L6; engine-side only, contracts unchanged):
+- Quote TTL: `deadline = now + 30 s` (`NUMERA_QUOTE_TTL_S`, was 60 s); `now` is the latest block timestamp
+  read over the RPC, falling back to the engine's wall clock (logged as a warning).
+- 400 `perp_not_allowed`: `perpIndex` is not in `deployments/<env>.json` `perps` (checked when that file
+  lists perps; the universe check `unknown_perp` still applies).
+- 422 `level_too_close`: |ln(level/spot)| < 3·σ·√TTL, i.e. the level could plausibly be reached while the
+  signed quote is still valid (the stale-quote free option).
+- 429 `rate_limited`: per-client-IP limit on `POST /quote` (token bucket, default 10/min, burst 5;
+  `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header.
+
 ## 7. Pricing model (engine, v4 — final, D13)
 
 Evidence and compared methods: [`engine/reports/calibration.md`](../engine/reports/calibration.md).
