@@ -3,9 +3,10 @@
 // Nothing here signs or sends a transaction; only read RPC methods are called (scripts/lib/rpc.mjs refuses
 // anything else). Secret values are never printed: .env keys are reported as set / empty / missing.
 //
-//   node scripts/doctor.mjs [--env <path to .env>] [--deployments <path>] [--offline]
+//   node scripts/doctor.mjs [--env <path to .env>] [--deployments <path>] [--deployments-v2 <path>] [--offline]
 //
 // --env defaults to <repo root>/.env (a worktree has none; pass the main checkout's .env).
+// --deployments-v2 defaults to deployments/testnet-v2.json (CoverPool v2 pools; a missing file is one WARN).
 // --offline skips every network check (RPC chain id, code, balances, quoteSigner, rate-limit probe).
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +16,7 @@ import { venvPython } from './venv.mjs';
 import { repoRoot, mainCheckout, forgePath, git, parseWorktrees } from './lib/tools.mjs';
 import { readDotenv, exampleKeys, keyStatus } from './lib/env.mjs';
 import { collectAddresses } from './lib/deployments.mjs';
+import { loadV2, v2FileLines, checkV2Pools } from './lib/doctorv2.mjs';
 import { makeClient, probe, engineTestnetRpcs, host, looksLikeMainnetRpc, TESTNET_CHAIN_ID, MAINNET_CHAIN_ID } from './lib/rpc.mjs';
 
 // ---- args ----------------------------------------------------------------------------------------
@@ -26,6 +28,7 @@ const opt = (name, dflt) => {
 const OFFLINE = argv.includes('--offline');
 const envPath = path.resolve(opt('--env', path.join(repoRoot, '.env')));
 const depPath = path.resolve(opt('--deployments', path.join(repoRoot, 'deployments', 'testnet.json')));
+const depV2Path = path.resolve(opt('--deployments-v2', path.join(repoRoot, 'deployments', 'testnet-v2.json')));
 
 // ---- output --------------------------------------------------------------------------------------
 const counts = { OK: 0, WARN: 0, FAIL: 0 };
@@ -51,6 +54,8 @@ else {
     report('FAIL', 'deployments', `cannot parse ${depPath}: ${e.message}`);
   }
 }
+const v2 = loadV2(depV2Path);
+for (const [level, check, detail] of v2FileLines(v2, depV2Path)) report(level, check, detail);
 const addrs = dep ? collectAddresses(dep) : { contracts: [], eoas: [] };
 const knownAddrs = [...addrs.contracts, ...addrs.eoas].map((a) => a.addr.toLowerCase());
 
@@ -268,6 +273,9 @@ async function network() {
       report('FAIL', `quoteSigner pools.${name}`, e.message);
     }
   });
+
+  // CoverPool v2 pools (deployments/testnet-v2.json): code, paused() false, totalAssets(), coverCount().
+  if (v2.pools?.length) await checkV2Pools(client, v2.pools, report, host);
 
   const used = [...client.answeredBy.entries()].map(([u, n]) => `${host(u)} x${n}`).join(', ');
   report(client.answeredBy.size > 1 || !client.answeredBy.has(primary) ? 'WARN' : 'OK', 'rpc answered by', used || 'none');
