@@ -658,8 +658,10 @@ or `{error, reason}`.
   `verifyingContract = pool` and priced against that pool's own price source.
 - Error codes and HTTP status: 400 `invalid_request`, `unknown_perp`, `perp_not_allowed`,
   `duration_out_of_range`, `unknown_pool`; 403 `chain_not_allowed`; 422 refusals `level_already_breached`,
-  `level_too_close`, `prob_too_high`, `capacity`; 429 `rate_limited`; 503 `market_data_unavailable`,
-  `signer_unavailable`.
+  `level_too_close`, `prob_too_high`, `capacity`, `payout_too_small`; 429 `rate_limited`; 503
+  `market_data_unavailable`, `signer_unavailable`, `pool_paused`.
+- `pool_paused` (503): the pool is paused, so `buyCover` would revert. `payout_too_small` (422): the payout is
+  below the pool's `minPayout`. Both are read from the pool (v1 and v2).
 - `perp_not_allowed`: only the perps listed in `deployments/<env>.json` (`perps`) are quoted.
 - Quote lifetime: `deadline` is 30 s after issue. `now` comes from the latest block timestamp (the engine's
   clock only if the RPC cannot be read). A level closer to spot than 3·σ·√(30 s) is refused with
@@ -679,7 +681,9 @@ of the payout is raised to that floor and the breakdown reports `floorApplied: t
 when the perp is not allowed on that pool; `level_too_close` when the level is closer to spot than
 `minLevelDistanceBps` plus a margin for the allowed oracle move (`m + d + ceil(m·d / 10000)`, 56 bps on
 testnet), so the contract's own distance check, made against the live oracle, cannot fail; `capacity` when the payout exceeds what is left of the sale-window cap or the buyer's
-share of it. v1 pools keep today's behaviour.
+share of it. That check covers the whole quote lifetime: if the sale window ends before the deadline, the
+payout must also fit the fresh window the contract would open on the pool's current capital. v1 pools keep
+today's behaviour.
 
 ## 7. Pricing model (v4)
 
