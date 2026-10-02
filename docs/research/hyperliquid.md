@@ -104,3 +104,19 @@ Raw `staticcall(abi.encode(args))`, no selector. Values = HyperCore state when t
 - No found product: **position-linked, parametric, pool-underwritten** cover for Hyperliquid perps.
 - Regulatory: oracle-triggered fixed payout is functionally a derivative/event contract; "insurance"
   framing does not remove that. Product copy says "cover", not "insurance".
+
+## Terms of Use (read 2026-10-02 in a browser, last updated 2026-06-15)
+
+Source: https://app.hyperliquid.xyz/terms. Paraphrased; section numbers as in the Terms.
+
+- §1.6 Restricted Persons: the interface is not offered to (a) persons or entities that reside in, are
+  located in, are incorporated in, or have a registered office in the USA or Ontario, Canada; (b) the same
+  for jurisdictions subject to sanctions or export controls ("Restricted Territories"); (c) citizens of a
+  Restricted Territory, wherever they are located.
+- §1.7-1.8: outcome markets carry a separate "Excluded Persons" list, which can change.
+- §1.9 and §3.1.5: using a VPN or otherwise concealing location is prohibited.
+- §1.3: the operator states it is not licensed or registered in any jurisdiction.
+- §11.4: governed by the law of England and Wales; disputes go to LCIA arbitration seated in London.
+- Implication for Numera: the same restriction applies to our audience (Numera cover is linked to a
+  Hyperliquid position). The early-access waitlist asks for a self-declaration that the person is not a
+  Restricted Person (`docs/research/website.md` §6).
