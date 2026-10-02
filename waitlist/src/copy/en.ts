@@ -6,7 +6,7 @@
 
 /** Version of the privacy notice a waitlist consent refers to. Bump it whenever the notice text changes;
  *  the server accepts only versions listed in CONSENT_VERSIONS. v2 changed one Recipients sentence
- *  (oracle prices and perp data are now read too), so the version moved on; `date` said 2026-10-02, the same
+ *  (the BTC oracle price is now read too, besides the pool statistics), so the version moved on; `date` said 2026-10-02, the same
  *  day as the previous version, hence the -v2 suffix (build spec 2.1). */
 export const CONSENT_VERSION = 'privacy-2026-10-02-v2';
 /** The previous version stays accepted: both sites may write the same D1 database. */
@@ -26,6 +26,7 @@ export const nav = {
   underwriters: 'Underwriters',
   proof: 'Proof',
   join: 'Join the waitlist',
+  joinShort: 'Join',
   joined: 'On the list',
   motion: 'Motion',
   motionOn: 'on',
@@ -57,8 +58,15 @@ export const instrument = {
   expiry: 'Expiry',
   wallet: 'Wallet',
   walletEmpty: 'no payout yet',
+  walletNoCover: 'no cover at these settings',
   payoutChip: '+$100 payout (illustrative)',
   walletPaid: '+$100 (illustrative)',
+  // the underwriter face of the same scene: the tile becomes the pool (premium from the grid, rounded up)
+  pool: 'Pool',
+  poolSold: (prem: string) => `+${prem} premium · $100 reserved`,
+  poolPaid: (prem: string) => `$100 paid out · ${prem} premium kept`,
+  poolNoSale: 'nothing sold, nothing reserved',
+  poolChip: '−$100 to the buyer (illustrative)',
   positionOpen: 'Position: open',
   positionClosed: 'Position: closed',
   trigger: 'trigger()',
@@ -72,14 +80,29 @@ export const instrument = {
   handle: 'Price. Drag it, or use the arrow keys, to pull a wick.',
   hint: 'Drag the price head down to the level, or focus it and press the arrow keys.',
   pullHint: 'pull the wick ↓',
-  pause: 'Pause',
+  pause: 'Pause motion',
+  resume: 'Resume motion',
   replay: 'Replay',
   verdicts: {
     none: 'No touch. No payout; the premium stays with the pool.',
     touch: 'Touch. The pool pays; your position stays open.',
     liquidated: 'Touch and liquidation. The payout lands; the position is closed. Cover does not stop a liquidation.',
+    // one setup is one cover, and a cover pays once (it becomes Paid in the trigger transaction)
+    paid: 'Touch again. Already paid: a cover pays once. Replay or change the setup for a new cover.',
+    paidLiquidated: 'Already paid: a cover pays once. The position is now closed; cover does not stop a liquidation.',
+    refused: (reason: string) => `Not offered at these settings: no cover, so no payout. ${reason}`,
+    reasonLevel: 'The level is too close to spot (testnet minimum 0.56 %).',
+    reasonProb: 'The touch chance is too high.',
+    newCover: 'New setup, new cover from now. Pull the wick to test it.',
+    // the same events seen from the pool (I underwrite)
+    uwNone: 'No touch. The $100 stays reserved; if expiry passes without a touch, the premium stays with the pool.',
+    uwTouch: 'Touch. The pool pays the reserved $100 to the buyer and keeps the premium.',
+    uwLiquidated: "Touch and liquidation. The pool pays the reserved $100; the buyer's position is closed.",
+    uwPaid: 'Touch again. Already paid: the pool pays a cover once.',
   },
+  watching: 'Watching the oracle price against your level…',
   introVerdict: 'The wick touched the level. The pool paid; the position stayed open.',
+  strip: 'per $100 payout',
 };
 
 export const controls = {
@@ -120,6 +143,13 @@ export const readout = {
   perPayout: 'per $100 payout',
   touch: 'Touch chance',
   touchNote: 'model, before tail adjustment',
+  // engine/numera_engine/pricing.py priced_prob: max(p·k, q); q is the empirical floor fitted on Hyperliquid history
+  priced: 'Priced chance',
+  pricedFloor: 'tail floor from Hyperliquid history',
+  pricedTail: 'model × tail multiplier from Hyperliquid history',
+  pricedWhy: 'Why higher than the model',
+  // src/lib/pricing.ts liqPrice: isolated position, entry = spot, first margin tier (mm = 1/(2·maxLev))
+  isolated: 'Liquidation modelled for an isolated position opened at this price (first margin tier); yours may differ.',
   cap: "Payout cap: your position's margin",
   below: 'below entry',
   above: 'above entry',
@@ -127,6 +157,8 @@ export const readout = {
   notOffered: 'Not offered',
   refusedLevel: 'Not offered: level too close to spot (testnet minimum 0.56 %)',
   refusedProb: 'Not offered: touch chance too high',
+  stripRefusedLevel: 'Not offered (level too close)',
+  stripRefusedProb: 'Not offered (touch chance too high)',
   label: 'Illustrative estimate, not a quote. Volatility is a preset, not live.',
   uwHeading: 'The pool side',
   liveWaiting: 'LIVE · testnet oracle · reading…',
@@ -215,6 +247,14 @@ export const how = {
       pass: 'passes',
       fail: 'fails',
       chain: 'checked on chain at purchase',
+      chainShort: 'on chain',
+      skip: 'not reached',
+      legend: [
+        ['pass', 'passes'],
+        ['fail', 'fails'],
+        ['chain', 'on chain: checked on chain at purchase'],
+        ['skip', 'not reached'],
+      ],
       done: 'Premium taken; the full payout is reserved.',
       stopped: 'Stopped here. Nothing is sold and nothing is reserved.',
     },
@@ -225,6 +265,58 @@ export const how = {
       title: 'Payout in the trigger transaction',
       note: 'No touch before expiry: no payout; the premium stays with the pool.',
     },
+  },
+  // More about each part; every line repeats a sourced statement made elsewhere on the page or in the docs.
+  facts: {
+    // docs/how-it-works.md §6; ARCHITECTURE §4 (Quote struct, deadline ~30 s after issue, nonce marked used)
+    quote: [
+      'The contract rejects a quote after its deadline, about 30 seconds after it was issued.',
+      'Each quote carries a one-time nonce; the contract marks it used.',
+    ],
+    // docs/how-it-works.md §8, D5 (FAQ "mark or oracle")
+    oracle: [
+      'Hyperliquid liquidates on the mark price; cover triggers on the oracle price.',
+      'So the default level sits 1 % above the liquidation price, toward spot.',
+    ],
+    // docs/how-it-works.md §8, D4; README Limitations (FAQ)
+    keeper: [
+      'Anyone may call trigger(); it pays only if a call before expiry sees the oracle at or past the level.',
+      'A wick shorter than the poll can be missed; the pricing effect is about 0.007 % of the level at σ 40 %.',
+    ],
+    // README; docs/how-it-works.md §5.3-5.4; deployments/testnet-v2.json limits (testnet settings)
+    pool: [
+      'Locked payouts stay at or below 80 % of capacity and 50 % per perp (testnet settings).',
+      'A premium counts for underwriters only when its cover settles.',
+    ],
+    // en.ts step 6; README one-liner; docs/how-it-works.md §8
+    payout: [
+      'The payout is capped by your position\'s margin.',
+      'A liquidation without an oracle touch does not pay.',
+    ],
+  },
+  // ARCHITECTURE §4 Quote fields, filled from the hero setup (illustrative; nothing is signed)
+  quoteCard: {
+    tag: 'SIM · your setup as a quote, not a signed quote',
+    buyer: ['buyer', 'your wallet'],
+    perp: ['perp', 'BTC'],
+    side: 'side',
+    level: 'level',
+    payout: ['payout', '$100'],
+    premium: 'premium',
+    expiry: 'expiry',
+    deadline: ['deadline', 'about 30 s after issue'],
+    nonce: ['nonce', 'one-time'],
+    refused: 'No quote: the engine does not sign this setup.',
+    fromNow: (d: string) => `${d} after purchase`,
+    below: 'below spot',
+    above: 'above spot',
+  },
+  // the pool station for the hero setup (illustrative)
+  poolCard: {
+    tag: 'SIM · your setup',
+    reserved: '$100 payout reserved at sale',
+    premium: (p: string) => `${p} premium, counted when the cover settles`,
+    none: 'Not offered at these settings: nothing is reserved.',
   },
   // ARCHITECTURE §5.3 buyCover order; values from deployments/testnet-v2.json limits ("testnet settings")
   checks: {
@@ -284,7 +376,18 @@ export const price = {
     { fig: '15 of 256', text: 'Out of sample, 15 of 256 buckets priced below realized frequency.' },
     { fig: '2.46 %', text: "BTC's daily low reached 6 % below the open on 2.46 % of days (Oct 2024-Sep 2026)." },
   ],
-  evidenceSource: 'Hyperliquid mainnet candles for BTC, ETH, SOL and HYPE; engine/reports/calibration.md.',
+  evidenceSource: 'Source: Numera calibration report (Hyperliquid mainnet candles: BTC, ETH, SOL, HYPE).',
+  // the visitor's hero setup placed on the table (same grid, same rounding; illustrative)
+  you: {
+    here: (prem: string, lvl: string) => `Your ${prem} (level ${lvl} below) sits here.`,
+    between: (lvl: string) => `Your level (${lvl} below) sits between two rows.`,
+    notRow: (lvl: string) => `Your level (${lvl} below) is outside these rows.`,
+    short: 'The table is for longs; your setup is short.',
+    other: 'The table shows 1 day and 7 days; your duration is not in it.',
+    refused: 'Your setup is not offered, so it has no cell here.',
+  },
+  // evidence pair drawn to scale: 0.45 expected vs 206 observed (README Evidence; calibration report)
+  bars: { model: 'model expected', seen: 'observed' },
 };
 
 /** S5. Sources: README "How it works", Limitations; docs/how-it-works.md §5.3-5.4; testnet-v2.json limits. */
@@ -297,7 +400,7 @@ export const underwriters = {
     'Each payout is reserved in full when the cover is sold.',
     'Caps (testnet settings): locked payouts stay at or below 80 % of capacity and 50 % per perp. New sales pause if payouts in one window exceed 15 % of assets.',
     'Underwriters bear the payouts, including any from a wrong or compromised quote.',
-    'Testnet only, mock USDC, no independent audit. No yield figures.',
+    'Testnet only, mock USDC, no independent audit. We publish no yield or return figures; testnet results are not returns.',
   ],
   toy: {
     heading: 'Reservation toy',
@@ -367,6 +470,7 @@ export const proof = {
   playhead: 'Playhead block',
   replay: 'Replay',
   status: 'status 1',
+  pending: 'not reached yet',
   copy: 'Copy cast command',
   copied: 'Copied',
   copyFailed: 'Copy failed; select the hash instead',
@@ -411,6 +515,14 @@ export const waitlist = {
   submit: 'Join the waitlist',
   sending: 'Sending…',
   success: 'You are on the list. We will reach out on the channel you chose.',
+  // the issued ticket after a 200 (shows only what the visitor typed; nothing is stored in the browser)
+  issued: {
+    stamp: 'ON THE LIST',
+    handle: 'Handle',
+    channel: 'Channel',
+    door: 'Ticket',
+    again: 'Use a different handle',
+  },
   errors: {
     handle: 'That handle does not look valid for the chosen channel.',
     consent: 'Please agree to the privacy notice.',
@@ -513,7 +625,7 @@ export const privacy = {
       h: 'Recipients',
       p: [
         'Cloudflare, Inc. hosts this site and the waitlist database (Cloudflare Pages and D1) and runs the Turnstile spam check, which processes technical data from your browser when the form loads and is submitted.',
-        'The pool statistics, oracle prices and perp data on the home page are read by your browser directly from public HyperEVM testnet RPC endpoints (Chainlink and Hyperliquid), which see your IP address like any website does. Nothing you type is sent to them.',
+        'The pool statistics and the BTC oracle price on the home page are read by your browser directly from public HyperEVM testnet RPC endpoints (Chainlink and Hyperliquid), which see your IP address like any website does. Nothing you type is sent to them.',
       ],
     },
     {

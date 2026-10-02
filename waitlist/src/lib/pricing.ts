@@ -20,10 +20,23 @@ export type Estimate = {
   floorApplied: boolean;
   /** Raw model touch probability (GBM, before the tail table). 0 when refused before pricing. */
   p: number;
+  /** The probability the premium is priced on, max(p·k, q) (engine pricing.priced_prob). 0 when refused before pricing. */
+  priced: number;
+  /** The empirical tail floor q (fitted on Hyperliquid history), not the multiplied model, sets `priced`. */
+  pricedByFloor: boolean;
   refusal: Refusal | null;
 };
 
-type SideBlock = { lev: [number, number]; liq: number[]; lvl: number[]; prem: number[]; p: number[]; floor: number[] };
+type SideBlock = {
+  lev: [number, number];
+  liq: number[];
+  lvl: number[];
+  prem: number[];
+  p: number[];
+  floor: number[];
+  pp: number[];
+  ppq: number[];
+};
 type Grid = {
   meta: Record<string, unknown>;
   payout: number;
@@ -62,6 +75,8 @@ export function estimate(s: Setup): Estimate {
     premium: refusal ? null : raw,
     floorApplied: block.floor[i] === 1,
     p: block.p[i],
+    priced: block.pp[i],
+    pricedByFloor: block.ppq[i] === 1,
     refusal,
   };
 }
@@ -109,4 +124,10 @@ export const px6ToUsd = (px6: bigint): number => Number(px6) / 1e6;
 export function fmtPrice(usd: number): string {
   const d = usd >= 1000 ? 2 : usd >= 1 ? 3 : 5;
   return fmtUsd(usd, d);
+}
+
+/** A modelled level in dollars (liquidation, cover level): whole dollars above $1,000, since the model
+ *  (isolated, first margin tier, entry = the oracle price) is not exact to the cent. */
+export function fmtLevelPrice(usd: number): string {
+  return usd >= 1000 ? fmtUsd(Math.round(usd), 0) : fmtPrice(usd);
 }

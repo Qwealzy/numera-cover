@@ -1,6 +1,7 @@
 ---
 // S7, the waitlist as a cover ticket. The /api/join contract is byte-identical to site/ (handle, channel,
 // consent, consentVersion, jurisdiction, turnstileToken). The door changes wording only; no role on the wire.
+// On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
 import { waitlist as Wl, CONSENT_VERSION } from '../copy/en.ts';
 import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
 import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
@@ -19,7 +20,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
       <p class="kicker">{Wl.kicker}</p>
       <h2 id="join-title">{Wl.heading}</h2>
       <p class="intro">{Wl.intro}</p>
-      <fieldset class="doors">
+      <fieldset class="doors" data-doors>
         <legend class="label">{D.label}</legend>
         <div class="seg">
           <label><input type="radio" name="door" value="trader" checked data-door /><span>{D.trader.tab}</span></label>
@@ -50,74 +51,87 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
         <p class="t-title" data-door-title>{D.trader.title}</p>
         <p class="t-line" data-door-line>{D.trader.line}</p>
 
-        <form
-          class="form"
-          method="post"
-          action="/api/join"
-          novalidate
-          data-form
-          data-endpoint={WAITLIST_ENDPOINT}
-          data-turnstile={TURNSTILE_SCRIPT}
-          data-sitekey={sitekey}
-          data-errors={JSON.stringify(Wl.errors)}
-          data-sending={Wl.sending}
-          data-success={Wl.success}
-          data-valid={JSON.stringify(Wl.valid)}
-          data-doors={JSON.stringify({ trader: D.trader, underwriter: D.underwriter })}
-        >
-          <div class="id-row">
-          <fieldset class="channel">
-            <legend class="label">{Wl.channel.label}</legend>
-            <div class="seg">
-              {Wl.channel.options.map((o, i) => (
-                <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
-              ))}
+        <div class="form-wrap">
+          <form
+            class="form"
+            method="post"
+            action="/api/join"
+            novalidate
+            data-form
+            data-endpoint={WAITLIST_ENDPOINT}
+            data-turnstile={TURNSTILE_SCRIPT}
+            data-sitekey={sitekey}
+            data-errors={JSON.stringify(Wl.errors)}
+            data-sending={Wl.sending}
+            data-success={Wl.success}
+            data-valid={JSON.stringify(Wl.valid)}
+            data-doors={JSON.stringify({ trader: D.trader, underwriter: D.underwriter })}
+          >
+            <div class="id-row">
+              <fieldset class="channel">
+                <legend class="label">{Wl.channel.label}</legend>
+                <div class="seg">
+                  {Wl.channel.options.map((o, i) => (
+                    <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div class="field">
+                <label for="wl-handle" class="label">{Wl.handle.label}</label>
+                <div class="input-wrap">
+                  <input
+                    id="wl-handle"
+                    name="handle"
+                    type="text"
+                    required
+                    maxlength="64"
+                    autocomplete="off"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    aria-describedby="wl-handle-hint wl-terms"
+                  />
+                  <span class="valid-dot" aria-hidden="true"></span>
+                </div>
+                <p id="wl-handle-hint" class="hint">{Wl.handle.hint}</p>
+              </div>
             </div>
-          </fieldset>
+            <p id="wl-terms" class="terms mono" aria-live="off"><span data-terms>{Wl.terms.empty}</span> <span class="valid-text" data-valid-text></span></p>
 
-          <div class="field">
-            <label for="wl-handle" class="label">{Wl.handle.label}</label>
-            <div class="input-wrap">
-              <input
-                id="wl-handle"
-                name="handle"
-                type="text"
-                required
-                maxlength="64"
-                autocomplete="off"
-                autocapitalize="none"
-                spellcheck="false"
-                aria-describedby="wl-handle-hint wl-terms"
-              />
-              <span class="valid-dot" aria-hidden="true"></span>
+            <div class="check">
+              <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
+              <label for="wl-jurisdiction">{Wl.jurisdiction}</label>
             </div>
-            <p id="wl-handle-hint" class="hint">{Wl.handle.hint}</p>
-          </div>
-          </div>
-          <p id="wl-terms" class="terms mono" aria-live="off"><span data-terms>{Wl.terms.empty}</span> <span class="valid-text" data-valid-text></span></p>
+            <div class="check">
+              <input id="wl-consent" name="consent" type="checkbox" required />
+              <label for="wl-consent">
+                {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}
+              </label>
+            </div>
+            <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
 
-          <div class="check">
-            <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
-            <label for="wl-jurisdiction">{Wl.jurisdiction}</label>
-          </div>
-          <div class="check">
-            <input id="wl-consent" name="consent" type="checkbox" required />
-            <label for="wl-consent">
-              {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}
-            </label>
-          </div>
-          <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
+            <div class="cf-box" data-cf-box>
+              <div class="cf-turnstile" data-cf></div>
+            </div>
 
-          <div class="cf-box" data-cf-box>
-            <div class="cf-turnstile" data-cf></div>
-          </div>
+            <div class="submit-row">
+              <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
+            </div>
+            <noscript><p class="noscript">{Wl.noscript}</p></noscript>
+          </form>
 
-          <div class="submit-row">
-            <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
+          <div class="issued" data-issued tabindex="-1" hidden>
+            <p class="i-stamp mono">{Wl.issued.stamp}</p>
+            <p class="i-line">{Wl.success}</p>
+            <dl class="i-rows mono">
+              <div><dt>{Wl.issued.handle}</dt><dd data-i="handle"></dd></div>
+              <div><dt>{Wl.issued.channel}</dt><dd data-i="channel"></dd></div>
+              <div><dt>{Wl.issued.door}</dt><dd data-i="door"></dd></div>
+            </dl>
+            <button type="button" class="icon-btn again" data-again>{Wl.issued.again}</button>
           </div>
-          <p class="status mono" data-status role="status" aria-live="polite"></p>
-          <noscript><p class="noscript">{Wl.noscript}</p></noscript>
-        </form>
+        </div>
+        <p class="status mono" data-status role="status" aria-live="polite" tabindex="-1"></p>
       </div>
     </div>
   </div>
@@ -136,6 +150,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     border: 0;
     display: grid;
     gap: 0.5rem;
+    scroll-margin-top: calc(var(--nav-h) + 12px);
   }
   .doors legend {
     margin-bottom: 0.5rem;
@@ -155,7 +170,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     background: var(--surface-strong);
     overflow: hidden;
   }
-  .ticket.shake {
+  .ticket:global(.shake) {
     animation: shake 300ms linear;
   }
   .strip {
@@ -285,6 +300,21 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   .ticket[data-state='success'] .seal {
     animation: thud 360ms var(--ease-out) 1080ms both;
   }
+  /* the whole ticket gives a 3 px thud when the stamp lands */
+  .ticket[data-state='success'] {
+    animation: ticket-thud 260ms var(--ease-out) 760ms both;
+  }
+  @keyframes ticket-thud {
+    0% {
+      transform: none;
+    }
+    40% {
+      transform: translateY(3px);
+    }
+    100% {
+      transform: none;
+    }
+  }
   .ticket-body {
     display: grid;
     gap: 0.4rem;
@@ -301,9 +331,88 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     color: var(--text-strong);
     margin-bottom: 0.4rem;
   }
+  .form-wrap {
+    position: relative;
+  }
   .form {
     display: grid;
     gap: 0.95rem;
+  }
+  /* success: the fields keep their space (nothing below moves) and the issued ticket is drawn over them */
+  .ticket[data-state='success'] .form {
+    visibility: hidden;
+  }
+  .issued {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: 0.9rem;
+    padding-top: 0.4rem;
+    outline: none;
+  }
+  .issued[hidden] {
+    display: none;
+  }
+  .issued:focus-visible {
+    outline: var(--focus);
+    outline-offset: 6px;
+    border-radius: 6px;
+  }
+  .i-stamp {
+    padding: 0.45rem 0.9rem;
+    border: 3px solid var(--green);
+    border-radius: 10px;
+    color: var(--text-accent);
+    font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.5rem);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+    transform: rotate(-3deg);
+  }
+  :global(html[data-motion='on']) .ticket[data-state='success'] .i-stamp {
+    animation: slam 340ms ease-in 640ms both;
+  }
+  @keyframes slam {
+    0% {
+      transform: rotate(-3deg) scale(1.8);
+      opacity: 0;
+    }
+    35% {
+      transform: rotate(-3deg) scale(1);
+      opacity: 1;
+    }
+    60% {
+      transform: rotate(-3deg) translateY(3px);
+    }
+    100% {
+      transform: rotate(-3deg);
+      opacity: 1;
+    }
+  }
+  .i-line {
+    color: var(--text-strong);
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .i-rows {
+    margin: 0;
+    display: grid;
+    gap: 0.3rem;
+    font-size: 0.86rem;
+  }
+  .i-rows div {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .i-rows dt {
+    color: var(--text-label);
+  }
+  .i-rows dd {
+    color: var(--text-strong);
+    overflow-wrap: anywhere;
   }
   .id-row {
     display: grid;
@@ -346,7 +455,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     border-color: var(--green);
   }
   input[type='text']:read-only {
-    opacity: 0.7;
+    border-style: dashed;
   }
   input[aria-invalid='true'] {
     border: 2px dashed var(--paper);
@@ -380,7 +489,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   .terms {
     font-size: 0.8rem;
     color: var(--text-strong);
-    min-height: 1.5em;
+    min-height: 1.6em;
   }
   .valid-text {
     color: var(--text-accent);
@@ -408,8 +517,9 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     color: var(--text);
     cursor: pointer;
   }
+  /* Turnstile "flexible" renders 73 px tall in this layout; the box is reserved at that height */
   .cf-box {
-    min-height: 65px;
+    min-height: 73px;
   }
   .submit-row {
     display: flex;
@@ -419,10 +529,18 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   .submit {
     min-width: 12rem;
   }
+  .submit[aria-disabled='true'] {
+    cursor: progress;
+  }
   .status {
     min-height: 3em;
     font-size: 0.86rem;
     color: var(--text-strong);
+    outline: none;
+  }
+  .status:focus-visible {
+    outline: var(--focus);
+    outline-offset: 3px;
   }
   .status[data-state='error']::before {
     content: '○ ';
@@ -433,6 +551,10 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   }
   .status[data-state='ok']::before {
     content: '● ';
+  }
+  /* success: the issued ticket shows the sentence; the status line keeps its box and still announces it */
+  .ticket[data-state='success'] .status {
+    clip-path: inset(50%);
   }
   .noscript {
     font-size: 0.9rem;
@@ -446,9 +568,6 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
       display: none;
     }
   }
-  .form[aria-busy='true'] .submit {
-    cursor: progress;
-  }
   @media (max-width: 900px) {
     .grid {
       grid-template-columns: minmax(0, 1fr);
@@ -457,6 +576,12 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   @media (max-width: 560px) {
     .id-row {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /* phones: "Looks valid for Telegram" can wrap under the terms line; two lines are reserved */
+  @media (max-width: 480px) {
+    .terms {
+      min-height: 3.2em;
     }
   }
 </style>

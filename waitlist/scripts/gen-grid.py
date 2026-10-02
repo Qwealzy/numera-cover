@@ -39,6 +39,7 @@ sys.path.insert(0, str(REPO / "engine"))
 
 from numera_engine.pricing import (  # noqa: E402
     P_MAX,
+    priced_prob,
     SECONDS_PER_YEAR,
     THETA,
     QuoteRefusedError,
@@ -98,7 +99,7 @@ def main() -> None:
         sides = {}
         for is_long in (True, False):
             levs = list(range(2, max_lev + 1))
-            liqs, lvls, prem, prob, floor = [], [], [], [], []
+            liqs, lvls, prem, prob, floor, priced, qset = [], [], [], [], [], [], []
             for lev in levs:
                 liq, level = liq_and_level(lev, max_lev, is_long)
                 liqs.append(sig(abs(liq - 1), 6))
@@ -114,9 +115,16 @@ def main() -> None:
                             prem.append(REFUSE_LEVEL)
                             prob.append(0)
                             floor.append(0)
+                            priced.append(0)
+                            qset.append(0)
                             continue
                         p = touch_prob_directional(S, H, sigma, T, is_long)
                         adj = table.adjust(COIN, is_long, dur, S, H, sigma)
+                        # the probability the premium is priced on: max(p*k, q) (pricing.priced_prob);
+                        # qset = 1 when the empirical tail floor q, not the multiplied model, sets it
+                        pp = priced_prob(p, adj.k, adj.q)
+                        priced.append(sig(pp, 4))
+                        qset.append(1 if adj.q >= p * adj.k else 0)
                         try:
                             pr = premium(PAYOUT, p, adj.k, THETA, P_MAX, FEE, adj.q)
                         except QuoteRefusedError as exc:
@@ -136,6 +144,8 @@ def main() -> None:
                 "prem": prem,
                 "p": prob,
                 "floor": floor,
+                "pp": priced,
+                "ppq": qset,
             }
         perps[str(max_lev)] = sides
 
@@ -161,6 +171,7 @@ def main() -> None:
             "level_k_sigma": LEVEL_K_SIGMA,
             "quote_ttl_s": DEFAULT_QUOTE_TTL_S,
             "index": "cell = ((levIdx * durations) + durIdx) * sigmas + sigmaIdx; prem -1 prob_too_high, -2 level_too_close",
+            "pp": "priced probability max(p*k, q) (pricing.priced_prob); ppq 1 when the tail floor q sets it",
         },
         "payout": PAYOUT,
         "durations": DURATIONS,

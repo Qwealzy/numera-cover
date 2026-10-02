@@ -97,19 +97,47 @@ document.addEventListener('visibilitychange', () => {
 });
 html.dataset.loops = '0';
 
-/** Calls `f` once when `el` is about `ratio` visible (section reveals, plays on entry). */
+/**
+ * Calls `f` once when `el` is about `ratio` visible (section reveals, plays on entry), or when the visible
+ * part covers a quarter of the viewport: a block taller than the viewport (400 % zoom, large text, short
+ * windows) can never reach its ratio, and it must still appear.
+ */
 export function onceVisible(el: Element, f: () => void, ratio = 0.35): void {
+  const steps = [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.6, 0.75, 1].filter((t) => t <= ratio);
+  if (!steps.includes(ratio)) steps.push(ratio);
   const io = new IntersectionObserver(
     (entries) => {
-      for (const e of entries)
-        if (e.isIntersecting) {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const vh = e.rootBounds?.height || window.innerHeight;
+        if (e.intersectionRatio >= ratio - 1e-3 || e.intersectionRect.height >= 0.25 * vh) {
           io.disconnect();
           f();
+          return;
         }
+      }
     },
-    { threshold: ratio },
+    { threshold: steps },
   );
   io.observe(el);
+}
+
+// The OS reduced-motion setting can change while the page is open; follow it unless the viewer chose with the
+// nav toggle (boot.js reads the setting once, before paint).
+try {
+  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  mq.addEventListener('change', () => {
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem('numera-motion');
+    } catch {
+      saved = null;
+    }
+    if (mq.matches) setMotion(false, false);
+    else if (saved !== 'off') setMotion(true, false);
+  });
+} catch {
+  // no matchMedia: the boot-time state stays
 }
 
 // ---- small math helpers shared by the scenes ----

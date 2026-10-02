@@ -3,6 +3,7 @@
 //  - data: or blob: URLs in HTML or CSS (the CSP allows neither)
 //  - an absolute URL outside the allowed third parties (testnet RPCs, Turnstile, the two contact links)
 //  - a block-explorer-like link (purrsec, hyperpc, explorer, scan) in any href
+//  - an uncompiled :global( in a stylesheet (Astro does not expand it inside :not(); the rule is dropped)
 // Also prints every <script src> per page.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -33,6 +34,8 @@ for (const f of files(DIST)) {
       if (/purrsec|hyperpc|explorer|scan/i.test(m[1])) add(f, `explorer-like href ${m[1]}`);
   }
   if (/\.(html|css)$/.test(f) && /(["'(\s=]|^)(data|blob):/im.test(t)) add(f, 'data: or blob: URL');
+  // Astro leaves :global() unexpanded inside :not(); the browser then drops the whole rule
+  if (/\.(html|css)$/.test(f) && /:global\(/.test(t)) add(f, 'uncompiled :global( selector (the browser drops that rule)');
   for (const m of t.matchAll(/\b(?:https?:)?\/\/([a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'`)<>]*)?/gi)) {
     const url = m[1] + (m[2] ?? '');
     if (!ALLOWED.some((a) => url === a || url.startsWith(`${a}/`) || (a.includes('/') && url.startsWith(a))))

@@ -47,7 +47,7 @@
   --radius-pill: 999px;
   --page: 1240px;
   --gutter: clamp(16px, 4vw, 48px);
-  --section-y: clamp(5rem, 11vw, 9rem);
+  --section-y: clamp(4rem, 7.5vw, 6rem);
   --label-size: 0.72rem;
   --label-track: 0.12em;
   --nav-h: 64px;

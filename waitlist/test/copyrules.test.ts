@@ -19,7 +19,18 @@ const LEGAL_NAMES = /data protection authority|Protection of Personal Data/g;
 
 /** All copy as one string, including the template functions called with sample values. */
 function copyText(): string {
-  return [JSON.stringify(en), en.readout.uw('$2.44'), en.readout.uwRefused, en.underwriters.toy.status(3)].join('\n');
+  const I = en.instrument;
+  return [
+    JSON.stringify(en),
+    en.readout.uw('$2.44'),
+    en.readout.uwRefused,
+    en.underwriters.toy.status(3),
+    I.poolSold('$2.44'),
+    I.poolPaid('$2.44'),
+    I.verdicts.refused(I.verdicts.reasonLevel),
+    en.price.you.here('$2.44', '7.95 %'),
+    en.price.you.between('7.95 %'),
+  ].join('\n');
 }
 /** Visible text of the built pages (tags, scripts and styles removed), or '' without a build. */
 function distText(): string {
@@ -69,7 +80,9 @@ test('privacy notice: version bumped for the reworded Recipients sentence; the o
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-02'));
   assert.equal(en.privacy.updated, 'Version privacy-2026-10-02-v2');
   const rec = en.privacy.sections.find((s) => s.h === 'Recipients')!;
-  assert.match(rec.p[1], /pool statistics, oracle prices and perp data/);
+  // the site reads the pool statistics and the BTC oracle price, nothing else (no perp metadata)
+  assert.match(rec.p[1], /^The pool statistics and the BTC oracle price on the home page are read by your browser directly/);
+  assert.doesNotMatch(rec.p[1], /perp data/);
   const body = (v: string) => ({
     handle: '@alice_trader',
     channel: 'telegram',

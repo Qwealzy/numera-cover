@@ -65,6 +65,9 @@ export function rng(seed: number): () => number {
 }
 
 export const PATH_STEP = 6; // px between history points
+/** Head position in the static SVG (viewBox 1000 wide). The canvas computes its own from the widths of the
+ *  line labels, so the head never sits under them; 0.58 is the typical desktop value. */
+export const SVG_HEAD_FRAC = 0.58;
 
 /**
  * History of the SIM price path as normalized offsets u (0 = entry, 1 = the level, negative = away from it),

@@ -487,4 +487,19 @@ const Lg = U.ledger;
       padding-top: 0;
     }
   }
+  /* very narrow (small phones, 400 % zoom): the toy pool sits above its buttons */
+  @media (max-width: 380px) {
+    .toy-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .pool {
+      width: 140px;
+      justify-self: center;
+      margin-bottom: 1.8rem;
+    }
+    .toy-ctl .btn,
+    .toy-ctl .icon-btn {
+      white-space: normal;
+    }
+  }
 </style>

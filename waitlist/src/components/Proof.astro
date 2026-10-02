@@ -64,7 +64,7 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
                   block {fmt(e.block)} · <b>{e.name}</b> · {Pf.status}
                 </span>
               </p>
-              <p class="rc-what">{e.what}</p>
+              <p class="rc-what">{e.what} <span class="rc-pending mono">· {Pf.pending}</span></p>
               <p class="rc-hash mono">
                 <code title={e.hash}>
                   <span>{e.hash.slice(0, 12)}</span><span class="h-mid">{e.hash.slice(12, -10)}</span><span class="h-dots" aria-hidden="true">…</span><span>{e.hash.slice(-10)}</span>
@@ -210,10 +210,23 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--surface);
-    transition: border-color var(--t-ui) var(--ease-out), opacity var(--t-ui) var(--ease-out);
+    transition: border-color var(--t-ui) var(--ease-out);
   }
   .rc[data-reached='n'] {
-    opacity: 0.45;
+    border-style: dashed;
+    background: transparent;
+  }
+  /* not reached yet: dashed card, label-contrast text and the words "not reached yet" (no fading) */
+  .rc[data-reached='n'] :is(.rc-line, .rc-line b, .rc-what, code) {
+    color: var(--text-label);
+  }
+  .rc-pending {
+    display: none;
+    font-size: 0.74rem;
+    color: var(--text-label);
+  }
+  .rc[data-reached='n'] .rc-pending {
+    display: inline;
   }
   .rc[data-reached='y'] {
     border-color: var(--line-strong);

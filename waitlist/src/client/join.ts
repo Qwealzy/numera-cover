@@ -1,10 +1,13 @@
 // S7 waitlist ticket. Same /api/join request as site/ (no role on the wire); the browser uses the server's own
 // normalizeHandle for instant feedback, the server stays authoritative. Turnstile loads lazily (about 1.5
-// viewports before the form, or on Join / focus) and is reset after every submit (each token works once).
+// viewports before the form, or on Join / focus) and is reset after every failed submit (each token works
+// once); after a success it is parked until the visitor reopens the form.
 import { normalizeHandle, type Channel } from '../server/waitlist.ts';
-import { waitlist as Wl, nav } from '../copy/en.ts';
+import { waitlist as Wl } from '../copy/en.ts';
 import { motionOn } from './motion.ts';
 import { state, on, set } from './store.ts';
+
+const TIMEOUT_MS = 15_000;
 
 type TurnstileApi = {
   render: (el: Element, opts: Record<string, unknown>) => string;
@@ -27,9 +30,11 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   const validText = form.querySelector<HTMLElement>('[data-valid-text]')!;
   const consent = form.querySelector<HTMLInputElement>('#wl-consent')!;
   const juris = form.querySelector<HTMLInputElement>('#wl-jurisdiction')!;
-  const statusEl = form.querySelector<HTMLElement>('[data-status]')!;
+  const statusEl = section.querySelector<HTMLElement>('[data-status]')!;
   const submit = form.querySelector<HTMLButtonElement>('[data-submit]')!;
   const cfEl = form.querySelector<HTMLElement>('[data-cf]')!;
+  const issued = section.querySelector<HTMLElement>('[data-issued]')!;
+  const again = section.querySelector<HTMLButtonElement>('[data-again]')!;
   const errors = JSON.parse(form.dataset.errors ?? '{}') as Record<string, string>;
   const valid = JSON.parse(form.dataset.valid ?? '{}') as Record<Channel, string>;
   const doors = JSON.parse(form.dataset.doors ?? '{}') as Record<'trader' | 'underwriter', { title: string; line: string }>;
@@ -39,9 +44,11 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   let widgetId: string | undefined;
   let captchaRequested = false;
   let blurred = false;
+  let door_: 'trader' | 'underwriter' = 'trader';
 
   // ---- doors (wording only) ----
   function door(role: 'trader' | 'underwriter') {
+    door_ = role;
     doorTitle.textContent = doors[role].title;
     doorLine.textContent = doors[role].line;
     for (const d of doorInputs) d.checked = d.value === role;
@@ -120,6 +127,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     void ticket.offsetWidth;
     ticket.classList.add('shake');
   }
+  /** An error: the message in the reserved slot, a shake, and focus on the field at fault, or on the
+   *  message itself when no field is at fault (captcha, rate, network), so keyboard users keep their place. */
   function fail(key: string, focusEl?: HTMLElement) {
     ticket.dataset.state = 'error';
     say(errors[key] ?? errors.generic, 'error');
@@ -128,15 +137,16 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
       focusEl.setAttribute('aria-invalid', 'true');
       if (focusEl === handle) field.dataset.valid = 'n';
       focusEl.focus();
-    }
+    } else statusEl.focus({ preventScroll: false });
   }
+  /** Sending: aria-busy, read-only fields; the submit keeps focus (aria-disabled, not disabled). */
   function busy(on: boolean) {
     form.setAttribute('aria-busy', String(on));
     handle.readOnly = on;
     for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox], input[name=channel]')) el.disabled = on;
-    submit.disabled = on;
+    submit.setAttribute('aria-disabled', String(on));
     const label = submit.querySelector('.cta-label')!;
-    label.textContent = on ? Wl.sending : state.joined ? nav.joined : Wl.submit;
+    label.textContent = on ? Wl.sending : Wl.submit;
     if (on) ticket.dataset.state = 'submitting';
   }
   function resetCaptcha() {
@@ -146,6 +156,30 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
       // widget not loaded
     }
   }
+  /** A 200: the fields fold into an issued ticket that shows only what the visitor typed. */
+  function issue(norm: string, ch: Channel) {
+    const v = (k: string) => issued.querySelector<HTMLElement>(`[data-i="${k}"]`)!;
+    v('handle').textContent = norm;
+    v('channel').textContent = Wl.channel.options.find((o) => o.value === ch)?.label ?? ch;
+    v('door').textContent = doors[door_].title;
+    issued.hidden = false;
+    ticket.dataset.state = 'success';
+    // the ticket's top (strip, seal, stamp) comes into view on narrow screens
+    const r = ticket.getBoundingClientRect();
+    if (r.top < 0 || r.top > window.innerHeight * 0.5)
+      ticket.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
+    issued.focus({ preventScroll: true });
+  }
+  again.addEventListener('click', () => {
+    issued.hidden = true;
+    ticket.dataset.state = 'idle';
+    say('', '');
+    handle.value = '';
+    blurred = false;
+    feedback();
+    resetCaptcha();
+    handle.focus();
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -155,15 +189,19 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     const ch = channel();
     const raw = handle.value;
     for (const el of [handle, consent, juris]) el.removeAttribute('aria-invalid');
-    // same order as the server: handle, consent, jurisdiction
-    if (!normalizeHandle(raw, ch)) return fail('handle', handle);
-    if (!consent.checked) return fail('consent', consent);
+    // the handle first, then the two boxes in the order they appear (the server checks each one anyway)
+    const norm = normalizeHandle(raw, ch);
+    if (!norm) return fail('handle', handle);
     if (!juris.checked) return fail('jurisdiction', juris);
+    if (!consent.checked) return fail('consent', consent);
     const token =
       (widgetId !== undefined ? window.turnstile?.getResponse(widgetId) : undefined) ??
       String(new FormData(form).get('cf-turnstile-response') ?? '');
     busy(true);
     say('', '');
+    const ctl = new AbortController();
+    const timer = window.setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    let ok = false;
     try {
       const r = await fetch(form.dataset.endpoint!, {
         method: 'POST',
@@ -176,24 +214,31 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
           jurisdiction: true,
           turnstileToken: token ?? '',
         }),
+        signal: ctl.signal,
       });
       const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       busy(false);
       if (r.ok && j.ok) {
-        ticket.dataset.state = 'success';
+        ok = true;
         say(form.dataset.success ?? '', 'ok');
         set('joined', true);
+        issue(norm, ch);
       } else {
         const err = j.error ?? 'generic';
         const target = err === 'handle' ? handle : err === 'consent' ? consent : err === 'jurisdiction' ? juris : undefined;
         fail(['handle', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(err) ? err : 'generic', target);
       }
     } catch {
+      // network error or the 15 s timeout: nothing was confirmed, so the generic message
       busy(false);
       fail('generic');
     } finally {
-      resetCaptcha();
+      clearTimeout(timer);
+      if (!ok) resetCaptcha();
     }
+  });
+  submit.addEventListener('click', (e) => {
+    if (submit.getAttribute('aria-disabled') === 'true') e.preventDefault();
   });
 
   door(state.role);
@@ -202,6 +247,10 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   return {
     focusForm() {
       loadCaptcha();
+      if (ticket.dataset.state === 'success') {
+        issued.focus({ preventScroll: true });
+        return;
+      }
       handle.focus({ preventScroll: true });
       if (motionOn()) {
         ticket.classList.remove('shake');

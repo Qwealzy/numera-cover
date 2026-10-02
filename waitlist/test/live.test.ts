@@ -88,6 +88,30 @@ test('readOraclePx6: reads the price source with the perp index; failure and zer
   assert.equal(await readOraclePx6(['a'], 998, SRC, 3, down.f), null);
 });
 
+test('the answering endpoint is remembered: later reads skip the chain check; a failure there re-picks', async () => {
+  let bDown = false;
+  const { f, calls } = fakeFetch({
+    a: 'down',
+    b: (m, p) => {
+      if (bDown) throw new Error('b went down');
+      return chain998(() => word(84_366_000_000n))(m, p);
+    },
+    c: chain998(() => word(84_400_000_000n)),
+  });
+  assert.equal(await readOraclePx6(['a', 'b', 'c'], 998, SRC, 3, f), 84_366_000_000n);
+  const first = calls.length;
+  assert.equal(await readOraclePx6(['a', 'b', 'c'], 998, SRC, 3, f), 84_366_000_000n);
+  // second read: one eth_call on b, no eth_chainId and no try on a
+  assert.deepEqual(calls.slice(first).map((c) => c.split(' ').slice(0, 2).join(' ')), ['b eth_call']);
+  bDown = true;
+  const before = calls.length;
+  assert.equal(await readOraclePx6(['a', 'b', 'c'], 998, SRC, 3, f), 84_400_000_000n);
+  // b failed: re-picked with the chain check, the failed endpoint last (a, then c answers)
+  const after = calls.slice(before).map((c) => c.split(' ').slice(0, 2).join(' '));
+  assert.deepEqual(after.slice(0, 2), ['b eth_call', 'a eth_chainId']);
+  assert.ok(after.includes('c eth_chainId') && after.at(-1) === 'c eth_call');
+});
+
 test('instrument labels never overlap, even at 40x where the lines are a few px apart', () => {
   for (const dir of [1, -1] as const)
     for (const [e, l, q] of [

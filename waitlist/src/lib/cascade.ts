@@ -30,8 +30,8 @@ export function cascadeFull(s: Setup, e: Estimate): Cascade {
   let stopped = engineRefused;
   const rows = ORDER.map(({ id, kind }): CheckRow => {
     const text = C[id];
-    if (stopped) return { id, text, state: 'skip', stateText: '—' };
-    if (kind === 'chain') return { id, text, state: 'chain', stateText: S.chain };
+    if (stopped) return { id, text, state: 'skip', stateText: S.skip };
+    if (kind === 'chain') return { id, text, state: 'chain', stateText: S.chainShort };
     if (kind === 'distance' && e.refusal === 'level_too_close') {
       stopped = true;
       return { id, text, state: 'fail', stateText: S.fail };

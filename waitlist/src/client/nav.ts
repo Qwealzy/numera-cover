@@ -1,5 +1,6 @@
 // Every page: marks the page script as booted, the nav backdrop after 8 px, and the Motion toggle
 // (remembered per viewer in localStorage; every read and write is wrapped, the page works without it).
+// The toggle's accessible name is fixed ("Motion"); its state is aria-pressed. The on/off word is visual.
 import { nav as N } from '../copy/en.ts';
 import { motionOn, setMotion, onMotion } from './motion.ts';
 

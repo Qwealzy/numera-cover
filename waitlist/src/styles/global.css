@@ -94,8 +94,10 @@ a {
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
 }
-a:hover {
-  text-decoration-color: var(--green);
+@media (hover: hover) and (pointer: fine) {
+  a:hover {
+    text-decoration-color: var(--green);
+  }
 }
 strong {
   color: var(--text-strong);
@@ -240,24 +242,34 @@ canvas {
   transform-origin: right center;
   transition: transform 550ms var(--ease-out);
 }
-.btn-primary:hover::before {
-  transform: scaleX(1);
-  transform-origin: left center;
-}
 .btn .arrow {
   display: inline-block;
   transition: transform var(--t-ui) var(--ease-out);
-}
-.btn:hover .arrow {
-  transform: translateY(2px);
 }
 .btn-ghost {
   background: transparent;
   color: var(--text-strong);
   border-color: var(--line-strong);
 }
-.btn-ghost:hover {
-  border-color: var(--paper);
+/* hover styles only where a real hover exists: on touch screens a tap must not leave a sticky hover state */
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover::before {
+    transform: scaleX(1);
+    transform-origin: left center;
+  }
+  .btn:hover .arrow {
+    transform: translateY(2px);
+  }
+  .btn-ghost:hover {
+    border-color: var(--paper);
+  }
+  .icon-btn:hover {
+    border-color: var(--paper);
+  }
+  .seg label:hover input:not(:checked) + span {
+    color: var(--text-strong);
+    background: rgb(248 242 239 / 0.06);
+  }
 }
 .btn-small {
   --h: 44px;
@@ -267,9 +279,9 @@ canvas {
 .btn:active {
   transform: translateY(1px);
 }
-.btn[disabled] {
-  cursor: default;
-  opacity: 0.7;
+.btn[disabled],
+.btn[aria-disabled='true'] {
+  cursor: progress;
 }
 .btn.joined {
   background: transparent;
@@ -334,9 +346,6 @@ canvas {
   font-size: 0.78rem;
   cursor: pointer;
   white-space: nowrap;
-}
-.icon-btn:hover {
-  border-color: var(--paper);
 }
 
 /* tags: LIVE = solid mono tag, SIM = outlined tag (build spec 2.2: one visual code everywhere) */
@@ -454,28 +463,23 @@ canvas {
     min-height: 44px;
   }
 }
-.seg label:hover input:not(:checked) + span {
-  color: var(--text-strong);
-  background: rgb(248 242 239 / 0.06);
-}
 
-/* section reveal: only when JS runs and motion is on (no-JS and motion-off show everything at once) */
-html.js[data-motion='on'] [data-reveal] {
+/* section reveal: only when JS runs, motion is on and the page module has attached its observers
+   (html.reveals). It fails open: without that class, or with boot.js's html.reveal-fail, everything shows. */
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) {
   opacity: 0;
   transform: translateY(28px);
+}
+html.js.reveals[data-motion='on'] [data-reveal].in {
   transition: opacity 900ms var(--ease-out), transform 1100ms var(--ease-out);
 }
-html.js[data-motion='on'] [data-reveal].in {
-  opacity: 1;
-  transform: none;
-}
-html.js[data-motion='on'] [data-reveal-delay='1'] {
+html.js.reveals[data-motion='on'] [data-reveal-delay='1'].in {
   transition-delay: 90ms;
 }
-html.js[data-motion='on'] [data-reveal-delay='2'] {
+html.js.reveals[data-motion='on'] [data-reveal-delay='2'].in {
   transition-delay: 180ms;
 }
-html.js[data-motion='on'] [data-reveal-delay='3'] {
+html.js.reveals[data-motion='on'] [data-reveal-delay='3'].in {
   transition-delay: 270ms;
 }
 /* words rise from masks */
@@ -510,22 +514,22 @@ html.js[data-motion='on'] [data-words] .rise > span {
   }
 }
 
-/* section headings: words rise from masks on entry; the kicker rule draws */
-html.js[data-motion='on'] [data-reveal] h2 .rise > span {
+/* section headings: words rise from masks on entry; the kicker rule draws (same fail-open condition) */
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) h2 .rise > span {
   transform: translateY(110%);
+}
+html.js.reveals[data-motion='on'] [data-reveal].in h2 .rise > span {
   transition: transform 900ms var(--ease-out);
   transition-delay: calc(120ms + var(--i, 0) * 45ms);
 }
-html.js[data-motion='on'] [data-reveal].in h2 .rise > span {
-  transform: none;
-}
-html.js[data-motion='on'] [data-reveal] .kicker::after {
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) .kicker::after {
   transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform 1.2s var(--ease-out) 250ms;
 }
-html.js[data-motion='on'] [data-reveal].in .kicker::after {
-  transform: none;
+html.js.reveals[data-motion='on'] [data-reveal] .kicker::after {
+  transform-origin: left center;
+}
+html.js.reveals[data-motion='on'] [data-reveal].in .kicker::after {
+  transition: transform 1.2s var(--ease-out) 250ms;
 }
 
 /* motion off (OS setting or the nav toggle): nothing animates, every state shows at once */

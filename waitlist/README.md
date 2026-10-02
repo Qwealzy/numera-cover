@@ -19,9 +19,10 @@ Testnet only. Not an offer. Nothing on the page is a quote.
 ```bash
 npm ci
 npm test               # node --test: waitlist handler, chain reads, build env, copy rules, contrast, grid parity,
-                       # tail-table hash guard, personal-data scan (src, public and dist)
+                       # tail-table hash guard, personal-data scan (src, public and dist), no faded text (opacity lint)
 npm run build          # dist/ (a dev build leaves the /privacy placeholders visible)
-npm run check:dist     # no inline scripts, no data:/blob:, only allowed origins, no explorer links
+npm run check:dist     # no inline scripts, no data:/blob:, only allowed origins, no explorer links,
+                       # no uncompiled :global( selector
 npm run size           # gzipped JS loaded before interaction (budget: target 60 KB, cap 200 KB)
 npm run licenses       # direct and transitive license report
 npm run local:db       # apply migrations/ to the local D1
@@ -54,15 +55,17 @@ These variables are read by `src/lib/buildenv.mjs`, which is copied unchanged fr
 |---|---|---|
 | BTC oracle price (hero entry, $ levels, Oracle panel) | LIVE, read in the browser | `oraclePx6(perp)` on the HyperCore price source in `deployments/testnet-v2.json` (`pools.hypercore.priceSource`; the BTC index comes from the same file). The MOCK price source is never read. |
 | Ledger: total, free, locked, covers, paused | LIVE, read in the browser | The MOCK v2 pool (`pools.mock.pool`), labelled "TESTNET DEMO POOL", "USDC (test tokens)" and "team test runs" |
-| Premium, touch chance, refusals in the hero | Illustrative: precomputed by the repo's own pricing code | `src/data/grid.json`, written by `scripts/gen-grid.py` with `engine/numera_engine/pricing.py` and `poolv2.py`. Volatility is a preset (32 / 40 / 50 %), not live. |
-| Liquidation and level distances | Formula | Isolated position, entry = spot, `mm = 1/(2·maxLev)`; the level sits 1 % of liq toward spot (`app/src/config.ts LEVEL_BUFFER`) |
+| Premium, touch chance, priced chance, refusals in the hero | Illustrative: precomputed by the repo's own pricing code | `src/data/grid.json`, written by `scripts/gen-grid.py` with `engine/numera_engine/pricing.py` and `poolv2.py`. Volatility is a preset (32 / 40 / 50 %), not live. The same numbers appear in the estimate strip on the stage, the quote card in S3 and the "your setup sits here" marker on the S4 table. |
+| Liquidation and level distances | Formula | Isolated position, entry = spot, first margin tier, `mm = 1/(2·maxLev)`; the level sits 1 % of liq toward spot (`app/src/config.ts LEVEL_BUFFER`). The page says so next to the readout, and shows the modelled $ levels in whole dollars. |
 | Hero price path | SIM | A random path drawn in the browser, labelled SIM. It is not market data. |
 | Wick lanes (S2) | Scripted | One scripted wick, labelled "Scripted path, not market data." |
 | Reservation toy (S5) | SIM | A toy pool, not the live pool. It shows % and blocks only. |
 | Recorded run (S6) | Static record | `deployments/testnet-v2.json` `e2e_F9_2026-10-02_3`. Verify any hash with `cast receipt`. |
 | Figures (">$19B", "≈6,300", "≈$1.76B", the grid table, the evidence lines) | Static, with the source named on the page | README Problem and Evidence; `docs/pitch/business-plan.md`; `engine/reports/calibration.md` |
 
-- Live reads run on load, then every 25 s, and only while the tab is visible.
+- Live reads run on load, then every 25 s, and only while the tab is visible. The endpoint that answered is
+  remembered for the page view, so a periodic read is just its `eth_call`s (no chain re-check each time); after
+  a failure there the endpoints are re-picked with the chain check, the failed one last.
 - A failed read shows "—". No number is ever filled in.
 - The page uses only the two testnet RPC origins and Turnstile; the CSP in `public/_headers` is unchanged from `site/`.
 
@@ -76,6 +79,10 @@ re-implemented in the browser. A cell is one combination of:
 - leverage from 2× to 40×;
 - duration 1h, 4h, 1d, 3d or 7d;
 - σ of 0.32, 0.40 or 0.50.
+
+Each cell also stores the priced probability `max(p·k, q)` (`pricing.priced_prob`) and whether the
+empirical tail floor `q` set it, so the readout can show why the premium is far above the raw model chance
+(10× long, 1d: model below 0.01 %, priced 2.03 % by the tail floor, $2.44 per $100 payout).
 
 The generator follows the order of `quote_api.quote()`:
 
@@ -110,18 +117,36 @@ three of:
 | `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Copied from `site/`. `chain.ts` adds the ledger and oracle reads below the original code. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |
 | `src/lib/pricing.ts`, `geometry.ts`, `lanes.ts`, `cascade.ts` | Pure modules shared by the build (static SVG fallback) and the browser |
-| `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the toy, live reads, the recorded run and the form |
+| `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the price-table marker (`price.ts`), the toy, live reads, the recorded run and the form |
+| `test/opacity.test.mjs` | Fails on any partial `opacity` in component or global CSS outside a short list of decorative selectors: a state is never shown by fading text |
 | `src/pages/privacy.astro` | The notice from `site/`, restyled. Only the Recipients sentence changed, so the version is now `privacy-2026-10-02-v2`, and `privacy-2026-10-02` is still accepted. |
 | `public/_headers`, `robots.txt`, `favicon-32.png`, `numera-mark-60.png` | Copied from `site/` (the CSP is unchanged) |
 | `public/boot.js` | Runs before paint. It sets the motion state and is an external file, because the CSP has no inline scripts. |
 | `public/grain.png` | Film grain in the paper colour, written by `scripts/gen-grain.mjs` |
 
+## The hero instrument in short
+
+- One setup is one cover, and a cover pays once (on chain it becomes Paid in the trigger transaction). A new
+  cover starts on Replay or on a control change. Touching again says "Already paid".
+- A setup the engine refuses (40×; 20× for 7 days) has no cover: the level is drawn dashed, the wallet tile
+  reads "no cover at these settings", and a pull pays nothing.
+- The verdict line describes what has happened, when it happens ("Watching…" until the scripted touch).
+- "I underwrite" turns the wallet tile into the pool tile: premium in, $100 reserved, $100 paid out on a touch.
+- Hovering a readout row lights its line or tile on the stage, and a pointer near a line lights its row.
+- On phones the intro starts when the stage is in view.
+
 ## Motion and accessibility
 
 - **Scheduler.** One rAF scheduler runs every loop. A loop runs only while it is on screen, the tab is visible and
   motion is on. `<html data-loops>` shows how many loops are running.
-- **Motion off.** Motion turns off when the OS asks for reduced motion, when the nav **Motion** toggle is switched off
-  (saved in `localStorage`, every access wrapped in try/catch) or when the hero **Pause** button is pressed.
+- **Motion off.** Motion turns off when the OS asks for reduced motion (also when that setting changes while the
+  page is open), when the nav **Motion** switch is turned off (saved in `localStorage`, every access wrapped in
+  try/catch) or when the hero **Pause motion** button is pressed. The switch has the fixed name "Motion" and
+  `aria-pressed`; the hero button's label says what a press does ("Pause motion" / "Resume motion").
+- **Reveals fail open.** Section blocks are hidden for their entry reveal only after the page module has attached
+  its observers (`html.reveals`). If it never does, `boot.js` adds `html.reveal-fail` after 3.5 s and everything
+  shows. A block reveals at 12 % visible or when a quarter of the viewport shows it, so blocks taller than the
+  viewport (400 % zoom) still appear.
 - **The reduced path.** It has the same text, and every state shows at once:
   - the hero shows the end frame of the staged wick;
   - pulling the wick redraws instantly;
@@ -130,8 +155,10 @@ three of:
   `role="slider"`. Arrow keys pull the wick and stop exactly on the level, then just past liquidation.
 - **Without JS:**
   - the static SVG hero and its readout show;
-  - all six step panels show;
+  - the six parts are plain sections, each with its own heading (the tablist roles are added by script);
   - the form is replaced by the noscript line.
+- **Without a 2D canvas** the SVG redraws itself for every setup from the same geometry module, the pull hints
+  are hidden, and S3 drops its empty stage.
 
 ## Dependencies
 
@@ -165,6 +192,21 @@ Transitive summary (`npm run licenses`, 310 packages):
 | 1 | MIT OR CC0-1.0 |
 | 1 | no license field |
 
+### `npm audit`
+
+`npm audit` reports astro (critical), sharp (high) and esbuild (low). The only fix it offers is astro 7, a
+breaking upgrade; 5.18.2 is the newest astro 5 release, and `site/` uses the same line. None of the advisories
+reaches this build:
+
+- **astro** (XSS through `define:vars`, spread attributes, slot names and view-transition values; server-island
+  replay; a prerendered error-page SSRF; AVIF optimisation; base-path stripping): the site is static output with
+  no server islands, no SSR adapter, no `define:vars`, no view transitions, no image optimisation and no
+  configured base. Every value rendered at build time comes from this repository, never from a visitor.
+- **sharp / libvips / libheif**: sharp is an optional install of astro and wrangler; this build processes no
+  images, and nothing from sharp ships.
+- **esbuild** (a file read through the dev server on Windows): the dev and local servers bind to `127.0.0.1`
+  only, and production serves static files.
+
 These packages fall outside the MIT / ISC / Apache-2.0 / BSD / 0BSD / OFL / BlueOak / Unlicense / CC0 allowlist,
 for the architect to see:
 
@@ -193,6 +235,8 @@ for the architect to see:
 2. **Pages project and D1 database.** `wrangler.toml` names `numera-cover` and `numera-waitlist`, as `site/` does.
    If both sites write the same database, `CONSENT_VERSIONS` already lists both notice versions.
 3. **More perps.** The estimator is BTC-only (max leverage 40×, from `docs/research/hyperliquid.md`). ETH, SOL and
-   HYPE would need their max leverage from a source the architect accepts, plus grid rows for each value.
+   HYPE would need their max leverage from a source the architect accepts, plus grid rows for each value. The
+   page reads no perp metadata; the privacy notice's Recipients sentence says exactly what is read (the pool
+   statistics and the BTC oracle price).
 
 License: AGPL-3.0-only (repo). Fonts: SIL OFL 1.1.

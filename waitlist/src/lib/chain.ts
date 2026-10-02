@@ -105,9 +105,9 @@ export type Ledger = {
 };
 const EMPTY_LEDGER: Ledger = { totalAssets: null, freeAssets: null, lockedAssets: null, coverCount: null, paused: null };
 
-/** Picks the first endpoint that reports `chainId`; null when none does. */
-async function pickRpc(rpcs: readonly string[], chainId: number, fetchFn: Fetch, timeoutMs: number, start = 0) {
-  for (let i = start; i < rpcs.length; i++) {
+/** Picks the first endpoint (in `order`) that reports `chainId`; -1 when none does. */
+async function pickRpc(rpcs: readonly string[], chainId: number, fetchFn: Fetch, timeoutMs: number, order: number[]) {
+  for (const i of order) {
     try {
       const id = await rpc(rpcs[i], 'eth_chainId', [], fetchFn, timeoutMs);
       if (Number.parseInt(id, 16) === chainId) return i;
@@ -118,6 +118,48 @@ async function pickRpc(rpcs: readonly string[], chainId: number, fetchFn: Fetch,
   return -1;
 }
 
+// The endpoint that last answered for this chain is remembered for the page view (per fetch function), so a
+// periodic read is just its eth_calls: no chain re-check each time, and a hanging endpoint costs one timeout,
+// not one per read. After any failure there the endpoints are re-picked (with the chain check), the failed
+// one last.
+const verifiedBy = new WeakMap<Fetch, Map<string, number>>();
+function remembered(fetchFn: Fetch): Map<string, number> {
+  let m = verifiedBy.get(fetchFn);
+  if (!m) verifiedBy.set(fetchFn, (m = new Map()));
+  return m;
+}
+
+/** Runs `read` on the remembered endpoint, else on each endpoint that passes the chain check; null if none. */
+async function withEndpoint<T>(
+  rpcs: readonly string[],
+  chainId: number,
+  fetchFn: Fetch,
+  timeoutMs: number,
+  read: (url: string) => Promise<T | null>,
+): Promise<T | null> {
+  const mem = remembered(fetchFn);
+  const key = `${chainId} ${rpcs.join(' ')}`;
+  const last = mem.get(key);
+  let order = rpcs.map((_, i) => i);
+  if (last !== undefined) {
+    const v = await read(rpcs[last]).catch(() => null);
+    if (v !== null) return v;
+    mem.delete(key);
+    order = order.filter((i) => i !== last).concat(last);
+  }
+  while (order.length) {
+    const i = await pickRpc(rpcs, chainId, fetchFn, timeoutMs, order);
+    if (i < 0) break;
+    const v = await read(rpcs[i]).catch(() => null);
+    if (v !== null) {
+      mem.set(key, i);
+      return v;
+    }
+    order = order.slice(order.indexOf(i) + 1);
+  }
+  return null;
+}
+
 /** Reads the five ledger fields of `pool`, failing over endpoint by endpoint (every field null on total failure). */
 export async function readLedger(
   rpcs: readonly string[],
@@ -126,35 +168,25 @@ export async function readLedger(
   fetchFn: Fetch = fetch,
   timeoutMs = 6000,
 ): Promise<Ledger> {
-  let i = 0;
-  while (i < rpcs.length) {
-    i = await pickRpc(rpcs, chainId, fetchFn, timeoutMs, i);
-    if (i < 0) break;
-    const url = rpcs[i];
-    try {
-      const call = (data: string) =>
-        rpc(url, 'eth_call', [{ to: pool, data }, 'latest'], fetchFn, timeoutMs).catch(() => '');
-      const [t, f, l, c, p] = await Promise.all([
-        call(SEL2.totalAssets),
-        call(SEL2.freeAssets),
-        call(SEL2.lockedAssets),
-        call(SEL2.coverCount),
-        call(SEL2.paused),
-      ]);
-      const out: Ledger = {
-        totalAssets: decodeUint(t),
-        freeAssets: decodeUint(f),
-        lockedAssets: decodeUint(l),
-        coverCount: decodeUint(c),
-        paused: decodeBool(p),
-      };
-      if (Object.values(out).some((v) => v !== null)) return out;
-    } catch {
-      // next endpoint
-    }
-    i++;
-  }
-  return { ...EMPTY_LEDGER };
+  const out = await withEndpoint(rpcs, chainId, fetchFn, timeoutMs, async (url) => {
+    const call = (data: string) => rpc(url, 'eth_call', [{ to: pool, data }, 'latest'], fetchFn, timeoutMs).catch(() => '');
+    const [t, f, l, c, p] = await Promise.all([
+      call(SEL2.totalAssets),
+      call(SEL2.freeAssets),
+      call(SEL2.lockedAssets),
+      call(SEL2.coverCount),
+      call(SEL2.paused),
+    ]);
+    const o: Ledger = {
+      totalAssets: decodeUint(t),
+      freeAssets: decodeUint(f),
+      lockedAssets: decodeUint(l),
+      coverCount: decodeUint(c),
+      paused: decodeBool(p),
+    };
+    return Object.values(o).some((v) => v !== null) ? o : null;
+  });
+  return out ?? { ...EMPTY_LEDGER };
 }
 
 /** oraclePx6(perp) on a price source -> px6 (USD × 1e6) or null. Never pass the MOCK price source. */
@@ -166,20 +198,11 @@ export async function readOraclePx6(
   fetchFn: Fetch = fetch,
   timeoutMs = 6000,
 ): Promise<bigint | null> {
-  let i = 0;
-  while (i < rpcs.length) {
-    i = await pickRpc(rpcs, chainId, fetchFn, timeoutMs, i);
-    if (i < 0) break;
-    try {
-      const r = await rpc(rpcs[i], 'eth_call', [{ to: priceSource, data: callData(SEL2.oraclePx6, perpIndex) }, 'latest'], fetchFn, timeoutMs);
-      const v = decodeUint(r);
-      if (v !== null && v > 0n && v < 2n ** 64n) return v;
-    } catch {
-      // next endpoint
-    }
-    i++;
-  }
-  return null;
+  return withEndpoint(rpcs, chainId, fetchFn, timeoutMs, async (url) => {
+    const r = await rpc(url, 'eth_call', [{ to: priceSource, data: callData(SEL2.oraclePx6, perpIndex) }, 'latest'], fetchFn, timeoutMs);
+    const v = decodeUint(r);
+    return v !== null && v > 0n && v < 2n ** 64n ? v : null;
+  });
 }
 
 /** Date -> "19:28:03" in UTC (the LIVE tags show the read time). */

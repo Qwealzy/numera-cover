@@ -221,12 +221,40 @@ const LH = 132;
     .top {
       grid-template-columns: minmax(0, 1fr);
     }
+    /* phones: three compact lanes and the scrubber fit one screen, so the three outcomes are seen together */
+    .lanes {
+      gap: 0.35rem;
+      padding-top: 1rem;
+    }
     .lane {
       grid-template-columns: minmax(0, 1fr);
-      gap: 0.4rem;
+      gap: 0.2rem;
+      padding-block: 0.3rem;
+    }
+    .lane-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.1rem 0.6rem;
+    }
+    .lane-head h3 {
+      font-size: 1rem;
+    }
+    .lane-head p {
+      font-size: 0.82rem;
+      line-height: 1.4;
     }
     .lane-svg {
-      height: 120px;
+      height: 92px;
+    }
+    /* the scrubber stays in reach while any lane is on screen */
+    .scrub {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      padding-block: 0.5rem;
+      background: rgb(12 21 32 / 0.94);
+      border-top: 1px solid var(--line);
     }
   }
 </style>

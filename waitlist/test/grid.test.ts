@@ -78,6 +78,34 @@ test('25x long: 2.78 / 1.81; 1h $0.75, 1d $46.29, 7d refused prob_too_high', () 
   assert.equal(estimate(s('long', 25, D7)).refusal, 'prob_too_high');
 });
 
+test('priced chance: max(p*k, q) from the engine, and premium = ceil(payout * priced * 1.2) (or the floor)', () => {
+  // 10x long 1d sigma 40: model p 0.0079 %, priced 2.03 % by the tail floor; $2.43 per $100 payout
+  const e = estimate(s('long', 10, D1));
+  near(e.priced * 100, 2.03, 0.005);
+  assert.equal(e.pricedByFloor, true);
+  assert.ok(e.p < 0.0001);
+  for (const side of ['long', 'short'] as const)
+    for (let lev = 2; lev <= 40; lev++)
+      for (const dur of DURATIONS)
+        for (const sg of SIGMAS) {
+          const c = estimate(s(side, lev, dur, sg));
+          if (c.refusal === 'level_too_close') {
+            assert.equal(c.priced, 0);
+            continue;
+          }
+          assert.ok(c.priced >= c.p - 1e-12, `${side} ${lev} ${dur} ${sg}: priced below model`);
+          if (c.refusal === 'prob_too_high') {
+            assert.ok(c.priced > 0.5);
+            continue;
+          }
+          assert.ok(c.priced <= 0.5);
+          // pp carries 4 significant digits, so allow that much relative error
+          const model = Math.ceil(1e8 * c.priced * 1.2);
+          const want = Math.max(model, 200_000);
+          assert.ok(Math.abs(c.premium! - want) <= Math.max(2, want * 6e-4), `${side} ${lev} ${dur} ${sg}: ${c.premium} vs ${want}`);
+        }
+});
+
 test('40x long: level_too_close for every duration and volatility (testnet minimum 0.56 %)', () => {
   for (const dur of DURATIONS) for (const sg of SIGMAS) assert.equal(estimate(s('long', 40, dur, sg)).refusal, 'level_too_close');
 });

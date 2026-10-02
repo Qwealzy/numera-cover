@@ -8,6 +8,11 @@
   try { saved = window.localStorage.getItem('numera-motion'); } catch (e) { saved = null; }
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { reduce = false; }
   d.setAttribute('data-motion', reduce ? 'off' : saved === 'off' ? 'off' : 'on');
-  // If the page script never boots (blocked, failed), show everything instead of leaving reveals hidden.
-  window.setTimeout(function () { if (!d.classList.contains('booted')) d.classList.remove('js'); }, 3500);
+  // Fail open. Section blocks are hidden for their reveal only after the page module has attached its
+  // observers (html.reveals). If that module never gets there (blocked, failed, very slow), show everything;
+  // if even the shared nav module never booted, drop the JS-only styling altogether.
+  window.setTimeout(function () {
+    if (!d.classList.contains('booted')) d.classList.remove('js');
+    if (!d.classList.contains('reveals')) d.classList.add('reveal-fail');
+  }, 3500);
 })();

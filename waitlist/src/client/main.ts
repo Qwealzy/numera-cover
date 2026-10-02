@@ -10,8 +10,10 @@ import { mountToy } from './toy.ts';
 import { startLive, mountLedger } from './live.ts';
 import { mountProof } from './proof.ts';
 import { mountJoin } from './join.ts';
+import { mountPriceYou } from './price.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel);
+const html = document.documentElement;
 
 function guarded(name: string, f: () => void) {
   try {
@@ -23,33 +25,41 @@ function guarded(name: string, f: () => void) {
 }
 
 export function boot(): void {
-  // section reveals: once, on entry (the hero headline rises by CSS on load)
-  // section headings: wrap each word for the mask rise (text and spacing unchanged)
-  if (motionOn())
-    for (const h of document.querySelectorAll<HTMLElement>('[data-reveal] h2')) {
-      const words = (h.textContent ?? '').trim().split(/\s+/);
-      h.textContent = '';
-      words.forEach((w, i) => {
-        const outer = document.createElement('span');
-        outer.className = 'rise';
-        const inner = document.createElement('span');
-        inner.style.setProperty('--i', String(i));
-        inner.textContent = w;
-        outer.append(inner);
-        h.append(outer, i < words.length - 1 ? ' ' : '');
-      });
+  // section reveals: once, on entry (the hero headline rises by CSS on load). Blocks are hidden only once
+  // this module has attached its observers (html.reveals); if it never gets here, boot.js shows everything.
+  guarded('reveals', () => {
+    // section headings: wrap each word for the mask rise (text and spacing unchanged)
+    if (motionOn())
+      for (const h of document.querySelectorAll<HTMLElement>('[data-reveal] h2')) {
+        const words = (h.textContent ?? '').trim().split(/\s+/);
+        h.textContent = '';
+        words.forEach((w, i) => {
+          const outer = document.createElement('span');
+          outer.className = 'rise';
+          const inner = document.createElement('span');
+          inner.style.setProperty('--i', String(i));
+          inner.textContent = w;
+          outer.append(inner);
+          h.append(outer, i < words.length - 1 ? ' ' : '');
+        });
+      }
+    const vh = window.innerHeight;
+    for (const el of document.querySelectorAll<HTMLElement>('[data-reveal]')) {
+      const r = el.getBoundingClientRect();
+      // already on screen when this runs (it was painted visible): keep it, never hide what was seen
+      if (!motionOn() || (r.top < vh && r.bottom > 0)) el.classList.add('in');
+      else onceVisible(el, () => el.classList.add('in'), 0.12);
     }
-  for (const el of document.querySelectorAll<HTMLElement>('[data-reveal]')) {
-    if (!motionOn()) el.classList.add('in');
-    else onceVisible(el, () => el.classList.add('in'), 0.2);
-  }
-  onMotion((m) => {
-    if (!m) for (const el of document.querySelectorAll('[data-reveal]')) el.classList.add('in');
+    onMotion((m) => {
+      if (!m) for (const el of document.querySelectorAll('[data-reveal]')) el.classList.add('in');
+    });
+    html.classList.add('reveals');
   });
 
+  const hero = $('[data-hero]');
   const inst = $('[data-instrument]');
+  if (hero) guarded('readout', () => mountReadout(hero));
   if (inst) {
-    guarded('readout', () => mountReadout(inst));
     guarded('instrument', () => mountInstrument(inst));
     const d = inst.dataset;
     const pool = $('[data-ledger-root]')?.dataset.pool ?? '';
@@ -69,6 +79,8 @@ export function boot(): void {
   if (lanes) guarded('lanes', () => mountLanes(lanes));
   const parts = $('[data-parts]');
   if (parts) guarded('steps', () => mountSteps(parts));
+  const price = $('#price');
+  if (price) guarded('price', () => mountPriceYou(price));
   const toy = $('[data-toy]');
   if (toy) guarded('toy', () => mountToy(toy));
   const proof = $('#proof');
@@ -78,22 +90,23 @@ export function boot(): void {
   let join: ReturnType<typeof mountJoin> | null = null;
   if (joinSection) guarded('join', () => (join = mountJoin(joinSection)));
 
-  // every Join CTA goes to the one form: scroll, focus the handle, nudge the ticket
+  // every Join CTA goes to the one form: scroll, focus the handle, nudge the ticket. On narrow screens the
+  // door toggle stays in view above the ticket, so the handle field lands well inside the first screen.
   for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-join]')) {
     a.addEventListener('click', (e) => {
       if (!join || !joinSection) return;
       e.preventDefault();
-      const target = window.innerWidth > 900 ? joinSection.querySelector('[data-ticket]') ?? joinSection : joinSection;
+      const narrow = window.innerWidth <= 900;
+      const target = narrow ? (joinSection.querySelector('[data-doors]') ?? joinSection) : (joinSection.querySelector('[data-ticket]') ?? joinSection);
       join.focusForm(); // focus first (without scrolling), then scroll: a focus call can cut a smooth scroll short
       target.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
     });
   }
   on('joined', (s) => {
     if (!s.joined) return;
-    for (const c of document.querySelectorAll<HTMLElement>('.join-cta')) {
+    for (const c of document.querySelectorAll<HTMLElement>('.join-cta:not([data-submit])')) {
       c.classList.add('joined');
-      const l = c.querySelector('.cta-label');
-      if (l) l.textContent = N.joined;
+      for (const l of c.querySelectorAll('.cta-label, .cta-short')) l.textContent = N.joined;
     }
   });
 }
