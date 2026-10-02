@@ -68,11 +68,21 @@ def test_nonce_reuses_a_still_pending_tx_and_moves_on_after_it_is_mined():
 
 
 class FakeNode:
-    def __init__(self, latest=7, pending=7, base=BASE):
+    def __init__(self, latest=7, pending=7, base=BASE, batches=True):
         self.latest, self.pending, self.base, self.raw = latest, pending, base, []
+        self.batches, self.posts, self.methods = batches, 0, []
 
     def __call__(self, url, payload, timeout):
+        self.posts += 1
+        if isinstance(payload, list):
+            if not self.batches:
+                return 200, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "no batch"}}
+            return 200, [self.one(p) for p in payload]
+        return 200, self.one(payload)
+
+    def one(self, payload):
         m, p = payload["method"], payload["params"]
+        self.methods.append(m)
         res = {
             "eth_chainId": "0x3e6",
             "eth_getBlockByNumber": {"baseFeePerGas": hex(self.base), "timestamp": "0x1", "number": "0x1"},
@@ -85,7 +95,7 @@ class FakeNode:
             self.raw.append(p[0])
             res = "0x" + f"{len(self.raw):064x}"
         assert res is not None, m
-        return 200, {"jsonrpc": "2.0", "id": payload["id"], "result": res}
+        return {"jsonrpc": "2.0", "id": payload["id"], "result": res}
 
 
 def decode(raw_hex):
@@ -114,6 +124,48 @@ def test_sender_caps_fees_and_replaces_a_pending_tx_on_the_same_nonce():
     assert len(node.raw) == 3  # nothing sent above the ceiling
 
 
+def test_sender_fresh_trigger_is_two_round_trips_with_the_polled_base_fee():
+    from numera_engine.keeper import Action, calldata
+
+    node = FakeNode(latest=7, pending=9)
+    rpc = FailoverRpc(["https://fake/evm"], post=node)
+    s = Sender(rpc, ANVIL_KEY1, max_fee_wei=CAP)  # eth_chainId once, cached
+    node.posts, node.methods = 0, []
+    tx = s.send(POOL_A, Action("trigger", 3, "t"), base_fee=BASE)
+    assert node.posts == 2 and s.last_requests == 2  # one batch + eth_sendRawTransaction
+    assert node.methods == ["eth_getTransactionCount", "eth_estimateGas", "eth_maxPriorityFeePerGas",
+                            "eth_sendRawTransaction"]  # fmt: skip
+    assert decode(node.raw[0]) == (9, 2 * BASE, 0) and tx.gas == 72_000  # 60k estimate + 20 %
+    raw = TypedTransaction.from_bytes(HexBytes(node.raw[0])).as_dict()
+    assert "0x" + bytes(raw["data"]).hex() == calldata(Action("trigger", 3, "t")) and raw["chainId"] == 998
+    node.posts, node.methods = 0, []
+    s.send(POOL_A, Action("trigger", 4, "t"))  # no base fee given; tip still cached
+    assert node.posts == 2 and node.methods == ["eth_getTransactionCount", "eth_estimateGas",
+                                                "eth_getBlockByNumber", "eth_sendRawTransaction"]  # fmt: skip
+
+
+def test_sender_works_on_a_node_without_batches_and_never_sends_a_reverting_trigger():
+    from numera_engine.keeper import Action
+
+    node = FakeNode(latest=7, pending=7, batches=False)
+    s = Sender(FailoverRpc(["https://fake/evm"], post=node), ANVIL_KEY1, max_fee_wei=CAP)
+    s.send(POOL_A, Action("trigger", 1, "t"), base_fee=BASE)
+    assert decode(node.raw[0]) == (7, 2 * BASE, 0)
+
+    class Reverting(FakeNode):
+        def one(self, payload):
+            if payload["method"] == "eth_estimateGas":
+                err = {"code": 3, "message": "execution reverted: NotBreached"}
+                return {"jsonrpc": "2.0", "id": payload["id"], "error": err}
+            return super().one(payload)
+
+    node = Reverting()
+    s = Sender(FailoverRpc(["https://fake/evm"], post=node), ANVIL_KEY1, max_fee_wei=CAP)
+    with pytest.raises(RuntimeError, match="would revert"):
+        s.send(POOL_A, Action("trigger", 1, "t"), base_fee=BASE)
+    assert node.raw == []
+
+
 def test_sender_refuses_mainnet():
     def post(url, payload, timeout):
         return 200, {"jsonrpc": "2.0", "id": 1, "result": "0x3e7"}
@@ -134,6 +186,9 @@ class ChainWithBalance(FakeChain):
         if payload["method"] == "eth_getBalance":
             self.methods.append("eth_getBalance")
             return 200, {"result": hex(self.balance)}
+        if payload["method"] == "eth_getTransactionReceipt":  # the keeper's timing log after a cover is final
+            self.methods.append("eth_getTransactionReceipt")
+            return 200, {"result": {"blockNumber": "0x10", "status": "0x1"}}
         return super().__call__(url, payload, timeout)
 
 
@@ -149,7 +204,7 @@ class FakeSender:
     def __init__(self):
         self.calls = []
 
-    def send(self, pool, action, prev=None):
+    def send(self, pool, action, prev=None, base_fee=None):
         self.calls.append((pool, action.cover_id, prev))
         return SentTx(f"0x{len(self.calls):064x}", 100 + action.cover_id, 2 * BASE, 0)
 
@@ -198,6 +253,7 @@ def test_resend_after_30s_passes_the_previous_tx_for_replace_by_fee():
     chain.covers[POOL_A][1][8] = 2  # Paid
     k.poll()
     assert k.txs[POOL_A] == {}
+    assert chain.methods.count("eth_getTransactionReceipt") == 1  # timing log: where our tx landed, once
 
 
 class CappedSender(FakeSender):
@@ -205,7 +261,7 @@ class CappedSender(FakeSender):
         super().__init__()
         self.capped = True
 
-    def send(self, pool, action, prev=None):
+    def send(self, pool, action, prev=None, base_fee=None):
         if self.capped:
             self.calls.append((pool, action.cover_id, prev))
             raise GasCapError("base fee above the cap")

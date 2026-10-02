@@ -19,6 +19,17 @@ Tx hygiene (audit L4): EIP-1559 fees under a maxFeePerGas ceiling (``--max-fee-g
 same nonce with bumped fees (RBF) instead of queueing behind it, and the keeper's HYPE balance is logged at
 startup and every ``--balance-every`` seconds, with a WARNING below ``--min-balance``.
 
+Latency (F9: trigger within 5 s of a breach). Polling is adaptive: every ``--poll`` s (3), and every
+``--fast-poll`` s (1) while an active cover's oracle price is within ``--near-pct`` (1 %) of its level, for at
+most ``--fast-max-min`` (10) minutes per approach. Request budget: normal mode is one ``eth_call`` a poll
+(20/min at 3 s); fast mode is one a second (60/min) plus, with several RPCs, one ``eth_blockNumber`` per
+other healthy RPC every 5 s (12/min each), which lets a decision read skip an RPC more than
+``--max-head-lag`` (2) blocks behind. A poll reads, then sends at once; the backfill, receipts, log scan,
+balance check and probes come after the sends. A send is two round-trips (Sender docstring). ``--timing``
+logs every RPC's head next to the decision read's block each poll (debug; one request per RPC per poll).
+Timing lines: ``breach seen`` (block, block ts, wall, lag), ``sent`` (wall, nonce, fees, send ms, seen->sent),
+``final`` (receipt block, blocks after the breach was seen).
+
 CoverPool v2 pools (ARCHITECTURE §5.10): the trigger/expire loop is unchanged. A pool is v2 when the
 deployments file says so or ``minPremiumBps()`` answers at startup; for those the keeper logs ``ALERT``
 lines (alerts.py): breaker tripped, sale cap reached, floor-priced sale, deferred payout, queued and
@@ -38,6 +49,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
+from eth_abi import encode
+
 from . import multicall as mc
 from .alerts import (
     DEFAULT_HEAD_LAG_BLOCKS,
@@ -47,7 +60,13 @@ from .alerts import (
     PoolWatch,
     emit,
 )
-from .rpc import FailoverRpc, host, resolve_rpcs  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
+from .rpc import (  # noqa: F401 - resolve_rpcs re-exported (tests, CLI)
+    DEFAULT_MAX_HEAD_LAG,
+    FailoverRpc,
+    RpcError,
+    host,
+    resolve_rpcs,
+)
 
 log = logging.getLogger("numera.keeper")
 
@@ -64,6 +83,17 @@ DEFAULT_MAX_FEE_GWEI = 10.0
 DEFAULT_MAX_TX_PER_POLL = 5  # txs sent per poll at most (triggers first); the rest go next poll
 DEFAULT_MIN_BALANCE_HYPE = 0.01  # warn below this keeper balance (~16 triggers at the fee ceiling)
 DEFAULT_BALANCE_EVERY_S = 600.0  # balance re-checked this often (and at startup)
+TIP_TTL_S = 300.0  # eth_maxPriorityFeePerGas cached this long (HyperEVM answers 0)
+GAS_HEADROOM_DIV = 5  # gas limit = estimate + estimate / 5 (the state can change between estimate and block)
+# Adaptive polling (F9: trigger within 5 s of a breach). A cover whose oracle price is within NEAR_PCT of its
+# level (or past it) switches polling to FAST_POLL_S; each approach may keep fast mode on for FAST_MAX_S at
+# most (request budget), until the price leaves the band and comes back.
+DEFAULT_POLL_S = 3.0
+DEFAULT_FAST_POLL_S = 1.0
+DEFAULT_NEAR_PCT = 1.0
+DEFAULT_FAST_MAX_MIN = 10.0
+HEAD_PROBE_EVERY_S = 5.0  # fast mode: eth_blockNumber of the other healthy endpoints this often (lag check)
+PPM = 1_000_000
 
 
 class Status(IntEnum):  # mirrors `enum Status { None, Active, Paid, Expired }`
@@ -192,6 +222,7 @@ class SentTx:
     nonce: int
     max_fee: int  # wei per gas
     tip: int  # maxPriorityFeePerGas, wei per gas
+    gas: int = 0  # gas limit (0 when unknown)
 
 
 class GasCapError(RuntimeError):
@@ -255,23 +286,27 @@ def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
 
 # -- chain I/O (thin) ------------------------------------------------------------------------------
 
-POOL_ABI: list[dict[str, Any]] = [
-    {"type": "function", "name": "trigger", "stateMutability": "nonpayable",
-     "inputs": [{"name": "coverId", "type": "uint256"}], "outputs": []},
-    {"type": "function", "name": "expire", "stateMutability": "nonpayable",
-     "inputs": [{"name": "coverId", "type": "uint256"}], "outputs": []},
-]  # fmt: skip
+
+def calldata(action: Action) -> str:
+    """``trigger(uint256)`` / ``expire(uint256)`` calldata (0x-hex)."""
+    return "0x" + (mc.selector(f"{action.kind}(uint256)") + encode(["uint256"], [action.cover_id])).hex()
 
 
 class Sender:
-    """Builds, signs and sends trigger/expire from KEEPER_KEY through the failover RPC (web3 for building)."""
+    """Builds, signs and sends trigger/expire from KEEPER_KEY through the failover RPC.
+
+    Round-trips per send (latency, F9 "trigger within 5 s"): one JSON-RPC batch with the pending nonce and
+    ``eth_estimateGas`` (plus the latest nonce when replacing, the tip when its cache is stale, and the latest
+    block only when the caller has no base fee), then ``eth_sendRawTransaction``: 2 round-trips. Cached:
+    chainId (read once here), the tip (``TIP_TTL_S``; HyperEVM answers 0). The keeper passes the base fee
+    its decision multicall read in the same poll (``Multicall3.getBasefee()``). The nonce is still read per
+    send, so ``choose_nonce`` sees the node's real pending/latest counts (another tx from the same key, e.g.
+    a guardian action, never collides)."""
 
     def __init__(self, rpc: FailoverRpc, private_key: str,
-                 max_fee_wei: int = int(DEFAULT_MAX_FEE_GWEI * GWEI)) -> None:  # fmt: skip
+                 max_fee_wei: int = int(DEFAULT_MAX_FEE_GWEI * GWEI),
+                 clock: Callable[[], float] = time.monotonic) -> None:  # fmt: skip
         from eth_account import Account
-        from web3 import Web3
-
-        from .rpc import failover_provider
 
         chain_id = int(rpc.call("eth_chainId"), 16)
         if chain_id == MAINNET_CHAIN_ID:
@@ -279,50 +314,66 @@ class Sender:
         if max_fee_wei <= 0:
             raise ValueError("max_fee_wei must be > 0")
         self.rpc = rpc
-        self.w3 = Web3(failover_provider(rpc))
         self.account = Account.from_key(private_key)
         self.chain_id = chain_id
         self.max_fee_wei = max_fee_wei
+        self.clock = clock
+        self._tip: int | None = None
+        self._tip_at = 0.0
+        self.last_requests = 0  # HTTP requests the last send() made (timing log)
 
     @property
     def address(self) -> str:
         return self.account.address
 
-    def _fee_inputs(self) -> tuple[int, int]:
-        blk = self.rpc.call("eth_getBlockByNumber", ["latest", False])
-        base = int(blk.get("baseFeePerGas") or self.rpc.call("eth_gasPrice"), 16)
-        try:
-            tip = int(self.rpc.call("eth_maxPriorityFeePerGas"), 16)
-        except Exception:  # noqa: BLE001 - not every node serves it; HyperEVM answers 0
-            tip = 0
-        return base, tip
-
-    def send(self, pool: str, action: Action, prev: SentTx | None = None) -> SentTx:
+    def send(self, pool: str, action: Action, prev: SentTx | None = None,
+             base_fee: int | None = None) -> SentTx:  # fmt: skip
         """Sign and send ``action``. With ``prev`` (our earlier tx for the same cover) still pending, the
-        same nonce is reused with bumped fees (replace-by-fee); fees never exceed ``max_fee_wei``."""
-        from web3 import Web3
+        same nonce is reused with bumped fees (replace-by-fee); fees never exceed ``max_fee_wei``.
+        ``base_fee``: the latest block's base fee if the caller already read it (saves a request)."""
+        from eth_utils import to_checksum_address
 
-        addr = self.account.address
-        latest = int(self.rpc.call("eth_getTransactionCount", [addr, "latest"]), 16)
-        pending = int(self.rpc.call("eth_getTransactionCount", [addr, "pending"]), 16)
+        r0 = self.rpc.requests
+        addr, to, data = self.account.address, to_checksum_address(pool), calldata(action)
+        calls: dict[str, tuple[str, list[Any]]] = {
+            "pending": ("eth_getTransactionCount", [addr, "pending"]),
+            "gas": ("eth_estimateGas", [{"from": addr, "to": to, "data": data}]),
+        }
+        if prev is not None:
+            calls["latest"] = ("eth_getTransactionCount", [addr, "latest"])
+        if self._tip is None or self.clock() - self._tip_at >= TIP_TTL_S:
+            calls["tip"] = ("eth_maxPriorityFeePerGas", [])
+        if base_fee is None:
+            calls["block"] = ("eth_getBlockByNumber", ["latest", False])
+        res = dict(zip(calls, self.rpc.batch(list(calls.values())), strict=True))
+        for k in ("pending", "latest", "block"):
+            if isinstance(res.get(k), RpcError):
+                raise res[k]
+        if isinstance(res["gas"], RpcError):  # e.g. the price moved back: trigger would revert
+            raise RuntimeError(f"{action.kind}({action.cover_id}) would revert: {res['gas']}")
+        if "tip" in res:  # not every node serves it; HyperEVM answers 0
+            self._tip = 0 if isinstance(res["tip"], RpcError) else int(res["tip"], 16)
+            self._tip_at = self.clock()
+        if base_fee is None:
+            blk = res["block"] or {}
+            base_fee = int(blk.get("baseFeePerGas") or self.rpc.call("eth_gasPrice"), 16)
+        pending = int(res["pending"], 16)
+        # with no previous tx choose_nonce returns `pending` whatever `latest` is, so it is not read then
+        latest = int(res["latest"], 16) if prev is not None else pending
         nonce = choose_nonce(latest, pending, prev)
         replacing = prev if prev is not None and nonce == prev.nonce else None
-        base, tip = self._fee_inputs()
-        max_fee, tip = choose_fees(base, tip, self.max_fee_wei, replacing)
-        c = self.w3.eth.contract(address=Web3.to_checksum_address(pool), abi=POOL_ABI)
-        fn = getattr(c.functions, action.kind)(action.cover_id)
-        tx = fn.build_transaction({
-            "from": addr,
-            "nonce": nonce,
-            "chainId": self.chain_id,
-            "maxFeePerGas": max_fee,
-            "maxPriorityFeePerGas": tip,
-        })  # fmt: skip
+        assert self._tip is not None
+        max_fee, tip = choose_fees(int(base_fee), self._tip, self.max_fee_wei, replacing)
+        est = int(res["gas"], 16)
+        tx = {"type": 2, "chainId": self.chain_id, "nonce": nonce, "to": to, "data": data, "value": 0,
+              "gas": est + est // GAS_HEADROOM_DIV, "maxFeePerGas": max_fee,
+              "maxPriorityFeePerGas": tip}  # fmt: skip
         signed = self.account.sign_transaction(tx)
-        h = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        h = self.rpc.call("eth_sendRawTransaction", ["0x" + bytes(signed.raw_transaction).hex()])
+        self.last_requests = self.rpc.requests - r0
         if replacing:
             log.info("[keeper] replacing %s (nonce %d) with maxFee %d wei", replacing.hash, nonce, max_fee)
-        return SentTx("0x" + bytes(h).hex().removeprefix("0x"), nonce, max_fee, tip)
+        return SentTx("0x" + str(h).removeprefix("0x"), nonce, max_fee, tip, int(tx["gas"]))
 
 
 class Keeper:
@@ -344,9 +395,31 @@ class Keeper:
         alert_logs_every_s: float = DEFAULT_LOG_EVERY_S,
         alert_lookback_blocks: int = DEFAULT_LOOKBACK_BLOCKS,
         alert_head_lag_blocks: int = DEFAULT_HEAD_LAG_BLOCKS,
+        fast_poll_s: float = DEFAULT_FAST_POLL_S,
+        near_pct: float = DEFAULT_NEAR_PCT,
+        fast_max_s: float = DEFAULT_FAST_MAX_MIN * 60,
+        timing: bool = False,
+        wall: Callable[[], float] = time.time,
+        head_probe_every_s: float = HEAD_PROBE_EVERY_S,
     ) -> None:
         if sender is None and not dry_run:
             raise ValueError("a Sender is needed unless dry_run")
+        if not fast_poll_s > 0 or not near_pct >= 0 or not fast_max_s >= 0:
+            raise ValueError("fast_poll_s must be > 0, near_pct and fast_max_s >= 0")
+        self.fast_poll_s = fast_poll_s
+        self.near_ppm = round(near_pct * 10_000)  # 1 % = 10 000 ppm; integer compare, no float edge
+        self.fast_max_s = fast_max_s
+        self.timing = timing
+        self.wall = wall
+        self.head_probe_every_s = head_probe_every_s
+        self.fast = False  # current polling mode (run() sleeps fast_poll_s when True)
+        self._near_since: dict[tuple[str, int], float] = {}  # (pool, cover) -> start of its current approach
+        self._capped: set[tuple[str, int]] = set()  # approaches past fast_max_s (logged once)
+        self._seen: dict[tuple[str, int], tuple[int | None, int, float, float]] = {}  # breach first seen:
+        # (block, block ts, wall, clock)
+        self._probe_at: float | None = None
+        self.head: int | None = None  # block number of the last decision read
+        self.base_fee: int | None = None  # block.basefee of the last decision read (passed to the sender)
         self.rpc = rpc
         self.books = [PoolBook(p.pool, p.label) for p in plans]
         self.plans = plans
@@ -458,23 +531,46 @@ class Keeper:
         return sorted(keys)
 
     def read(self) -> tuple[int, dict[str, dict[int, int | None]]]:
-        """Refresh every book; returns (block timestamp, prices by source and perp)."""
-        calls = [mc.block_timestamp("ts")]
+        """Refresh every book (decision read, then backfill); returns (block timestamp, prices)."""
+        out, price_keys = self._read_main()
+        prices, missing = self._fold(out, price_keys)
+        self._backfill(missing, prices)
+        return int(out["ts"]), prices
+
+    def _read_main(self) -> tuple[dict[Any, Any], list[tuple[str, int]]]:
+        """The decision read: one Multicall3 ``eth_call`` (block number, timestamp, base fee, covers,
+        prices, v2 state). In fast mode it avoids a lagging endpoint, and re-reads once from a fresher one
+        when the answer turns out to be more than ``rpc.max_head_lag`` blocks behind (rpc.py docstring)."""
+        calls = [mc.block_timestamp("ts"), mc.block_number("bn"), mc.base_fee("basefee")]
         for i, b in enumerate(self.books):
             calls.append(mc.cover_count(b.pool, ("count", i)))
             calls += [mc.get_cover(b.pool, cid, ("cover", i, cid)) for cid in b.ids_to_read()]
         price_keys = self._price_keys()
         calls += [mc.oracle_px6(s, p, ("px", s, p)) for s, p in price_keys]
-        if self.watches:  # v2 alert state, same eth_call
-            calls.append(mc.block_number("bn"))
-            for w in self.watches.values():
-                calls += w.calls()
-        out = dict(zip((c.key for c in calls), mc.aggregate(self.rpc, calls), strict=True))
+        for w in self.watches.values():  # v2 alert state, same eth_call
+            calls += w.calls()
+        keys = [c.key for c in calls]
+        out = dict(zip(keys, mc.aggregate(self.rpc, calls, fresh=self.fast), strict=True))
+        self.rpc.note_head(out.get("bn"))
+        ep = self.rpc.last
+        if self.fast and ep is not None and self.rpc.lagging(ep):
+            log.info("[keeper] decision read at block %s from %s is %s blocks behind; re-reading from a "
+                     "fresher rpc", out.get("bn"), host(ep.url), self.rpc.lag(ep))  # fmt: skip
+            out = dict(zip(keys, mc.aggregate(self.rpc, calls, fresh=True), strict=True))
+            self.rpc.note_head(out.get("bn"))
         if out["ts"] is None:
             raise RuntimeError("Multicall3.getCurrentBlockTimestamp() failed")
-        self._block = out.get("bn")
-        for w in self.watches.values():
-            self.alerts += emit(w.update(out, int(out["ts"]), self._block))
+        self.head = None if out.get("bn") is None else int(out["bn"])
+        self.base_fee = None if out.get("basefee") is None else int(out["basefee"])
+        return out, price_keys
+
+    def _fold(self, out: Mapping[Any, Any], price_keys: list[tuple[str, int]],
+              ) -> tuple[dict[str, dict[int, int | None]], dict[int, list[int]]]:  # fmt: skip
+        """Pure: fold the decision read into the books; returns (prices, ids still to backfill)."""
+        if self.watches:
+            self._block = self.head
+            for w in self.watches.values():
+                self.alerts += emit(w.update(out, int(out["ts"]), self._block))
         prices: dict[str, dict[int, int | None]] = {}
         for s, p in price_keys:
             prices.setdefault(s, {})[p] = out[("px", s, p)]
@@ -484,8 +580,7 @@ class Keeper:
                       if isinstance(k, tuple) and k[0] == "cover" and k[1] == i}  # fmt: skip
             self._alert_new_covers(b, covers)
             missing[i] = b.apply(out[("count", i)], covers)[:BACKFILL_MAX]
-        self._backfill(missing, prices)
-        return int(out["ts"]), prices
+        return prices, missing
 
     def _backfill(self, missing: dict[int, list[int]], prices: dict[str, dict[int, int | None]]) -> None:
         """Read new ids beyond the lookahead (startup, or a burst of purchases) in extra calls."""
@@ -515,27 +610,53 @@ class Keeper:
                 self.alerts += emit(w.check_cover(cid, c.payout, c.premium, c.status == Status.ACTIVE))
 
     def poll(self) -> list[tuple[str, Action, str]]:
-        r0 = self.rpc.requests
-        if self._balance_at is not None and self.clock() - self._balance_at >= self.balance_every_s:
-            self.check_balance(self.clock())
-        now, prices = self.read()
+        """One poll. Hot path first: the decision read, then the sends. Everything else (backfill of new
+        ids, settling final covers and their receipts, the v2 log scan, the balance check, the polling mode,
+        head probes) runs after the sends, so a breach costs one read plus the send round-trips."""
+        r0, c0 = self.rpc.requests, self.clock()
+        out, price_keys = self._read_main()
+        now = int(out["ts"])
+        read_ms = (self.clock() - c0) * 1000
+        prices, missing = self._fold(out, price_keys)
         t = self.clock()
+        budget = [self.max_tx_per_poll]
+        done = self._act(prices, now, t, budget)
+        # -- after the sends --------------------------------------------------------------------------
+        if any(missing.values()):
+            self._backfill(missing, prices)
+            done += self._act(prices, now, t, budget)  # covers first read by the backfill
+        self._settle()
         if self._block is not None and self.scanner.due(t):
             self.alerts += emit(self.scanner.scan(int(self._block), t))
-        done = []
+        if self._balance_at is not None and self.clock() - self._balance_at >= self.balance_every_s:
+            self.check_balance(self.clock())
+        self._update_mode(prices, t)
+        heads = self._probe_heads(t)
+        cur = self.rpc.last.url if self.rpc.last else "-"
+        log.info("[keeper] poll ok mode=%s pools=%d active=%d block=%s ts=%d read=%.0fms reqs=%d rpm=%d "
+                 "rpc=%s%s", "fast" if self.fast else "normal", len(self.books),
+                 sum(len(b.active) for b in self.books), self.head, now, read_ms, self.rpc.requests - r0,
+                 self.rpc.per_minute(), host(cur), heads)  # fmt: skip
+        return done
+
+    def _act(self, prices: Mapping[str, Mapping[int, int | None]], now: int, t: float,
+             budget: list[int]) -> list[tuple[str, Action, str]]:  # fmt: skip
+        """Decide and send; ``budget`` holds the txs this poll may still send (shared across calls)."""
         todo: list[tuple[PoolBook, Action]] = []
         for b in self.books:
-            sent, txs = self.sent[b.pool], self.txs[b.pool]
-            for cid in [c for c in sent if c not in b.active]:
-                del sent[cid]  # final now (or never was): forget
-                txs.pop(cid, None)
             assert b.source is not None
-            todo += [(b, a) for a in due(decide(b.active.values(), prices.get(b.source, {}), now), sent, t)]
+            acts = decide(b.active.values(), prices.get(b.source, {}), now)
+            for a in acts:
+                if a.kind == "trigger" and (b.pool, a.cover_id) not in self._seen:
+                    self._breach_seen(b, a, now)
+            todo += [(b, a) for a in due(acts, self.sent[b.pool], t)]
         todo.sort(key=lambda ba: ba[1].kind != "trigger")  # stable: triggers (largest first) before expires
-        if len(todo) > self.max_tx_per_poll:
+        if len(todo) > budget[0]:
             log.warning("[keeper] %d actions due, sending %d this poll (cap); the rest next poll", len(todo),
-                        self.max_tx_per_poll)  # fmt: skip
-        for b, a in todo[: self.max_tx_per_poll]:
+                        budget[0])  # fmt: skip
+        done = []
+        for b, a in todo[: budget[0]]:
+            budget[0] -= 1
             self.sent[b.pool][a.cover_id] = t
             if self.dry_run:
                 log.info("[keeper] dry-run: would send %s(%s) on %s (%s)", a.kind, a.cover_id, b.label,
@@ -544,8 +665,9 @@ class Keeper:
                 continue
             assert self.sender is not None
             prev = self.txs[b.pool].get(a.cover_id)
+            c0 = self.clock()
             try:
-                tx = self.sender.send(b.pool, a, prev=prev)
+                tx = self.sender.send(b.pool, a, prev=prev, base_fee=self.base_fee)
             except GasCapError as exc:
                 if prev is None:  # nothing went out: not "sent", so the next poll retries it
                     del self.sent[b.pool][a.cover_id]
@@ -555,17 +677,119 @@ class Keeper:
                 log.warning("[keeper] %s(%s) on %s failed: %s", a.kind, a.cover_id, b.label, exc)
                 continue
             self.txs[b.pool][a.cover_id] = tx
-            log.info("[keeper] %s(%s) on %s sent %s nonce=%d (%s)", a.kind, a.cover_id, b.label, tx.hash,
-                     tx.nonce, a.reason)  # fmt: skip
+            seen = self._seen.get((b.pool, a.cover_id))
+            since = f" seen->sent={self.clock() - seen[3]:.2f}s" if seen else ""
+            reqs = getattr(self.sender, "last_requests", -1)
+            log.info("[keeper] %s(%s) on %s sent %s nonce=%d maxFee=%d tip=%d gas=%d wall=%.3f send=%.0fms "
+                     "send_reqs=%d%s (%s)", a.kind, a.cover_id, b.label, tx.hash, tx.nonce, tx.max_fee,
+                     tx.tip, tx.gas, self.wall(), (self.clock() - c0) * 1000, reqs, since,
+                     a.reason)  # fmt: skip
             done.append((b.label, a, tx.hash))
-        cur = self.rpc.current.url if self.rpc.current else "-"
-        log.info("[keeper] poll ok pools=%d active=%d reqs=%d rpm=%d rpc=%s", len(self.books),
-                 sum(len(b.active) for b in self.books), self.rpc.requests - r0, self.rpc.per_minute(),
-                 host(cur))  # fmt: skip
         return done
 
-    def run(self, poll_s: float = 3.0, duration_s: float = 0.0, sleep: Callable[[float], None] = time.sleep,
+    def _breach_seen(self, b: PoolBook, a: Action, now: int) -> None:
+        """First poll that sees cover ``a.cover_id`` breached: log block, wall time and block-to-seen lag."""
+        wall = self.wall()
+        self._seen[(b.pool, a.cover_id)] = (self.head, now, wall, self.clock())
+        cur = self.rpc.last.url if self.rpc.last else "-"
+        log.info("[keeper] breach seen: cover %d on %s at block %s (block ts %d) wall=%.3f block->seen=%.1fs "
+                 "mode=%s rpc=%s (%s)", a.cover_id, b.label, self.head, now, wall, wall - now,
+                 "fast" if self.fast else "normal", host(cur), a.reason)  # fmt: skip
+
+    def _settle(self) -> None:
+        """Forget covers that left the active set; for ours, log where the tx landed (one receipt read)."""
+        for b in self.books:
+            sent, txs = self.sent[b.pool], self.txs[b.pool]
+            for cid in [c for c in sent if c not in b.active]:
+                del sent[cid]  # final now (or never was): forget
+                tx = txs.pop(cid, None)
+                seen = self._seen.pop((b.pool, cid), None)
+                if tx is not None:
+                    self._log_receipt(b, cid, tx, seen)
+
+    def _log_receipt(self, b: PoolBook, cid: int, tx: SentTx,
+                     seen: tuple[int | None, int, float, float] | None) -> None:  # fmt: skip
+        try:
+            r = self.rpc.call("eth_getTransactionReceipt", [tx.hash])
+        except Exception as exc:  # noqa: BLE001 - timing log only
+            log.info("[keeper] cover %d on %s final; receipt of %s unreadable: %s", cid, b.label, tx.hash,
+                     exc)  # fmt: skip
+            return
+        if not isinstance(r, dict) or not r.get("blockNumber"):
+            log.info("[keeper] cover %d on %s final; our tx %s has no receipt (replaced, or another caller "
+                     "settled it)", cid, b.label, tx.hash)  # fmt: skip
+            return
+        blk = int(str(r["blockNumber"]), 16)
+        extra = ""
+        if seen is not None:
+            sb, sts, swall, sclk = seen
+            gap = f"+{blk - sb} blocks" if sb is not None else "?"
+            extra = (f" breach seen at block {sb} (ts {sts}): {gap}; seen->final-seen "
+                     f"{self.clock() - sclk:.1f}s")  # fmt: skip
+        log.info("[keeper] cover %d on %s final: tx %s mined in block %d status=%s wall=%.3f%s", cid, b.label,
+                 tx.hash, blk, r.get("status"), self.wall(), extra)  # fmt: skip
+
+    def _update_mode(self, prices: Mapping[str, Mapping[int, int | None]], t: float) -> None:
+        """Fast mode while an active cover's oracle price is within ``near_ppm`` of its level (or past it),
+        for at most ``fast_max_s`` per approach; an approach ends when the price leaves the band."""
+        near: dict[tuple[str, int], tuple[str, float]] = {}
+        for b in self.books:
+            px_by_perp = prices.get(b.source or "", {})
+            for c in b.active.values():
+                px = px_by_perp.get(c.perp_index)
+                if px is None or px <= 0:
+                    continue
+                gap = px - c.level if c.is_long else c.level - px  # <= 0: breached
+                if gap > 0:
+                    self._seen.pop((b.pool, c.id), None)  # not breached (any more): a new breach logs anew
+                if self.near_ppm > 0 and gap * PPM <= self.near_ppm * px:
+                    near[(b.pool, c.id)] = (b.label, gap * 10_000 / px)
+        for k in [k for k in self._near_since if k not in near]:
+            del self._near_since[k]
+            log.info("[keeper] cover %d on %s left the %.2f%% band", k[1], self._label(k[0]),
+                     self.near_ppm / 10_000)  # fmt: skip
+        for k, (label, bps) in near.items():
+            if k not in self._near_since:
+                self._near_since[k] = t
+                log.info("[keeper] cover %d on %s within %.2f%% of its level (gap %.1f bps)", k[1], label,
+                         self.near_ppm / 10_000, bps)  # fmt: skip
+        live = [k for k in near if t - self._near_since[k] < self.fast_max_s]
+        for k in near:
+            if k not in live and k not in self._capped:
+                log.warning("[keeper] fast mode for cover %d on %s capped after %.0f min; polling every "
+                            "--poll until it leaves the band and returns", k[1], near[k][0],
+                            self.fast_max_s / 60)  # fmt: skip
+        self._capped = {k for k in near if k not in live}
+        fast = bool(live)
+        if fast != self.fast:
+            log.info("[keeper] mode %s (%d cover(s) near; rpm so far %d)", "fast" if fast else "normal",
+                     len(live), self.rpc.per_minute())  # fmt: skip
+        self.fast = fast
+
+    def _label(self, pool: str) -> str:
+        return next((b.label for b in self.books if b.pool == pool), pool)
+
+    def _probe_heads(self, t: float) -> str:
+        """``--timing``: every poll, eth_blockNumber on each healthy endpoint (logged next to the read's
+        block). Fast mode with several endpoints: the other healthy ones every ``head_probe_every_s`` (lag
+        check for the next decision read). Returns a log suffix."""
+        if self.timing:
+            eps = self.rpc.healthy()
+        elif self.fast and len(self.rpc.endpoints) > 1 and (
+                self._probe_at is None or t - self._probe_at >= self.head_probe_every_s):  # fmt: skip
+            eps = [e for e in self.rpc.healthy() if e is not self.rpc.last]
+        else:
+            return ""
+        self._probe_at = t
+        last = self.rpc.last
+        heads = {host(e.url): self.rpc.probe_head(e) for e in eps}
+        self.rpc.last = last  # probes do not change which endpoint served the decision read
+        return " heads=" + ",".join(f"{h}:{v}" for h, v in heads.items())
+
+    def run(self, poll_s: float = DEFAULT_POLL_S, duration_s: float = 0.0,
+            sleep: Callable[[float], None] = time.sleep,
             stop: Callable[[], bool] = lambda: False) -> None:  # fmt: skip
+        """Poll every ``poll_s`` (``fast_poll_s`` while fast mode is on) until ``duration_s`` or ``stop``."""
         t0 = self.clock()
         try:
             while not stop():
@@ -576,7 +800,8 @@ class Keeper:
                     self.poll()
                 except Exception as exc:  # noqa: BLE001 - keep watching; the RPC layer already backed off
                     log.warning("[keeper] poll failed: %s", exc)
-                sleep(max(0.0, poll_s - (self.clock() - t)))
+                every = self.fast_poll_s if self.fast else poll_s
+                sleep(max(0.0, every - (self.clock() - t)))
         except KeyboardInterrupt:
             pass
         self.summary(self.clock() - t0)
@@ -600,7 +825,23 @@ def main(argv: list[str] | None = None) -> None:
                          "else the deployments rpc, the official testnet RPC, chain.link)")  # fmt: skip
     ap.add_argument("--pool", action="append", default=None, help="pool address (repeatable; default: all)")
     ap.add_argument("--price-source", default=None, help="override pool.priceSource() (single pool only)")
-    ap.add_argument("--poll", type=float, default=3.0, help="seconds between polls (default 3)")
+    ap.add_argument("--poll", type=float, default=DEFAULT_POLL_S,
+                    help=f"seconds between polls (default {DEFAULT_POLL_S:g})")  # fmt: skip
+    ap.add_argument("--fast-poll", type=float, default=DEFAULT_FAST_POLL_S,
+                    help="seconds between polls while a cover is near its level (default "
+                         f"{DEFAULT_FAST_POLL_S:g})")  # fmt: skip
+    ap.add_argument("--near-pct", type=float, default=DEFAULT_NEAR_PCT,
+                    help="fast mode when an active cover's oracle price is within this %% of its level "
+                         f"(0 = never; default {DEFAULT_NEAR_PCT:g})")  # fmt: skip
+    ap.add_argument("--fast-max-min", type=float, default=DEFAULT_FAST_MAX_MIN,
+                    help="fast mode lasts at most this many minutes per approach of a cover to its level "
+                         f"(default {DEFAULT_FAST_MAX_MIN:g})")  # fmt: skip
+    ap.add_argument("--max-head-lag", type=int, default=DEFAULT_MAX_HEAD_LAG,
+                    help="fast mode: a decision read avoids an RPC whose head is more than this many blocks "
+                         f"behind a healthy one (default {DEFAULT_MAX_HEAD_LAG})")  # fmt: skip
+    ap.add_argument("--timing", action="store_true",
+                    help="latency debug: eth_blockNumber on every healthy RPC each poll, logged next to the "
+                         "decision read's block (costs one request per RPC per poll)")  # fmt: skip
     ap.add_argument("--dry-run", action="store_true", help="read only: log the txs it would send")
     ap.add_argument("--duration", type=float, default=0.0, help="stop after this many seconds (0 = never)")
     env = os.environ
@@ -634,6 +875,10 @@ def main(argv: list[str] | None = None) -> None:
         ap.error("--max-tx-per-poll must be >= 1")
     if args.alert_head_lag_blocks < 0:
         ap.error("--alert-head-lag-blocks must be >= 0")
+    if not args.poll > 0 or not args.fast_poll > 0:
+        ap.error("--poll and --fast-poll must be > 0")
+    if not args.near_pct >= 0 or not args.fast_max_min >= 0 or args.max_head_lag < 0:
+        ap.error("--near-pct, --fast-max-min and --max-head-lag must be >= 0")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     key = os.environ.get("KEEPER_KEY", "").strip()
     if not key and not args.dry_run:
@@ -642,7 +887,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.price_source and (args.pool is None or len(args.pool) != 1):
         raise SystemExit("--price-source needs exactly one --pool")
     urls = resolve_rpcs(args.rpc, os.environ.get("NUMERA_RPCS"), dep.rpc if dep else None)
-    rpc = FailoverRpc(urls)
+    rpc = FailoverRpc(urls, max_head_lag=args.max_head_lag)
     log.info("[keeper] rpcs: %s%s", " > ".join(host(u) for u in urls), " (dry run)" if args.dry_run else "")
     plans = plan_pools(dep, args.pool)
     sender = None if args.dry_run else Sender(rpc, key, max_fee_wei=int(args.max_fee_gwei * GWEI))
@@ -656,13 +901,19 @@ def main(argv: list[str] | None = None) -> None:
         balance_addr = args.keeper_address or (dep.keeper if dep else None)
     log.info("[keeper] limits: maxFeePerGas <= %g gwei, <= %d txs/poll, balance warn < %g HYPE every %gs",
              args.max_fee_gwei, args.max_tx_per_poll, args.min_balance, args.balance_every)  # fmt: skip
+    log.info("[keeper] polling: every %gs, every %gs while a cover is within %g%% of its level (at most %g "
+             "min per approach); decision reads avoid an rpc > %d blocks behind%s", args.poll, args.fast_poll,
+             args.near_pct, args.fast_max_min, args.max_head_lag,
+             "; --timing on" if args.timing else "")  # fmt: skip
     keeper = Keeper(rpc, plans, watch_perps=dep.perps.values() if dep else (), sender=sender,
                     dry_run=args.dry_run, price_source_override=args.price_source,
                     max_tx_per_poll=args.max_tx_per_poll, balance_address=balance_addr,
                     min_balance_wei=int(args.min_balance * WEI_PER_HYPE),
                     balance_every_s=args.balance_every, alert_logs_every_s=args.alert_logs_every,
                     alert_lookback_blocks=args.alert_lookback_blocks,
-                    alert_head_lag_blocks=args.alert_head_lag_blocks)  # fmt: skip
+                    alert_head_lag_blocks=args.alert_head_lag_blocks, fast_poll_s=args.fast_poll,
+                    near_pct=args.near_pct, fast_max_s=args.fast_max_min * 60,
+                    timing=args.timing)  # fmt: skip
     keeper.start()
     keeper.run(args.poll, args.duration)
 
