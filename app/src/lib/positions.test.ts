@@ -3,7 +3,7 @@ import { getAddress } from 'viem';
 import { POOLS, perpIndexOf } from '../config';
 import { fmtUsdc } from './format';
 import type { ApiAccount } from './liq';
-import { POLLED_CAP_RETRY_MS, capView, loadPositions, readCaps, type LoadDeps, type PositionRow } from './positions';
+import { POLLED_CAP_RETRY_MS, capView, loadAccountCtx, loadPositions, readCaps, type LoadDeps, type PositionRow } from './positions';
 import { PartialData, isRateLimited, retryRateLimited } from './rpc';
 import { clearAbstractionCache, fetchAbstraction as realFetchAbstraction, spotCollateralTotal } from './info';
 
@@ -227,5 +227,19 @@ describe.skipIf(!process.env.NUMERA_LIVE)('live testnet', () => {
     const p = r.get(BTC);
     console.log('[live] positionSource', POOLS.hypercore.positionSource, 'perp', BTC, 'result', p, 'cap', p && 'cap' in p ? fmtUsdc(p.cap) : p);
     expect(p).toMatchObject({ cap: 9952605n });
+  }, 60_000);
+
+  it('founder wallet liq price, perp-only (before) vs account-mode aware (after)', async () => {
+    const info = await import('./info');
+    const { positionLiq } = await import('./liq');
+    const [acct, market, ctx] = await Promise.all([info.fetchAccount(WALLET), info.fetchMarket(), loadAccountCtx(WALLET, undefined)]);
+    for (const { position: p } of acct.assetPositions) {
+      const mark = Number(market.byName.get(p.coin)?.ctx.markPx ?? 0);
+      const before = positionLiq(p, acct, mark);
+      const after = positionLiq(p, acct, mark, ctx);
+      console.log('[live]', p.coin, 'mode', ctx.mode, 'spot USDC total', ctx.spotCollateralTotal, 'mark', mark, 'api liquidationPx', p.liquidationPx);
+      console.log('[live] before', before.formula, before.px, 'margin_available', before.inputs?.marginAvailable);
+      console.log('[live] after ', after.formula, after.px, 'margin_available', after.inputs?.marginAvailable);
+    }
   }, 60_000);
 });
