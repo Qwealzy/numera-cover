@@ -2,6 +2,7 @@
 // CoverPool v2 deploy wrapper (ARCHITECTURE §5.9). The founder runs it; works from PowerShell, cmd and Git Bash.
 //
 //   node scripts/deploy-v2.mjs --dry-run --yes [--mode mock|hypercore]   # local anvil (31337), end to end
+//   node scripts/deploy-v2.mjs --fork --yes [--mode mock|hypercore]      # local anvil fork of testnet (998)
 //   node scripts/deploy-v2.mjs [--mode hypercore|mock]                    # testnet (998): prints the plan only
 //   node scripts/deploy-v2.mjs --yes [--mode hypercore|mock]              # testnet (998): deploys
 //
@@ -14,6 +15,11 @@
 // reads it with vm.envUint). The dry run never passes DEPLOYER_KEY; it uses anvil's unlocked account 0.
 // forge runs with --skip-simulation --slow: forge's local pass uses precompile stand-ins, and its per-transaction
 // eth_estimateGas makes the node run the real HyperCore precompiles (an invalid perp aborts before gas is spent).
+// It also runs with --block-gas-limit 30000000: forge's local pass otherwise takes the RPC's 3M small-block limit
+// and the CoverPool creation runs out of gas there (2026-10-02 testnet run, "Failed to decode return value: 0x").
+// Preflight, before the --yes check: eth_getCode on every existing contract the script calls (USDC), then the same
+// forge command WITHOUT --broadcast (forge's local pass only; nothing is sent), so a plan-only run catches it too.
+// --fork and the preflight point FOUNDRY_BROADCAST at a temp folder, so they never touch contracts/broadcast/.../998.
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -24,10 +30,13 @@ import { readDotenv } from './lib/env.mjs';
 import { host, looksLikeMainnetRpc } from './lib/rpc.mjs';
 import {
   USAGE,
+  ANVIL_ACCOUNT0,
+  BIG_BLOCK_GAS_LIMIT,
   LOCAL_CHAIN_ID,
   TESTNET_CHAIN_ID,
   childEnv,
   forgeArgs,
+  hasCode,
   mergeV2,
   parseDeployArgs,
   parseLimits,
@@ -88,14 +97,18 @@ function freePort() {
   });
 }
 
-async function startAnvil() {
+// Local anvil on a free port. forkUrl: a fork of testnet with chain id 998, the big-block gas limit (anvil would
+// otherwise copy the fork block's 3M) and auto-impersonation (the deployer broadcasts without a key).
+async function startAnvil(forkUrl = null) {
   const port = await freePort();
-  anvil = spawn(bin('anvil'), ['--port', String(port), '--chain-id', String(LOCAL_CHAIN_ID), '--silent'], {
-    stdio: 'ignore',
-    windowsHide: true,
-  });
+  const a = ['--port', String(port), '--silent'];
+  if (forkUrl) {
+    a.push('--fork-url', forkUrl, '--chain-id', String(TESTNET_CHAIN_ID));
+    a.push('--gas-limit', String(BIG_BLOCK_GAS_LIMIT), '--auto-impersonate');
+  } else a.push('--chain-id', String(LOCAL_CHAIN_ID));
+  anvil = spawn(bin('anvil'), a, { stdio: 'ignore', windowsHide: true });
   const url = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < (forkUrl ? 150 : 50); i++) {
     try {
       await chainIdOf(url);
       return url;
@@ -155,12 +168,26 @@ async function main() {
   const perps = perpList(deployments.perps);
   const dotenv = readDotenv(path.join(repoRoot, '.env')) ?? {};
   const want = args.dryRun ? LOCAL_CHAIN_ID : TESTNET_CHAIN_ID;
+  // local = nothing reaches a real chain: no DEPLOYER_KEY, broadcast through an unlocked anvil account, temp output.
+  const local = args.dryRun || args.fork;
+  let sender = null;
 
-  if (!args.dryRun) {
+  if (!local) {
     if (!dotenv.DEPLOYER_KEY) die('DEPLOYER_KEY is not set in .env');
     if (args.rpc && args.rpc !== deployments.rpc) say(`using --rpc ${host(args.rpc)} instead of ${host(deployments.rpc)}`);
   }
-  const rpc = args.rpc ?? (args.dryRun ? await startAnvil() : deployments.rpc);
+  let rpc;
+  if (args.fork) {
+    const src = args.rpc ?? deployments.rpc;
+    await requireChain(src, TESTNET_CHAIN_ID); // the fork source must be testnet (refuses a mainnet host first)
+    if (!/^0x[0-9a-fA-F]{40}$/.test(deployments.deployer ?? '')) die('deployments/testnet.json has no deployer address');
+    sender = deployments.deployer;
+    say(`starting an anvil fork of ${host(src)} (chain 998, gas limit ${BIG_BLOCK_GAS_LIMIT})`);
+    rpc = await startAnvil(src);
+  } else if (args.dryRun) {
+    sender = ANVIL_ACCOUNT0;
+    rpc = args.rpc ?? (await startAnvil());
+  } else rpc = args.rpc ?? deployments.rpc;
   await requireChain(rpc, want);
 
   // Stand-in / mock prices: --standin-px, else the testnet Info API (read-only).
@@ -188,10 +215,11 @@ async function main() {
     GUARDIAN: dotenv.GUARDIAN,
     OWNER: dotenv.OWNER,
   };
-  const outLabel = args.dryRun ? `${tmpdir()}${path.sep}numera-v2-*${path.sep}local-v2.json (temp)` : path.join(repoRoot, 'deployments', 'testnet-v2.json');
+  const outLabel = local ? `${tmpdir()}${path.sep}numera-v2-*${path.sep}${args.fork ? 'fork' : 'local'}-v2.json (temp)` : path.join(repoRoot, 'deployments', 'testnet-v2.json');
 
   say('PLAN');
-  say(`  chain        ${want} (${args.dryRun ? 'local anvil, dry run' : 'testnet'}) via ${host(rpc)}`);
+  const where = args.fork ? 'local anvil fork of testnet' : args.dryRun ? 'local anvil, dry run' : 'testnet';
+  say(`  chain        ${want} (${where}) via ${host(rpc)}`);
   say(`  mode         ${args.mode}`);
   say(`  perps        ${perps.map((p, i) => `${p.name}=${p.index} (${args.mode === 'hypercore' ? 'stand-in' : 'mock'} px6 ${px[i]})`).join(', ')}`);
   say(`  quoteSigner  ${vars.QUOTE_SIGNER}`);
@@ -199,29 +227,63 @@ async function main() {
   say(`  owner        ${vars.OWNER ?? 'the broadcaster'}`);
   say(`  guardian     ${vars.GUARDIAN ?? 'none (address 0)'}`);
   say('  delays       configDelay 600 s, withdrawDelay 600 s, claimWindow 3600 s, strict=false (testnet values)');
-  say(`  broadcaster  ${args.dryRun ? 'anvil unlocked account 0' : 'DEPLOYER_KEY from .env (read inside the script)'}`);
-  say(`  forge        script script/Deploy.s.sol --broadcast --skip-simulation --slow${args.dryRun ? ' --unlocked' : ''}`);
+  const who = args.fork
+    ? `${sender} (deployer, impersonated on the fork)`
+    : args.dryRun
+      ? 'anvil unlocked account 0'
+      : 'DEPLOYER_KEY from .env (read inside the script)';
+  say(`  broadcaster  ${who}`);
+  const fa = (broadcast) => forgeArgs({ rpc, unlockedSender: sender, gasPrice: args.gasPrice, broadcast });
+  say(`  forge        ${fa(true).filter((x) => x !== rpc && x !== '--rpc-url').join(' ')}`);
   say(`  writes       ${outLabel}`);
+
+  // Preflight 1: every existing contract the script calls must have code on this chain.
+  if (vars.USDC) {
+    let code;
+    try {
+      code = await rpcCall(rpc, 'eth_getCode', [vars.USDC, 'latest']);
+    } catch (e) {
+      die(`eth_getCode(USDC) failed on ${host(rpc)}: ${e.message}. Nothing was sent.`);
+    }
+    if (!hasCode(code)) die(`USDC ${vars.USDC} has no code on chain ${want}. Nothing was sent.`);
+    say(`preflight    USDC has code (${(code.length - 2) / 2} bytes)`);
+  }
+  // Preflight 2: forge's local pass without --broadcast (nothing is sent); its files go to a temp folder.
+  const env = childEnv(process.env, dotenv, vars, { dryRun: local });
+  const tmpBroadcast = mkdtempSync(path.join(tmpdir(), 'numera-v2-broadcast-'));
+  const forge = (argv, broadcastDir) =>
+    spawnSync(forgePath(), argv, {
+      cwd: contractsDir,
+      env: broadcastDir ? { ...env, FOUNDRY_BROADCAST: broadcastDir } : env,
+      encoding: 'utf8',
+      windowsHide: true,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  const errorTail = (res) => {
+    const lines = `${res.stdout ?? ''}\n${res.stderr ?? ''}`.split('\n');
+    const hits = lines.filter((l) => /error|revert|fail|outofgas/i.test(l)).slice(-8);
+    return (hits.length ? hits : lines.slice(-15)).join('\n');
+  };
+  const pre = forge(fa(false), path.join(tmpBroadcast, 'preflight'));
+  if (pre.status !== 0) {
+    console.error(errorTail(pre));
+    die(`preflight: forge's local simulation failed (exit ${pre.status}). Nothing was sent.`);
+  }
+  say('preflight    forge local simulation OK (no broadcast)');
   if (!args.yes) {
     say('nothing sent: re-run with --yes to broadcast');
     return;
   }
 
-  const runFile = path.join(contractsDir, 'broadcast', 'Deploy.s.sol', String(want), 'run-latest.json');
+  // The fork run is chain 998 too: keep its broadcast files out of contracts/broadcast/Deploy.s.sol/998.
+  const broadcastRoot = args.fork ? path.join(tmpBroadcast, 'fork') : path.join(contractsDir, 'broadcast');
+  const runFile = path.join(broadcastRoot, 'Deploy.s.sol', String(want), 'run-latest.json');
   const started = Date.now();
-  const r = spawnSync(forgePath(), forgeArgs({ rpc, dryRun: args.dryRun, gasPrice: args.gasPrice }), {
-    cwd: contractsDir,
-    env: childEnv(process.env, dotenv, vars, { dryRun: args.dryRun }),
-    encoding: 'utf8',
-    windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  const r = forge(fa(true), args.fork ? broadcastRoot : null);
   if (r.status !== 0) {
-    const tail = out.split('\n').filter((l) => /error|revert|fail/i.test(l)).slice(-6).join('\n');
-    console.error(tail || out.split('\n').slice(-15).join('\n'));
+    console.error(errorTail(r));
     const hint =
-      args.mode === 'hypercore' && args.dryRun
+      args.mode === 'hypercore' && local
         ? ' (expected on anvil: the hypercore route stops at eth_estimateGas because anvil has no HyperCore precompiles)'
         : '';
     if (existsSync(runFile) && statSync(runFile).mtimeMs >= started) {
@@ -255,10 +317,10 @@ async function main() {
     config: { ...state, priceSource: undefined, positionSource: undefined, asset: undefined },
     txs: sum.txs,
   };
-  const outFile = args.dryRun
-    ? path.join(mkdtempSync(path.join(tmpdir(), 'numera-v2-')), 'local-v2.json')
+  const outFile = local
+    ? path.join(mkdtempSync(path.join(tmpdir(), 'numera-v2-')), args.fork ? 'fork-v2.json' : 'local-v2.json')
     : path.join(repoRoot, 'deployments', 'testnet-v2.json');
-  const existing = !args.dryRun && existsSync(outFile) ? JSON.parse(readFileSync(outFile, 'utf8')) : null;
+  const existing = !local && existsSync(outFile) ? JSON.parse(readFileSync(outFile, 'utf8')) : null;
   writeFileSync(outFile, `${JSON.stringify(mergeV2(existing, args.mode, block, { replace: args.replace }), null, 2)}\n`);
   say(`pool ${pool}: owner ${state.owner}, signer ${state.quoteSigner}, guardian ${state.guardian}`);
   say(`limits ${JSON.stringify(state.limits)}`);

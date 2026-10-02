@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   ANVIL_ACCOUNT0,
+  BIG_BLOCK_GAS_LIMIT,
   childEnv,
   decimalToPx6,
   forgeArgs,
+  hasCode,
   mergeV2,
   parseDeployArgs,
   parseLimits,
@@ -15,7 +18,7 @@ import {
 
 test('parseDeployArgs: defaults, flags, validation', () => {
   assert.deepEqual(parseDeployArgs([]), {
-    dryRun: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false,
+    dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false,
   });
   const a = parseDeployArgs(['--dry-run', '--yes', '--mode', 'mock', '--standin-px', '1,2', '--gas-price', '100']);
   assert.equal(a.dryRun, true);
@@ -25,6 +28,8 @@ test('parseDeployArgs: defaults, flags, validation', () => {
   assert.throws(() => parseDeployArgs(['--rpc']), /needs a value/);
   assert.throws(() => parseDeployArgs(['--standin-px', '0,1']), /positive/);
   assert.throws(() => parseDeployArgs(['--broadcast']), /unknown/);
+  assert.equal(parseDeployArgs(['--fork', '--yes']).fork, true);
+  assert.throws(() => parseDeployArgs(['--fork', '--dry-run']), /exclusive/);
 });
 
 test('decimalToPx6: exact, rounding, invalid', () => {
@@ -61,12 +66,28 @@ test('childEnv: .env only in the child, never DEPLOYER_KEY in a dry run', () => 
   assert.equal(base.DEPLOYER_KEY, 'shell-key', 'parent env untouched');
 });
 
-test('forgeArgs: skip-simulation and slow always; key never in argv', () => {
-  const real = forgeArgs({ rpc: 'https://r', dryRun: false });
+test('forgeArgs: skip-simulation, slow and the big-block gas limit always; key never in argv', () => {
+  const real = forgeArgs({ rpc: 'https://r' });
   assert.ok(real.includes('--skip-simulation') && real.includes('--slow') && real.includes('--broadcast'));
-  assert.equal(real.some((x) => /key/i.test(x)), false);
-  const dry = forgeArgs({ rpc: 'http://127.0.0.1:1', dryRun: true, gasPrice: '7' });
+  assert.equal(real.some((x) => /key|unlocked/i.test(x)), false);
+  // 2026-10-02: without it forge's local pass used the RPC's 3M small block and the pool creation ran out of gas.
+  assert.equal(real[real.indexOf('--block-gas-limit') + 1], '30000000');
+  const sol = readFileSync(new URL('../../contracts/script/Deploy.s.sol', import.meta.url), 'utf8');
+  const m = /BIG_BLOCK_GAS_LIMIT = ([\d_]+);/.exec(sol);
+  assert.equal(Number(m?.[1].replaceAll('_', '')), BIG_BLOCK_GAS_LIMIT, 'must equal Deploy.BIG_BLOCK_GAS_LIMIT');
+  const dry = forgeArgs({ rpc: 'http://127.0.0.1:1', unlockedSender: ANVIL_ACCOUNT0, gasPrice: '7' });
   assert.deepEqual(dry.slice(-5), ['--unlocked', '--sender', ANVIL_ACCOUNT0, '--with-gas-price', '7']);
+  const pre = forgeArgs({ rpc: 'https://r', broadcast: false });
+  assert.equal(pre.includes('--broadcast'), false, 'the preflight never broadcasts');
+  assert.ok(pre.includes('--block-gas-limit') && pre.includes('--skip-simulation'));
+});
+
+test('hasCode: eth_getCode results', () => {
+  assert.equal(hasCode('0x'), false);
+  assert.equal(hasCode('0x0'), false);
+  assert.equal(hasCode(''), false);
+  assert.equal(hasCode(null), false);
+  assert.equal(hasCode('0x6080604052'), true);
 });
 
 test('summarizeBroadcast: contracts, gas, precompile targets', () => {
