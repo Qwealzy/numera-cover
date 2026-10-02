@@ -149,7 +149,7 @@ contract DeployTest is Test {
         Deploy.Config memory c = _cfg("mock");
         c.strict = true;
         c.configDelay = 48 hours;
-        c.withdrawDelay = 7 days;
+        c.withdrawDelay = 8 days;
         c.claimWindow = 1 days;
         Deploy.Deployment memory d = script.deploy(c);
         assertTrue(CoverPool(d.pool).strict());

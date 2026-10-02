@@ -15,7 +15,7 @@ import {PoolConfig} from "./utils/PoolConfig.sol";
 /// @notice §5.5 owner controls (Ownable2Step, timelock, guardian, pause), §5.2 limit bounds, §5.6 constructor.
 contract AdminTest is BaseTest {
     uint64 internal constant DELAY = 600;
-    uint64 internal constant GRACE = 14 days;
+    uint64 internal constant GRACE = 3 days;
 
     // ================================================================ initial state (constructor, §5.5 / §5.6)
 
@@ -27,7 +27,7 @@ contract AdminTest is BaseTest {
         assertEq(pool.withdrawDelay(), 600);
         assertEq(pool.claimWindow(), 3_600);
         assertFalse(pool.strict());
-        assertEq(pool.CONFIG_GRACE(), 14 days);
+        assertEq(pool.CONFIG_GRACE(), 3 days);
         assertTrue(pool.perpAllowed(BTC));
         assertTrue(pool.perpAllowed(ETH));
         assertTrue(pool.perpAllowed(SOL));
@@ -105,7 +105,7 @@ contract AdminTest is BaseTest {
         c = _ctor();
         c.strict = true;
         c.configDelay = 48 hours;
-        c.withdrawDelay = 7 days;
+        c.withdrawDelay = 8 days; // > maxDuration (7 days): strict needs a strict inequality (L-1)
         c.claimWindow = 1 days;
     }
 
@@ -201,7 +201,7 @@ contract AdminTest is BaseTest {
         c.configDelay = 48 hours - 1;
         _expectCtorRevert(c, err);
         c = _strictCtor();
-        c.claimWindow = 1 days + 1; // also > withdrawDelay / 7
+        c.claimWindow = 1 days + 1; // > 1 day
         _expectCtorRevert(c, err);
         c = _strictCtor();
         c.withdrawDelay = 14 days;
@@ -209,19 +209,24 @@ contract AdminTest is BaseTest {
         _expectCtorRevert(c, err);
         c = _strictCtor();
         c.withdrawDelay = 6 days;
-        c.limits.maxDuration = 6 days;
+        c.limits.maxDuration = 6 days - 1;
         c.claimWindow = uint64(6 days) / 7 + 1; // > withdrawDelay / 7
         _expectCtorRevert(c, err);
         c.claimWindow = uint64(6 days) / 7;
         _deploy(c);
     }
 
-    /// @dev Strict: withdrawDelay >= maxDuration, checked by _validateLimits (now and in every later setLimits).
-    function test_revert_ctor_strict_withdrawDelayBelowMaxDuration() public {
+    /// @dev Strict: withdrawDelay > maxDuration, checked by _validateLimits (now and in every later setLimits).
+    ///      Equality reverts (audit L-1: a one-second overlap), +1 passes.
+    function test_revert_ctor_strict_withdrawDelayNotAboveMaxDuration() public {
         Ctor memory c = _strictCtor();
-        c.withdrawDelay = 7 days - 1;
         c.claimWindow = 10 minutes;
+        c.withdrawDelay = 7 days - 1;
         _expectCtorRevert(c, abi.encodeWithSelector(ICoverPool.InvalidLimits.selector));
+        c.withdrawDelay = 7 days; // == maxDuration
+        _expectCtorRevert(c, abi.encodeWithSelector(ICoverPool.InvalidLimits.selector));
+        c.withdrawDelay = 7 days + 1;
+        assertEq(_deploy(c).withdrawDelay(), 7 days + 1);
     }
 
     function test_revert_ctor_invalidLimits() public {
@@ -378,8 +383,10 @@ contract AdminTest is BaseTest {
         ICoverPool.Limits memory l;
 
         l = _copy(base);
-        l.maxDuration = 7 days + 1; // > withdrawDelay
+        l.maxDuration = 8 days; // == withdrawDelay (L-1)
         _expectLimitsRevert(l);
+        l.maxDuration = 8 days - 1;
+        _expectLimitsOk(l);
         l = _copy(base);
         l.maxSpotDeviationBps = 101;
         _expectLimitsRevert(l);

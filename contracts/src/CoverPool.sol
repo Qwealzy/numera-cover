@@ -35,7 +35,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable2Step, Pausable, Reent
         "Quote(address buyer,uint32 perpIndex,bool isLong,uint64 level,uint256 payout,uint256 premium,uint64 expiry,uint64 spotRef,uint64 deadline,uint256 nonce)"
     );
     /// @notice Execute window after an operation's eta (§5.5).
-    uint64 public constant CONFIG_GRACE = 14 days;
+    uint64 public constant CONFIG_GRACE = 3 days;
     uint256 private constant BPS = 10_000;
     /// @dev Share decimals = 6 (USDC) + 6. Virtual shares/assets defeat the first-depositor inflation attack.
     uint8 private constant DECIMALS_OFFSET = 6;
@@ -126,7 +126,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable2Step, Pausable, Reent
         claimWindow = claimWindow_;
         strict = strict_;
 
-        _validateLimits(limits_); // strict: maxDuration <= withdrawDelay is checked here (InvalidLimits)
+        _validateLimits(limits_); // strict: maxDuration < withdrawDelay is checked here (InvalidLimits)
         _setQuoteSigner(quoteSigner_);
         _setLimits(limits_);
         _setGuardian(guardian_);
@@ -565,9 +565,16 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable2Step, Pausable, Reent
     }
 
     /// @inheritdoc ICoverPool
+    /// @dev Unpausing also resets the breaker window, so the next payout opens a fresh one instead of
+    ///      re-tripping on the payouts that tripped it.
     function setPaused(bool paused_) external onlyOwner {
-        if (paused_) _pause();
-        else _unpause();
+        if (paused_) {
+            _pause();
+        } else {
+            _unpause();
+            paidWindowStart = 0;
+            paidInWindow = 0;
+        }
     }
 
     /// @notice Disabled: a renounced pool could never be paused again.
@@ -657,7 +664,7 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable2Step, Pausable, Reent
             || l.maxBuyerWindowShareBps == 0 || l.maxBuyerWindowShareBps > BPS || l.maxPaidPerWindowBps == 0
             || l.maxPaidPerWindowBps > l.maxSoldPerWindowBps;
         if (strict) {
-            bad = bad || l.maxDuration > withdrawDelay || l.maxSpotDeviationBps > 100 || l.minLevelDistanceBps < 10
+            bad = bad || l.maxDuration >= withdrawDelay || l.maxSpotDeviationBps > 100 || l.minLevelDistanceBps < 10
                 || l.saleWindow < 3_600 || l.maxSoldPerWindowBps > 2_500;
         }
         if (bad) revert InvalidLimits();

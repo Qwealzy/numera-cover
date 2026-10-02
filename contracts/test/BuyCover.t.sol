@@ -360,6 +360,17 @@ contract BuyCoverTest is BaseTest {
         _buy(_quoteOn(BTC, BTC_PX, maxPerp));
     }
 
+    /// @dev B drops by the assets of the requested shares as soon as a request is made, and recovers on cancel.
+    function test_check5_capacityBaseDropsAfterRequestRedeem() public {
+        assertEq(pool.capacityBase(), LP_DEPOSIT);
+        _request(lp, pool.balanceOf(lp) * 4 / 10);
+        assertEq(pool.capacityBase(), LP_DEPOSIT * 6 / 10);
+        assertEq(pool.totalAssets(), LP_DEPOSIT);
+        vm.prank(lp);
+        pool.cancelRedeemRequest();
+        assertEq(pool.capacityBase(), LP_DEPOSIT);
+    }
+
     /// @dev Unearned premiums and owed payouts are not in B.
     function test_check5_capacityBaseExcludesUnearnedAndOwed() public {
         uint256 id = _buy(_quote());
@@ -434,6 +445,29 @@ contract BuyCoverTest is BaseTest {
         (uint64 s0, uint192 sold0) = pool.buyerWindow(crowd[0]);
         assertEq(s0, vm.getBlockTimestamp());
         assertEq(sold0, 6_000e6);
+    }
+
+    /// @dev Per-buyer keying across a reset: another buyer opens the new window; the first buyer's old record
+    ///      (start = old windowStart) no longer counts, so the full buyer cap is available again.
+    function test_check6_buyerWindowKeyedByWindowStart_afterOtherBuyerOpensWindow() public {
+        _crowd(2);
+        _buy(_quoteFor(crowd[0], 6_000e6)); // window 1
+        uint64 w1 = pool.windowStart();
+        vm.warp(w1 + 3_600);
+        _buy(_quoteFor(crowd[1], 1e6)); // crowd[1] opens window 2
+        uint64 w2 = pool.windowStart();
+        assertGt(w2, w1);
+        (uint64 s0, uint192 sold0) = pool.buyerWindow(crowd[0]);
+        assertEq(s0, w1, "stale record still stored");
+        assertEq(sold0, 6_000e6);
+        _buy(_quoteFor(crowd[0], 6_250e6)); // a full buyer cap: the stale 6,000 is ignored
+        (s0, sold0) = pool.buyerWindow(crowd[0]);
+        assertEq(s0, w2);
+        assertEq(sold0, 6_250e6);
+        _expectBuyRevert(
+            _quoteFor(crowd[0], 1e6),
+            abi.encodeWithSelector(ICoverPool.BuyerWindowCapExceeded.selector, crowd[0], 6_251e6, 6_250e6)
+        );
     }
 
     /// @dev A deposit mid-window does not raise the window's cap (the snapshot is the base for the whole window).

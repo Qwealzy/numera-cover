@@ -266,25 +266,64 @@ contract TriggerExpireTest is BaseTest {
         _buy(_quote());
     }
 
-    function test_breaker_atCapDoesNotTrip() public {
-        address a = makeAddr("a");
-        _bigPosition(a, BTC);
-        _fund(a);
-        _bigPosition(buyer, BTC);
-        ICoverPool.Quote memory q = _quote();
-        q.payout = 6_250e6;
-        q.premium = 100e6;
-        uint256 id1 = _buy(q);
-        q = _quote();
-        q.buyer = a;
-        q.payout = 6_250e6;
-        q.premium = 100e6;
-        uint256 id2 = _buy(q);
+    /// @dev Three buyers whose payouts sum to `total`; returns the cover ids (all BTC long, level 80k).
+    function _threeCovers(uint256 total) internal returns (uint256[] memory ids) {
+        ids = new uint256[](3);
+        for (uint256 i; i < 3; ++i) {
+            address b = makeAddr(string.concat("c", vm.toString(i)));
+            _bigPosition(b, BTC);
+            _fund(b);
+            ICoverPool.Quote memory q = _quote();
+            q.buyer = b;
+            q.payout = i < 2 ? 6_250e6 : total - 12_500e6;
+            q.premium = 100e6;
+            ids[i] = _buy(q);
+        }
+    }
+
+    /// @dev Boundary: paidInWindow == cap (15,000 on 100k) does not trip; cap + 1 does (previous test).
+    function test_breaker_exactlyAtCapDoesNotTrip() public {
+        uint256[] memory ids = _threeCovers(15_000e6);
         _setPrice(BTC, 70_000e6);
-        pool.trigger(id1);
-        pool.trigger(id2);
-        assertEq(pool.paidInWindow(), 12_500e6);
-        assertFalse(pool.paused(), "12,500 <= 15,000");
+        for (uint256 i; i < 3; ++i) {
+            pool.trigger(ids[i]);
+        }
+        assertEq(pool.paidInWindow(), 15_000e6);
+        assertEq(pool.paidWindowAssets() * 1_500 / 10_000, 15_000e6, "cap");
+        assertFalse(pool.paused(), "15,000 == cap does not trip");
+    }
+
+    /// @dev L-2: an owner unpause resets the breaker window, so the next payout opens a fresh one instead of
+    ///      re-tripping on the payouts that tripped it.
+    function test_breaker_unpauseResetsWindow() public {
+        uint256[] memory ids = _threeCovers(15_000e6 + 1);
+        (uint256 later,) = _longCover(); // 1,000 more, triggered after the unpause
+        _setPrice(BTC, 70_000e6);
+        for (uint256 i; i < 3; ++i) {
+            pool.trigger(ids[i]);
+        }
+        assertTrue(pool.paused(), "tripped");
+        _unpause();
+        assertEq(pool.paidWindowStart(), 0);
+        assertEq(pool.paidInWindow(), 0);
+
+        uint256 b = pool.capacityBase();
+        pool.trigger(later); // same second as the trip: without the reset 16,000 > 15,000 would re-trip
+        assertFalse(pool.paused(), "fresh window");
+        assertEq(pool.paidWindowStart(), vm.getBlockTimestamp());
+        assertEq(pool.paidWindowAssets(), b);
+        assertEq(pool.paidInWindow(), 1_000e6);
+    }
+
+    /// @dev A pause (not an unpause) leaves the breaker window alone.
+    function test_breaker_pauseDoesNotReset() public {
+        (uint256 id,) = _longCover();
+        _setPrice(BTC, 70_000e6);
+        pool.trigger(id);
+        uint64 start = pool.paidWindowStart();
+        _pause();
+        assertEq(pool.paidWindowStart(), start);
+        assertEq(pool.paidInWindow(), 1_000e6);
     }
 
     function test_breaker_alreadyPaused_noEvent() public {

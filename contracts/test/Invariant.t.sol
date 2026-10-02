@@ -335,8 +335,14 @@ contract V2Handler is Test {
         }
     }
 
-    function claimPayout(uint256 buyerSeed) external trackSupply {
+    /// @dev Half of the calls first lift the buyer's token refusal (as a real buyer would get unblocked), so
+    ///      deferred payouts are also claimed successfully during the campaign, not only in afterInvariant.
+    function claimPayout(uint256 buyerSeed, bool clearRefusal) external trackSupply {
         address b = buyers[buyerSeed % 3];
+        if (clearRefusal) {
+            usdc.setBlocked(b, false);
+            usdc.setSilent(b, false);
+        }
         vm.prank(b);
         try pool.claimPayout() {
             nClaimedPayout++;
@@ -512,7 +518,7 @@ contract InvariantTest is Test {
             handler.deposit(j, 70_000e6);
         }
 
-        bytes4[] memory sel = new bytes4[](28);
+        bytes4[] memory sel = new bytes4[](30);
         sel[0] = V2Handler.deposit.selector;
         sel[1] = V2Handler.mint.selector;
         sel[2] = V2Handler.requestRedeem.selector;
@@ -541,6 +547,8 @@ contract InvariantTest is Test {
         sel[25] = V2Handler.buyCover.selector;
         sel[26] = V2Handler.triggerCover.selector;
         sel[27] = V2Handler.movePrice.selector;
+        sel[28] = V2Handler.claimPayout.selector;
+        sel[29] = V2Handler.triggerCover.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: sel}));
         targetContract(address(handler));
     }
@@ -774,7 +782,7 @@ contract InvariantTest is Test {
         assertEq(handler.nTriggered(), 1);
         assertEq(handler.nDeferred(), 1);
         handler.setRefusal(0, 2);
-        handler.claimPayout(0);
+        handler.claimPayout(0, false);
         assertEq(handler.nClaimedPayout(), 1);
 
         handler.requestRedeem(0, type(uint256).max);

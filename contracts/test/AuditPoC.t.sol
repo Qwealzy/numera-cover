@@ -3,6 +3,10 @@ pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {CoverPool} from "../src/CoverPool.sol";
+import {IPriceSource} from "../src/interfaces/IPriceSource.sol";
+import {IPositionSource} from "../src/interfaces/IPositionSource.sol";
 import {ICoverPool} from "../src/interfaces/ICoverPool.sol";
 import {BaseTest} from "./Base.t.sol";
 import {PoolConfig} from "./utils/PoolConfig.sol";
@@ -95,9 +99,11 @@ contract AuditPoCTest is BaseTest {
         _expectBuyRevert(q, abi.encodeWithSelector(ICoverPool.LevelTooClose.selector, BTC_PX, BTC_PX - 1));
     }
 
-    /// v2 worst case with the leaked key: floor premium, minimum distance, four funded addresses, every cover
-    /// triggered. The window cap bounds round 1 at 25 % of B; the breaker pauses within that window, so the
-    /// following rounds sell nothing. Loss = 25 % x (1 - 0.2 %) = 24.95 %.
+    /// v2 with the leaked key, selling and triggering at once: floor premium, minimum distance, four funded
+    /// addresses, every cover triggered. The window cap bounds round 1 at 25 % of B; the breaker pauses within
+    /// that window, so the following rounds sell nothing. Loss = 25 % x (1 - 0.2 %) = 24.95 % for THIS path only:
+    /// it is not a general bound (ARCHITECTURE §5.3: the patient path is bounded by maxUtilization, and with
+    /// non-strict delays an attacker who supplies capital defeats the per-window bound, audit M-1).
     function test_poc2_compromisedSigner_boundedByThrottleAndBreaker() public {
         _attackers(4);
         uint256 start = pool.totalAssets();
@@ -196,6 +202,61 @@ contract AuditPoCTest is BaseTest {
         uint256 lossBps = (honestStart - honestEnd) * BPS / honestStart;
         console2.log("honest LP loss (bps)   ", lossBps);
         assertLe(lossBps, 2_495, "bounded by one window: c = 0.2495");
+    }
+
+    // ================================================================ L-1: strict withdrawDelay vs maxDuration
+
+    function _strictPool(uint64 withdrawDelay_) internal returns (CoverPool) {
+        return new CoverPool(
+            IERC20(address(usdc)),
+            owner,
+            signer,
+            guardian,
+            IPriceSource(address(prices)),
+            IPositionSource(address(positions)),
+            PoolConfig.testnetLimits(), // maxDuration 7 days
+            PoolConfig.perps3(BTC, ETH, SOL),
+            48 hours,
+            withdrawDelay_,
+            1 days,
+            true
+        );
+    }
+
+    /// Audit L-1: with withdrawDelay == maxDuration, a cover sold in the request's second could still be
+    /// triggered in the first second the request is claimable (claim at par, then trigger). v2 requires
+    /// withdrawDelay > maxDuration in strict mode, so the configuration is refused and, at +1 s, the cover has
+    /// expired before the claim opens.
+    function test_l1_strictEqualityRefused_andOverlapClosed() public {
+        vm.expectRevert(ICoverPool.InvalidLimits.selector);
+        _strictPool(7 days); // == maxDuration
+
+        pool = _strictPool(7 days + 1);
+        _deposit(lp, LP_DEPOSIT);
+        _fund(buyer);
+        ICoverPool.Quote memory q = _quote();
+        q.expiry = uint64(vm.getBlockTimestamp() + 7 days); // the longest cover, sold in the request's second
+        uint256 id = _buy(q);
+        _request(lp, pool.balanceOf(lp));
+        (,uint64 claimableAt,,) = pool.redeemRequestOf(lp);
+        assertGt(claimableAt, q.expiry, "claim opens after the last second the cover can trigger");
+
+        vm.warp(q.expiry); // last trigger second: the request is still Pending
+        assertEq(pool.maxWithdraw(lp), 0);
+        vm.warp(claimableAt); // first claim second: the cover can no longer trigger
+        _setPrice(BTC, q.level);
+        vm.expectRevert(abi.encodeWithSelector(ICoverPool.CoverPastExpiry.selector, id, q.expiry));
+        pool.trigger(id);
+    }
+
+    /// Strict pools also refuse a later setLimits that would reach equality.
+    function test_l1_strictSetLimitsEqualityRefused() public {
+        pool = _strictPool(7 days + 1);
+        ICoverPool.Limits memory l = PoolConfig.testnetLimits();
+        l.maxDuration = 7 days + 1;
+        vm.prank(owner);
+        vm.expectRevert(ICoverPool.InvalidLimits.selector);
+        pool.queueSetLimits(l);
     }
 
     // ================================================================ v1 PoC 4 and 5 (M-level), for completeness
