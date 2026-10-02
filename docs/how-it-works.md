@@ -673,7 +673,8 @@ For a v2 pool (§5, not yet deployed) the engine will also read the pool's on-ch
 sale-window state and never sign a quote the contract would reject. A model premium below `minPremiumBps`
 of the payout is raised to that floor and the breakdown reports `floorApplied: true`; `perp_not_allowed`
 when the perp is not allowed on that pool; `level_too_close` when the level is closer to spot than
-`minLevelDistanceBps`; `capacity` when the payout exceeds what is left of the sale-window cap or the buyer's
+`minLevelDistanceBps` plus a margin for the allowed oracle move (`m + d + ceil(m·d / 10000)`, 56 bps on
+testnet), so the contract's own distance check, made against the live oracle, cannot fail; `capacity` when the payout exceeds what is left of the sale-window cap or the buyer's
 share of it. v1 pools keep today's behaviour.
 
 ## 7. Pricing model (v4)

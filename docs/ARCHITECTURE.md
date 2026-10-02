@@ -680,7 +680,11 @@ v2 contract follow-up (specified 2026-10-02, §5.10; applies once a v2 pool is i
   - the premium is **raised** to the on-chain floor `ceil(payout × minPremiumBps / 10000)` when the model
     premium is below it; additive breakdown field `floorApplied: bool` (no new error code);
   - `perp_not_allowed` (400) also when `perpAllowed(perp)` is false on the target pool;
-  - `level_too_close` (422) also when `|S − level| × 10000 < S × minLevelDistanceBps`;
+  - `level_too_close` (422) also when `|S − level| × 10000 < S × M`, with the margin
+    `M = m + d + ceil(m·d / 10000)` (m = `minLevelDistanceBps`, d = `maxSpotDeviationBps`; 56 bps on
+    testnet): the contract measures the distance from the live oracle, which may sit up to d away from S,
+    and `m + d` alone fails for a short cover whose oracle rose by the full d (property-tested in
+    `engine/tests/test_poolv2.py`);
   - `capacity` (422) also when the payout would exceed the remaining sale-window cap or the buyer's share
     of it, or the utilization caps against `capacityBase()`.
 - v1 pools (no such getters) keep today's behaviour; the engine detects v2 by a successful `minPremiumBps()`
