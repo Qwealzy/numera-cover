@@ -1,8 +1,8 @@
 // One row per coverable position, merged from the Info API (real pool) or the MOCK position source.
 import type { Address } from 'viem';
 import { PERPS, perpIndexOf, type PoolConfig } from '../config';
-import { fetchAccount, type Market } from './info';
-import { mockPositionLiq, positionLiq, type ApiAccount, type LiqResult, type Side } from './liq';
+import { fetchAbstraction, fetchAccount, fetchSpotAccount, spotCollateralTotal, type Market } from './info';
+import { accountModeOf, mockPositionLiq, positionLiq, type AccountCtx, type AccountMode, type ApiAccount, type LiqResult, type Side } from './liq';
 import { firstLine, readPositions, type OnchainPosition, type ReadClient } from './pool';
 import { PartialData, isRateLimited } from './rpc';
 
@@ -20,6 +20,8 @@ export interface PositionRow {
   szDecimals: number;
   uPnl: number | undefined;
   liq: LiqResult;
+  /** Hyperliquid account abstraction mode (userAbstraction); undefined for MOCK rows or when the read failed. */
+  accountMode?: AccountMode;
   onchain: OnchainPosition | { error: string } | undefined; // what buyCover check 4 sees
   cap: bigint | undefined; // max payout = entryNtl / leverage (from the position source)
   /** Why `cap` is undefined although the perp is configured (read failed after retries, or the entry reverted). */
@@ -31,6 +33,8 @@ export interface PositionRow {
 export interface LoadDeps {
   client?: Pick<ReadClient, 'multicall'>;
   fetchAccount?: typeof fetchAccount;
+  fetchAbstraction?: typeof fetchAbstraction;
+  fetchSpotAccount?: typeof fetchSpotAccount;
   retryDelaysMs?: number[];
 }
 
@@ -75,16 +79,48 @@ export async function readCaps(positionSource: Address, user: Address, perps: nu
 }
 
 async function loadReal(pool: PoolConfig, user: Address, market: Market | undefined, signal: AbortSignal | undefined, deps: LoadDeps): Promise<PositionRow[]> {
-  const acct = await (deps.fetchAccount ?? fetchAccount)(user, signal);
+  const [acct, ctx] = await Promise.all([(deps.fetchAccount ?? fetchAccount)(user, signal), loadAccountCtx(user, signal, deps)]);
   const positions = acct.assetPositions.map((a) => a.position);
   const idxs = positions.map((p) => perpIndexOf(p.coin)).filter((x): x is number => x !== undefined);
   const caps = await readCaps(pool.positionSource, user, idxs, deps, signal);
-  const rows = buildRealRows(positions, acct, market, caps);
+  const rows = buildRealRows(positions, acct, market, caps, ctx);
   if (!(caps instanceof Map) && caps.rateLimited) throw new PartialData(rows, caps.cause);
   return rows;
 }
 
-function buildRealRows(positions: ApiAccount['assetPositions'][number]['position'][], acct: ApiAccount, market: Market | undefined, caps: CapsResult): PositionRow[] {
+/**
+ * Account mode (userAbstraction, cached per wallet) and, for unified / portfolio-margin accounts, the spot
+ * USDC total that collateralizes cross positions. A failed read falls back to the standard (perp-only)
+ * formula; positionLiq then flags the estimate. An abort is rethrown.
+ */
+export async function loadAccountCtx(user: Address, signal: AbortSignal | undefined, deps: LoadDeps = {}): Promise<AccountCtx & { known: boolean }> {
+  let abstraction: string;
+  try {
+    abstraction = await (deps.fetchAbstraction ?? fetchAbstraction)(user);
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw e;
+    console.warn('[numera] userAbstraction read failed; using the standard liquidation formula', e);
+    return { mode: 'standard', known: false };
+  }
+  const mode = accountModeOf(abstraction);
+  if (mode === 'standard') return { mode, known: true };
+  try {
+    const spot = await (deps.fetchSpotAccount ?? fetchSpotAccount)(user, signal);
+    return { mode, known: true, spotCollateralTotal: spotCollateralTotal(spot) };
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw e;
+    console.warn('[numera] spotClearinghouseState read failed; liq price is a perp-only estimate', e);
+    return { mode, known: true };
+  }
+}
+
+function buildRealRows(
+  positions: ApiAccount['assetPositions'][number]['position'][],
+  acct: ApiAccount,
+  market: Market | undefined,
+  caps: CapsResult,
+  ctx: AccountCtx & { known: boolean },
+): PositionRow[] {
   const onchain = caps instanceof Map ? caps : undefined;
   const readError = caps instanceof Map ? undefined : caps.error;
   return positions.map((p) => {
@@ -107,7 +143,8 @@ function buildRealRows(positions: ApiAccount['assetPositions'][number]['position
       maxLeverage: p.maxLeverage,
       szDecimals: m?.meta.szDecimals ?? 0,
       uPnl: Number(p.unrealizedPnl),
-      liq: positionLiq(p, acct, markPx ?? 0),
+      liq: positionLiq(p, acct, markPx ?? 0, ctx),
+      accountMode: ctx.known ? ctx.mode : undefined,
       onchain: oc,
       cap: oc && 'cap' in oc ? oc.cap : undefined,
       capError: oc && 'error' in oc ? oc.error : undefined,
@@ -142,7 +179,7 @@ async function loadMock(pool: PoolConfig, user: Address, market: Market | undefi
       maxLeverage,
       szDecimals,
       uPnl: undefined,
-      liq: { px: mockPositionLiq(size, side, entryPx, oc.leverage, maxLeverage), source: 'computed' },
+      liq: { px: mockPositionLiq(size, side, entryPx, oc.leverage, maxLeverage), source: 'computed', formula: 'mock' },
       onchain: oc,
       cap: oc.cap,
       source: 'mock',

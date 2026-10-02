@@ -3,8 +3,9 @@ import { getAddress } from 'viem';
 import { POOLS, perpIndexOf } from '../config';
 import { fmtUsdc } from './format';
 import type { ApiAccount } from './liq';
-import { POLLED_CAP_RETRY_MS, capView, loadPositions, readCaps, type LoadDeps, type PositionRow } from './positions';
+import { POLLED_CAP_RETRY_MS, capView, loadAccountCtx, loadPositions, readCaps, type LoadDeps, type PositionRow } from './positions';
 import { PartialData, isRateLimited, retryRateLimited } from './rpc';
+import { clearAbstractionCache, fetchAbstraction as realFetchAbstraction, spotCollateralTotal } from './info';
 
 // Founder wallet test 2026-10-02: Info API BTC long 0.00117 @ 85065, 10x cross; position source
 // position(wallet, BTC) -> (117, 99526050, 10), cap 9.952605 (backlog.md checkpoint).
@@ -34,6 +35,7 @@ const account: ApiAccount = {
 const okResult = { status: 'success' as const, result: [117n, 99526050n, 10] as const };
 const rateLimited = () => Object.assign(new Error('HTTP request failed. Details: rate limited'), { code: -32005 });
 const fetchAccount = (async () => account) as unknown as NonNullable<LoadDeps['fetchAccount']>;
+const fetchAbstraction = async () => 'default';
 
 function client(answers: (() => unknown)[]) {
   let n = 0;
@@ -65,7 +67,7 @@ describe('max payout (cap) read', () => {
   it('a rate-limited first answer is retried and the cap arrives (9.952605)', async () => {
     const c = client([rateLimited, () => [okResult]]);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0, 0] });
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, fetchAbstraction, retryDelaysMs: [0, 0] });
     expect(c.multicall).toHaveBeenCalledTimes(2);
     expect(rows[0].cap).toBe(9952605n);
     expect(rows[0].capError).toBeUndefined();
@@ -77,7 +79,7 @@ describe('max payout (cap) read', () => {
     const c = client([rateLimited]);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const e = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0] }).catch((x) => x);
+    const e = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, fetchAbstraction, retryDelaysMs: [0] }).catch((x) => x);
     expect(c.multicall).toHaveBeenCalledTimes(2); // 1 + one retry: at most 2 eth_calls per poll under a sustained limit
     expect(e).toBeInstanceOf(PartialData);
     expect(isRateLimited(e)).toBe(true); // usePoll: busy hint + backoff
@@ -97,13 +99,13 @@ describe('max payout (cap) read', () => {
     const perEntryLimited = () => [{ status: 'failure', error: new Error('Request exceeds defined limit.', { cause: { code: -32005 } }) }];
     const c = client([perEntryLimited, () => [okResult]]);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, retryDelaysMs: [0, 0] });
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, fetchAbstraction, retryDelaysMs: [0, 0] });
     expect(c.multicall).toHaveBeenCalledTimes(2);
     expect(rows[0].cap).toBe(9952605n);
 
     const c2 = client([perEntryLimited]);
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const e2 = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c2, fetchAccount, retryDelaysMs: [0, 0] }).catch((x) => x);
+    const e2 = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c2, fetchAccount, fetchAbstraction, retryDelaysMs: [0, 0] }).catch((x) => x);
     expect(c2.multicall).toHaveBeenCalledTimes(3);
     expect((e2 as PartialData<PositionRow[]>).partial[0].capError).toBe('RPC rate-limited (-32005/429); retrying with backoff');
   });
@@ -114,7 +116,7 @@ describe('max payout (cap) read', () => {
     const r = await readCaps(POOLS.hypercore.positionSource, WALLET, [BTC], { client: c, retryDelaysMs: [0, 0] });
     expect(c.multicall).toHaveBeenCalledTimes(1);
     expect(r).toMatchObject({ error: 'fetch failed: ECONNRESET', rateLimited: false });
-    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: client([() => new Error('boom')]), fetchAccount });
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: client([() => new Error('boom')]), fetchAccount, fetchAbstraction });
     expect(rows[0].capError).toBe('boom');
   });
 
@@ -131,7 +133,7 @@ describe('max payout (cap) read', () => {
 
   it('a reverted entry inside the multicall becomes the row error', async () => {
     const c = client([() => [{ status: 'failure', error: new Error('execution reverted') }]]);
-    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount });
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: c, fetchAccount, fetchAbstraction });
     expect(rows[0].capError).toMatch(/position read failed: execution reverted/);
     expect(capView(rows[0], fmtUsdc).text).toBe('unavailable (retry)');
   });
@@ -139,6 +141,80 @@ describe('max payout (cap) read', () => {
   it('capView: unconfigured perp is n/a, not unavailable', () => {
     expect(capView({ cap: undefined, perpIndex: undefined }, fmtUsdc)).toMatchObject({ text: 'n/a', unavailable: false });
     expect(capView({ cap: undefined, perpIndex: BTC }, fmtUsdc).text).toBe('unavailable (retry)');
+  });
+});
+
+describe('account mode (userAbstraction)', () => {
+  const spot = {
+    balances: [
+      { coin: 'HYPE', token: 1105, total: '5', hold: '0' },
+      { coin: 'USDC', token: 0, total: '800.232358', hold: '10.128456' },
+    ],
+  };
+
+  it('unified account: rows carry the mode and the liq price uses the spot USDC total', async () => {
+    const fetchSpotAccount = vi.fn(async () => spot);
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, {
+      client: client([() => [okResult]]),
+      fetchAccount,
+      fetchAbstraction: async () => 'unifiedAccount',
+      fetchSpotAccount,
+    });
+    expect(rows[0].accountMode).toBe('unified');
+    expect(rows[0].liq.formula).toBe('unified-cross');
+    expect(rows[0].liq.inputs!.marginAvailable).toBeCloseTo(800.232358 - 1.5, 6);
+    expect(fetchSpotAccount).toHaveBeenCalledOnce();
+  });
+
+  it('standard account: no spot read, perp cross formula', async () => {
+    const fetchSpotAccount = vi.fn(async () => spot);
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, { client: client([() => [okResult]]), fetchAccount, fetchAbstraction, fetchSpotAccount });
+    expect(rows[0].accountMode).toBe('standard');
+    expect(rows[0].liq.formula).toBe('cross');
+    expect(fetchSpotAccount).not.toHaveBeenCalled();
+  });
+
+  it('a failed userAbstraction read falls back to the standard formula and leaves the mode unknown', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const rows = await loadPositions(POOLS.hypercore, WALLET, undefined, undefined, {
+      client: client([() => [okResult]]),
+      fetchAccount,
+      fetchAbstraction: async () => Promise.reject(new Error('Info API 500')),
+    });
+    expect(rows[0].accountMode).toBeUndefined();
+    expect(rows[0].liq.formula).toBe('cross');
+  });
+});
+
+describe('fetchAbstraction cache', () => {
+  it('reads userAbstraction once per wallet (case-insensitive) and does not cache a failure', async () => {
+    clearAbstractionCache();
+    const bodies: string[] = [];
+    let fail = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_u: string, init: { body: string }) => {
+        bodies.push(init.body);
+        if (fail) return { ok: false, status: 500 };
+        return { ok: true, json: async () => 'unifiedAccount' };
+      }),
+    );
+    try {
+      await expect(realFetchAbstraction(WALLET)).rejects.toThrow(/500/);
+      fail = false;
+      await expect(realFetchAbstraction(WALLET)).resolves.toBe('unifiedAccount');
+      await expect(realFetchAbstraction(WALLET.toLowerCase())).resolves.toBe('unifiedAccount');
+      expect(bodies).toHaveLength(2);
+      expect(JSON.parse(bodies[1])).toEqual({ type: 'userAbstraction', user: WALLET });
+    } finally {
+      vi.unstubAllGlobals();
+      clearAbstractionCache();
+    }
+  });
+
+  it('spotCollateralTotal finds USDC by name', () => {
+    expect(spotCollateralTotal({ balances: [{ coin: 'USDC', token: 0, total: '800.04', hold: '10.11' }] })).toBe(800.04);
+    expect(spotCollateralTotal({ balances: [] })).toBeUndefined();
   });
 });
 
@@ -151,5 +227,19 @@ describe.skipIf(!process.env.NUMERA_LIVE)('live testnet', () => {
     const p = r.get(BTC);
     console.log('[live] positionSource', POOLS.hypercore.positionSource, 'perp', BTC, 'result', p, 'cap', p && 'cap' in p ? fmtUsdc(p.cap) : p);
     expect(p).toMatchObject({ cap: 9952605n });
+  }, 60_000);
+
+  it('founder wallet liq price, perp-only (before) vs account-mode aware (after)', async () => {
+    const info = await import('./info');
+    const { positionLiq } = await import('./liq');
+    const [acct, market, ctx] = await Promise.all([info.fetchAccount(WALLET), info.fetchMarket(), loadAccountCtx(WALLET, undefined)]);
+    for (const { position: p } of acct.assetPositions) {
+      const mark = Number(market.byName.get(p.coin)?.ctx.markPx ?? 0);
+      const before = positionLiq(p, acct, mark);
+      const after = positionLiq(p, acct, mark, ctx);
+      console.log('[live]', p.coin, 'mode', ctx.mode, 'spot USDC total', ctx.spotCollateralTotal, 'mark', mark, 'api liquidationPx', p.liquidationPx);
+      console.log('[live] before', before.formula, before.px, 'margin_available', before.inputs?.marginAvailable);
+      console.log('[live] after ', after.formula, after.px, 'margin_available', after.inputs?.marginAvailable);
+    }
   }, 60_000);
 });
