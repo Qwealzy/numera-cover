@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getAddress, isAddress, type Address } from 'viem';
-import { PERPS, POLL_MS, POOLS, type PoolConfig, type PoolKind } from './config';
+import { DEFAULT_POOL_KEY, PERPS, POLL_MS, POOLS, type PoolConfig, type PoolKind } from './config';
 import { currentChainId, ensureTestnet, hasInjectedWallet, requestAccounts } from './lib/chain';
 import { describeError } from './lib/errors';
 import { fetchMarket, type Market } from './lib/info';
@@ -14,8 +14,11 @@ const TABS: Tab[] = ['about', 'protect', 'covers', 'pool', 'model'];
 interface AppState {
   tab: Tab;
   setTab: (t: Tab) => void;
+  /** 'hypercore' | 'mock' of the selected pool (v1 or v2). */
   poolKind: PoolKind;
-  setPoolKind: (k: PoolKind) => void;
+  /** Selected entry of POOLS (e.g. 'mock' or 'mock-v2'). */
+  poolKey: string;
+  setPoolKey: (k: string) => void;
   pool: PoolConfig;
   account: Address | undefined;
   chainId: number | undefined;
@@ -34,7 +37,7 @@ interface AppState {
 
 const Ctx = createContext<AppState | null>(null);
 
-function readUrl(): { tab: Tab; pool: PoolKind; as: string } {
+function readUrl(): { tab: Tab; pool: string; as: string } {
   const h = new URLSearchParams(window.location.hash.replace(/^#\/?/, '').replace(/^[^?]*\?/, ''));
   const path = window.location.hash.replace(/^#\/?/, '').split('?')[0] as Tab;
   let storedPool: string | null = null;
@@ -43,39 +46,41 @@ function readUrl(): { tab: Tab; pool: PoolKind; as: string } {
   } catch {
     /* storage blocked */
   }
-  const pool = (h.get('pool') ?? storedPool) === 'mock' ? 'mock' : 'hypercore';
+  const want = h.get('pool') ?? storedPool ?? '';
+  const pool = Object.hasOwn(POOLS, want) ? want : DEFAULT_POOL_KEY;
   return { tab: TABS.includes(path) ? path : 'about', pool, as: h.get('as') ?? '' };
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const init = useMemo(readUrl, []);
   const [tab, setTabState] = useState<Tab>(init.tab);
-  const [poolKind, setPoolKindState] = useState<PoolKind>(init.pool);
+  const [poolKey, setPoolKeyState] = useState<string>(init.pool);
   const [account, setAccount] = useState<Address>();
   const [chainId, setChainId] = useState<number>();
   const [connectError, setConnectError] = useState<string>();
   const [viewAsInput, setViewAsInput] = useState(init.as);
-  const pool = POOLS[poolKind];
+  const pool = POOLS[poolKey] ?? POOLS[DEFAULT_POOL_KEY];
+  const poolKind = pool.kind;
 
   // keep URL in sync: #/<tab>?pool=<kind>&as=<addr>
   useEffect(() => {
     const q = new URLSearchParams();
-    q.set('pool', poolKind);
+    q.set('pool', poolKey);
     if (viewAsInput && !account) q.set('as', viewAsInput);
     const next = `#/${tab}?${q.toString()}`;
     if (window.location.hash !== next) window.history.replaceState(null, '', next);
     try {
-      localStorage.setItem('numera.pool', poolKind);
+      localStorage.setItem('numera.pool', poolKey);
     } catch {
       /* storage blocked */
     }
-  }, [tab, poolKind, viewAsInput, account]);
+  }, [tab, poolKey, viewAsInput, account]);
 
   useEffect(() => {
     const onHash = () => {
       const u = readUrl();
       setTabState(u.tab);
-      if (/[?&]pool=/.test(window.location.hash)) setPoolKindState(u.pool);
+      if (/[?&]pool=/.test(window.location.hash)) setPoolKeyState(u.pool);
       if (u.as) setViewAsInput(u.as);
     };
     window.addEventListener('hashchange', onHash);
@@ -148,7 +153,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     tab,
     setTab,
     poolKind,
-    setPoolKind: setPoolKindState,
+    poolKey,
+    setPoolKey: setPoolKeyState,
     pool,
     account,
     chainId,

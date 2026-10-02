@@ -1,4 +1,4 @@
-import { POOLS, hyperEvmTestnet, type PoolKind } from '../config';
+import { POOLS, hyperEvmTestnet } from '../config';
 import { shortAddr } from '../lib/format';
 import { ensureTestnet } from '../lib/chain';
 import { useApp, type Tab } from '../state';
@@ -14,7 +14,7 @@ const NAV: { tab: Tab; label: string }[] = [
 ];
 
 export function Header() {
-  const { tab, setTab, poolKind, setPoolKind, account, chainId, connect, connectError } = useApp();
+  const { tab, setTab, poolKind, poolKey, setPoolKey, account, chainId, connect, connectError } = useApp();
   const wrongChain = account && chainId !== undefined && chainId !== hyperEvmTestnet.id;
   return (
     <>
@@ -42,8 +42,8 @@ export function Header() {
           </nav>
           <div className="header__end">
             <div className="seg" role="group" aria-label="Pool">
-              {(Object.keys(POOLS) as PoolKind[]).map((k) => (
-                <button key={k} aria-pressed={poolKind === k} onClick={() => setPoolKind(k)} title={POOLS[k].label}>
+              {Object.keys(POOLS).map((k) => (
+                <button key={k} aria-pressed={poolKey === k} onClick={() => setPoolKey(k)} title={POOLS[k].label}>
                   {POOLS[k].short}
                 </button>
               ))}

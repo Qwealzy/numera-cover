@@ -4,7 +4,7 @@ import { useApp } from '../state';
 import { useNow } from '../hooks';
 import { Status, type Cover, type CoverEvents } from '../lib/pool';
 import { fmtDuration, fmtPct, fmtPx6, fmtTime, fmtUsdc } from '../lib/format';
-import { expireCover, triggerCover } from '../lib/tx';
+import { claimPayout, expireCover, triggerCover } from '../lib/tx';
 import { Addr, MockTag, Notice, TxLink, TxStatus, useTx } from '../components/ui';
 import { SubjectBar } from '../components/SubjectBar';
 import { useCovers, usePurchaseTx } from '../components/useCovers';
@@ -38,6 +38,7 @@ export function Covers() {
           </button>
         </div>
       </div>
+      <OwedBanner />
       {!all && <SubjectBar />}
       <section className="panel" style={{ marginTop: 16 }}>
         <div className="panel__head">
@@ -89,6 +90,33 @@ export function Covers() {
         </p>
       </section>
     </>
+  );
+}
+
+/**
+ * v2 (§5.3 trigger step 4): when the token refuses a payout transfer, the payout stays owed to the buyer and
+ * only the buyer can claim it (claimPayout, works while paused). Shown when owed(account) > 0.
+ */
+function OwedBanner() {
+  const { account, pool, stats, refreshAll } = useApp();
+  const tx = useTx();
+  const owed = stats.data?.user?.v2?.owed ?? 0n;
+  if (!account || owed === 0n) return tx.st.phase === 'done' ? <TxStatus st={tx.st} /> : null;
+  return (
+    <div className="notice notice--error" role="status" style={{ marginTop: 12 }}>
+      <span className="mark mark--ring" aria-hidden />
+      {fmtUsdc(owed)} mUSDC of triggered payouts is owed to you by this pool (the payout transfer did not go through). Claim it to your wallet.{' '}
+      <button
+        className="btn btn--small btn--primary"
+        disabled={tx.busy}
+        onClick={async () => (await tx.run('Claim payout', (h) => claimPayout(account, pool.pool, h))) && refreshAll()}
+      >
+        Claim payout
+      </button>
+      <div style={{ marginTop: 6 }}>
+        <TxStatus st={tx.st} />
+      </div>
+    </div>
   );
 }
 

@@ -29,11 +29,11 @@ async function send(account: Address, args: Omit<SimArgs, 'account' | 'chain'>, 
 export const faucet = (account: Address, onHash?: (h: Hex) => void) =>
   send(account, { address: USDC, abi: mockUSDCAbi, functionName: 'mint', args: [account, FAUCET_AMOUNT] }, onHash);
 
-export const approveUsdc = (account: Address, spender: Address, amount: bigint, onHash?: (h: Hex) => void) =>
-  send(account, { address: USDC, abi: mockUSDCAbi, functionName: 'approve', args: [spender, amount] }, onHash);
+export const approveUsdc = (account: Address, spender: Address, amount: bigint, onHash?: (h: Hex) => void, token: Address = USDC) =>
+  send(account, { address: token, abi: mockUSDCAbi, functionName: 'approve', args: [spender, amount] }, onHash);
 
-export async function readAllowance(owner: Address, spender: Address): Promise<bigint> {
-  return publicClient.readContract({ address: USDC, abi: mockUSDCAbi, functionName: 'allowance', args: [owner, spender] });
+export async function readAllowance(owner: Address, spender: Address, token: Address = USDC): Promise<bigint> {
+  return publicClient.readContract({ address: token, abi: mockUSDCAbi, functionName: 'allowance', args: [owner, spender] });
 }
 
 /**
@@ -64,6 +64,27 @@ export const deposit = (account: Address, pool: Address, assets: bigint, onHash?
 
 export const withdraw = (account: Address, pool: Address, assets: bigint, onHash?: (h: Hex) => void) =>
   send(account, { address: pool, abi: coverPoolAbi, functionName: 'withdraw', args: [assets, account, account] }, onHash);
+
+// ---------------------------------------------------------------- CoverPool v2 (ARCHITECTURE §5.3, §5.4)
+
+/** requestRedeem(shares, controller = owner = account). shares = 0 re-queues a lapsed slot (clock restarts). */
+export const requestRedeem = (account: Address, pool: Address, shares: bigint, onHash?: (h: Hex) => void) =>
+  send(account, { address: pool, abi: coverPoolAbi, functionName: 'requestRedeem', args: [shares, account, account] }, onHash);
+
+/** cancelRedeemRequest(): the slot's shares go back to the caller (any state). */
+export const cancelRedeem = (account: Address, pool: Address, onHash?: (h: Hex) => void) =>
+  send(account, { address: pool, abi: coverPoolAbi, functionName: 'cancelRedeemRequest', args: [] }, onHash);
+
+/** Claim `shares` of a Claimable slot: redeem(shares, receiver = account, controller = account). */
+export const claimShares = (account: Address, pool: Address, shares: bigint, onHash?: (h: Hex) => void) =>
+  send(account, { address: pool, abi: coverPoolAbi, functionName: 'redeem', args: [shares, account, account] }, onHash);
+
+/** Claim `assets` from a Claimable slot: v2 withdraw(assets, receiver = account, controller = account). */
+export const claimAssets = (account: Address, pool: Address, assets: bigint, onHash?: (h: Hex) => void) => withdraw(account, pool, assets, onHash);
+
+/** claimPayout(): the caller's own owed (deferred) payouts. */
+export const claimPayout = (account: Address, pool: Address, onHash?: (h: Hex) => void) =>
+  send(account, { address: pool, abi: coverPoolAbi, functionName: 'claimPayout', args: [] }, onHash);
 
 export const setMockPrice = (account: Address, src: Address, perp: number, px6: bigint, onHash?: (h: Hex) => void) =>
   send(account, { address: src, abi: mockPriceSourceAbi, functionName: 'setPrice', args: [perp, px6] }, onHash);

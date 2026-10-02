@@ -72,6 +72,63 @@ export function contractErrorMessage(name: string, args?: Args): string {
       return `Pool capacity reached: locked after this cover would be ${usdc(a[0])}, the limit is ${usdc(a[1])}. Try a smaller payout.`;
     case 'PerPerpCapExceeded':
       return `Capacity for this perp reached (limit ${usdc(a[2])}). Try a smaller payout.`;
+    // CoverPool v2 (ARCHITECTURE §5.7): buyCover floors, allowlist and sale throttle
+    case 'PerpNotAllowed':
+      return `This pool does not sell cover on perp ${big(a[0])} (not on its on-chain allowlist).`;
+    case 'PremiumBelowFloor':
+      return `The premium ${usdc(a[0])} is below the pool’s minimum premium ${usdc(a[1])}. Get a new quote.`;
+    case 'LevelTooClose':
+      return `The level ${px(a[1])} is too close to the oracle ${px(a[0])}: the pool requires a minimum distance. Move the level further away.`;
+    case 'SaleWindowCapExceeded':
+      return `The pool’s sale limit for this window is reached (${usdc(a[0])} after this cover, limit ${usdc(a[1])}). Try a smaller payout or wait for the window to reset.`;
+    case 'BuyerWindowCapExceeded':
+      return `Your share of this window’s sale limit is used up (${usdc(a[1])} after this cover, your limit ${usdc(a[2])}). Wait for the window to reset.`;
+    // v2 payouts
+    case 'NothingOwed':
+      return 'Nothing is owed to this address: every payout was already transferred or claimed.';
+    // v2 LP exits (queued redeem, §5.4)
+    case 'NotShareOwner':
+      return 'Only the share owner can request a redeem of their own shares.';
+    case 'ControllerMustBeOwner':
+      return 'A redeem request must be made for your own address (controller = owner).';
+    case 'NotController':
+      return 'Only the address that made the redeem request can claim it.';
+    case 'RequestClaimable':
+      return 'Your earlier request is claimable now: claim it or cancel it before requesting again.';
+    case 'RequestNotClaimable': {
+      const st = Number(big(a[0]));
+      const why = st === 0 ? 'there is no redeem request' : st === 1 ? 'the request is still waiting for its delay' : st === 3 ? 'the claim window has lapsed; re-queue the request' : `state ${st}`;
+      return `Nothing to claim yet: ${why}. Exits are queued: request, wait, then claim inside the claim window.`;
+    }
+    case 'ZeroShares':
+      return 'Zero shares: enter an amount, or there is no request to cancel.';
+    case 'ExceedsClaimable':
+      return `More than the requested shares (${fmtFixed(big(a[0]), 12, 4)} asked, ${fmtFixed(big(a[1]), 12, 4)} in the request).`;
+    case 'InsufficientFreeAssets':
+      return `The pool’s free assets (${usdc(a[1])}) do not cover ${usdc(a[0])} now: claim part now, the rest stays claimable until covers settle.`;
+    case 'AsyncRedeemOnly':
+      return 'Exits are queued on this pool (request, wait, claim); there is no instant preview.';
+    case 'SharesToPool':
+      return 'Pool shares cannot be sent to the pool itself; use the redeem request.';
+    // v2 owner / timelock / guardian
+    case 'NotGuardian':
+      return 'Only the guardian can pause the pool this way.';
+    case 'OpAlreadyQueued':
+      return 'This configuration change is already queued.';
+    case 'OpNotQueued':
+      return 'This configuration change was not queued (queue it first, then wait for the delay).';
+    case 'OpNotReady':
+      return `This configuration change is queued but not executable before ${time(a[1])}.`;
+    case 'OpStale':
+      return `This configuration change went stale (was executable from ${time(a[1])} for 3 days); cancel and queue it again.`;
+    case 'RenounceDisabled':
+      return 'Renouncing ownership is disabled: a pool without owner could never be paused again.';
+    case 'InvalidDelays':
+      return 'The delays are outside the allowed bounds.';
+    case 'StrictRequired':
+      return 'Off testnet the pool must be deployed in strict mode.';
+    case 'InvalidLimits':
+      return 'These limits are outside the allowed bounds.';
     // trigger / expire
     case 'CoverNotActive':
       return `Cover #${big(a[0])} is no longer active (already paid or expired).`;
@@ -93,11 +150,15 @@ export function contractErrorMessage(name: string, args?: Args): string {
       return `Perp index ${big(a[0])} is not valid on this network.`;
     // OpenZeppelin
     case 'EnforcedPause':
-      return 'The pool is paused: new covers and deposits are off. Trigger, expire and withdrawals still work.';
+      return 'The pool is paused: new covers and deposits are off. Trigger, expire, payout claims and LP exits still work.';
     case 'ERC20InsufficientAllowance':
       return `mUSDC allowance too low (${usdc(a[1])} approved, ${usdc(a[2])} needed). Approve again.`;
     case 'ERC20InsufficientBalance':
-      return `Not enough mUSDC (${usdc(a[1])} available, ${usdc(a[2])} needed). Use the faucet.`;
+      // Pool shares (12 decimals) raise the same error on a v2 requestRedeem; the error does not say which token.
+      return (
+        `Not enough balance: ${usdc(a[1])} available, ${usdc(a[2])} needed (use the faucet for mUSDC). ` +
+        `For an exit request this is pool shares: ${fmtFixed(big(a[1]), 12, 4)} held, ${fmtFixed(big(a[2]), 12, 4)} requested.`
+      );
     case 'ERC4626ExceededMaxWithdraw':
       return `Withdrawal above the maximum ${usdc(a[2])} (only free, unlocked assets can leave).`;
     case 'ERC4626ExceededMaxRedeem':
@@ -128,7 +189,7 @@ export function apiErrorMessage(code: string, reason?: string): string {
     case 'perp_not_allowed':
       return `Numera does not cover this perp yet: only the perps configured for the pools are quoted${r}.`;
     case 'level_too_close':
-      return `The level is too close to the current price: it could be reached while the quote is still valid (30 s), so the pool does not sell it${r}. Move the level further away.`;
+      return `The level is too close to the current price: it could be reached while the quote is still valid (30 s), or it is inside the pool’s on-chain minimum distance, so the pool does not sell it${r}. Move the level further away.`;
     case 'rate_limited':
       return `Too many quote requests in a short time${r}. Wait a few seconds and try again.`;
     case 'market_data_unavailable':
