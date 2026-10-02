@@ -360,7 +360,7 @@ async function main() {
   say('  5. buy        approve(pool, premium) then buyCover(quote, signature)');
   say(`  6. breach     setPrice(${perpIndex}, ${fmtPx(breachPx)}) (${DEFAULTS.breachBps} bps below the level)`);
   say(`  7. wait       for the keeper's trigger, getCover every 1 s, up to ${args.waitS} s${args.selfTrigger ? '; then a deployer trigger (NOT an F9 proof)' : '; never triggers itself'}`);
-  say(`  8. reset      ${args.reset ? 'setPrice back to the live oracle' : 'skipped (--no-reset)'}`);
+  say(`  8. reset      ${args.reset ? `setPrice back to ${args.fork ? 'the reference price' : 'the live oracle'}` : 'skipped (--no-reset)'}`);
   say(`  writes       ${args.fork ? 'a temp file' : `${path.relative(repoRoot, v2File)} pools.mock.${e2eKey(date, false, mock)} (or e2e_F9_selftrigger_...)`}`);
   if (!args.yes) {
     say('nothing sent: re-run with --yes to execute');
@@ -555,13 +555,14 @@ async function main() {
   const key = e2eKey(date, selfTriggered, mock);
   const block = jsonable({
     proof: selfTriggered ? 'NOT an F9 proof: the deployer triggered (--self-trigger)' : 'F9: the keeper triggered the breached cover',
-    note: `MOCK v2 pool, perp ${args.coin}=${perpIndex}; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved ${DEFAULTS.breachBps} bps past the level; by scripts/e2e-mock-v2.mjs at ${git(['rev-parse', '--short', 'HEAD']).out}${args.fork ? ' on a local anvil fork' : ''}`,
+    note: `MOCK v2 pool, perp ${args.coin}=${perpIndex}; deployer as buyer (mock position source); mock price set to ${args.fork ? "the real chain's mock price (the price the engine quotes against)" : 'the live testnet oracle'}, cover bought from an engine quote, price moved ${DEFAULTS.breachBps} bps past the level; by scripts/e2e-mock-v2.mjs at ${git(['rev-parse', '--short', 'HEAD']).out}${args.fork ? ' on a local anvil fork' : ''}`,
     wallet: deployer,
     keeper,
     coverId,
     quote: { spotRef: q.spotRef, level: q.level, payout: q.payout, premium: q.premium, durationSec: args.durationSec, expiry: q.expiry, nonce: q.nonce, touchProb: quote.breakdown?.touchProb, floorApplied: quote.breakdown?.floorApplied, spotSource: quote.breakdown?.spotSource },
     trigger: { caller: d.caller, oraclePx: d.oraclePx, payoutTransfer: d.payoutTransfer },
     timing,
+    ...(args.fork ? { forkKeeper: result.dryKeeper ?? 'the read-only keeper printed no trigger decision' } : {}),
     txs,
   });
   if (args.fork) {
