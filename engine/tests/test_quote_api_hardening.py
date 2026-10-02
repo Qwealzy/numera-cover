@@ -19,6 +19,7 @@ from numera_engine.quote_api import (
     PoolSpotReader,
     RateLimiter,
     Settings,
+    client_ip,
     create_app,
     engine_rpc_urls,
 )
@@ -179,6 +180,53 @@ def test_quote_endpoint_answers_429_after_the_burst_with_cors_and_retry_after():
     assert c.get("/health").status_code == 200  # only POST /quote is limited
     clk.t = 6.0
     assert c.post("/quote", json=body()).status_code == 200
+
+
+def proxied_client(peer, trusted=(), burst=2):
+    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, trusted_proxies=trusted)
+    app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
+                     spot_reader=StubReader(), deployment=DEPLOYMENT,
+                     rate_limiter=RateLimiter(per_min=10, burst=burst, clock=Clock()))  # fmt: skip
+    return TestClient(app, client=(peer, 50000))
+
+
+def codes(c, xffs):
+    return [c.post("/quote", json=body(), headers={"X-Forwarded-For": x}).status_code for x in xffs]
+
+
+def test_client_ip_rules():
+    trusted = frozenset({"127.0.0.1", "::1"})
+    assert client_ip("203.0.113.9", "1.2.3.4", frozenset()) == "203.0.113.9"  # no trusted proxy: XFF ignored
+    assert client_ip("127.0.0.1", "1.2.3.4", trusted) == "1.2.3.4"
+    assert client_ip("127.0.0.1", "6.6.6.6, 1.2.3.4", trusted) == "1.2.3.4"  # spoofed left entry not used
+    assert client_ip("127.0.0.1", "1.2.3.4, 127.0.0.1", trusted) == "1.2.3.4"  # trusted hops skipped
+    assert client_ip("127.0.0.1", None, trusted) == "127.0.0.1"
+    assert client_ip("127.0.0.1", "127.0.0.1", trusted) == "127.0.0.1"
+    assert client_ip("0:0::1", "1.2.3.4", trusted) == "1.2.3.4"  # addresses compared canonically
+
+
+def test_xff_is_ignored_without_a_trusted_proxy():
+    c = proxied_client("127.0.0.1", trusted=())
+    assert codes(c, ["1.1.1.1", "2.2.2.2", "3.3.3.3"]) == [200, 200, 429]  # one bucket: the peer's
+
+
+def test_trusted_proxy_gives_each_forwarded_client_its_own_bucket():
+    c = proxied_client("127.0.0.1", trusted=("127.0.0.1",))
+    assert codes(c, ["1.1.1.1", "1.1.1.1", "1.1.1.1"]) == [200, 200, 429]
+    assert codes(c, ["2.2.2.2", "2.2.2.2"]) == [200, 200]  # a different client is not throttled
+    assert codes(c, ["9.9.9.9, 1.1.1.1"]) == [429]  # client-prepended entry cannot dodge the bucket
+
+
+def test_spoofed_xff_from_an_untrusted_peer_is_ignored():
+    c = proxied_client("203.0.113.9", trusted=("127.0.0.1",))
+    assert codes(c, ["1.1.1.1", "2.2.2.2", "3.3.3.3"]) == [200, 200, 429]
+
+
+def test_trusted_proxies_from_env(monkeypatch):
+    monkeypatch.setenv("NUMERA_TRUSTED_PROXIES", " 127.0.0.1, ::1 ,")
+    assert Settings.from_env().trusted_proxies == ("127.0.0.1", "::1")
+    monkeypatch.delenv("NUMERA_TRUSTED_PROXIES")
+    assert Settings.from_env().trusted_proxies == ()
 
 
 def test_rate_limit_is_on_by_default():

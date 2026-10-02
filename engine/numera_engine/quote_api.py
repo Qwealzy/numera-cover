@@ -17,6 +17,7 @@ The request may name a `pool`; it must be in the allowlist (configured pool + de
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import math
 import os
@@ -119,6 +120,7 @@ class Settings:
     deployments_path: Path | None = None  # pool + perp allowlists, price sources
     rate_per_min: float = DEFAULT_RATE_PER_MIN  # POST /quote per client IP; 0 disables the limit
     rate_burst: int = DEFAULT_RATE_BURST
+    trusted_proxies: tuple[str, ...] = ()  # NUMERA_TRUSTED_PROXIES: peers whose X-Forwarded-For is believed
     spot_cache_s: float = DEFAULT_SPOT_CACHE_S  # pool spot reused per (pool, perp) for this long
 
     def __post_init__(self) -> None:
@@ -160,6 +162,9 @@ class Settings:
             else default_path(e.get("NUMERA_ENV", "local")),
             rate_per_min=float(e.get("NUMERA_RATE_PER_MIN", str(DEFAULT_RATE_PER_MIN))),
             rate_burst=int(e.get("NUMERA_RATE_BURST", str(DEFAULT_RATE_BURST))),
+            trusted_proxies=tuple(
+                x.strip() for x in (e.get("NUMERA_TRUSTED_PROXIES") or "").split(",") if x.strip()
+            ),
             spot_cache_s=float(e.get("NUMERA_SPOT_CACHE_S", str(DEFAULT_SPOT_CACHE_S))),
         )
 
@@ -335,6 +340,30 @@ class BlockClock:
         return ts
 
 
+def _norm_ip(s: str) -> str:
+    """Canonical text of an IP address (so ::1 and 0:0::1 match); anything else as given, stripped."""
+    s = s.strip()
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        return s
+
+
+def client_ip(peer: str, xff: str | None, trusted: frozenset[str] | set[str]) -> str:
+    """Rate-limit key for a request. The direct peer, unless the peer is a trusted proxy (e.g. Caddy on the
+    same host): then the right-most X-Forwarded-For entry that is not itself a trusted proxy, i.e. the
+    address the first trusted hop actually saw. Entries left of it are client-supplied and can be spoofed,
+    so they are never used. Explicit on purpose: no reliance on uvicorn's --proxy-headers."""
+    peer = _norm_ip(peer)
+    if peer not in trusted or not xff:
+        return peer
+    hops = [_norm_ip(h) for h in xff.split(",") if h.strip()]
+    for hop in reversed(hops):
+        if hop not in trusted:
+            return hop
+    return peer  # every hop is a trusted proxy: the request came from the proxies themselves
+
+
 class RateLimiter:
     """Per-key token bucket (audit M4): ``burst`` requests at once, refilled at ``per_min`` per minute.
     ``take(key)`` returns 0.0 when allowed, else the seconds until the next token. Memory is bounded: idle
@@ -438,6 +467,7 @@ def create_app(
     if rate_limiter is None and settings.rate_per_min > 0:
         rate_limiter = RateLimiter(settings.rate_per_min, settings.rate_burst)
     signer_addr = settings.signer_address
+    trusted = frozenset(_norm_ip(p) for p in settings.trusted_proxies)
 
     def now_s() -> int:
         """Latest block timestamp; the wall clock (with a warning) only if the chain cannot be read."""
@@ -453,7 +483,8 @@ def create_app(
     @app.middleware("http")
     async def _rate_limit(request: Request, call_next):  # added before CORS: CORS wraps it (429 readable)
         if rate_limiter is not None and request.method == "POST" and request.url.path == "/quote":
-            ip = request.client.host if request.client else "unknown"
+            peer = request.client.host if request.client else "unknown"
+            ip = client_ip(peer, request.headers.get("x-forwarded-for"), trusted)
             wait = rate_limiter.take(ip)
             if wait > 0:
                 retry = max(1, math.ceil(wait))
