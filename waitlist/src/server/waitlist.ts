@@ -1,0 +1,154 @@
+// Copied from site/src/server/waitlist.ts (waitlist v2 build, 2026-10-02); keep in sync with the original.
+// Waitlist signup logic for the Cloudflare Pages Function functions/api/join.ts.
+// Pure and dependency-free so node --test can run it with a fake D1 and a fake Turnstile (test/waitlist.test.ts).
+// Only erasable TypeScript syntax (Node strips the types when it runs the tests).
+import { CONSENT_VERSIONS } from '../copy/en.ts';
+
+export type Channel = 'telegram' | 'x';
+export const CHANNELS: readonly Channel[] = ['telegram', 'x'];
+
+export const LIMITS = {
+  bodyBytes: 4096, // a valid body is ~2.5 kB at most (Turnstile tokens run to ~2 kB)
+  handleChars: 64, // raw input, before normalisation
+  tokenChars: 2048,
+  perHour: 5, // requests per salted IP hash per rolling hour
+  hourSec: 3600,
+  ipHashKeepSec: 86400, // attempt rows older than this are deleted
+};
+
+// Telegram usernames: 5-32 of [A-Za-z0-9_], starting with a letter. X handles: 1-15 of [A-Za-z0-9_].
+const HANDLE_RE: Record<Channel, RegExp> = {
+  telegram: /^[a-z][a-z0-9_]{4,31}$/,
+  x: /^[a-z0-9_]{1,15}$/,
+};
+const PREFIX: Record<Channel, string> = { telegram: 'tg', x: 'x' };
+
+/** Normalised unique key "tg:<name>" / "x:<name>" (lowercase, no @, no profile URL), or null if invalid. */
+export function normalizeHandle(raw: unknown, channel: Channel): string | null {
+  if (typeof raw !== 'string' || raw.length > LIMITS.handleChars) return null;
+  let h = raw.trim().toLowerCase();
+  h = h.replace(/^https?:\/\//, '').replace(/^(www\.)?(t\.me|telegram\.me|x\.com|twitter\.com)\//, '');
+  h = h.replace(/^@/, '').replace(/\/$/, '');
+  return HANDLE_RE[channel].test(h) ? `${PREFIX[channel]}:${h}` : null;
+}
+
+export type Signup = { handleNorm: string; channel: Channel; consentVersion: string; token: string };
+export type Invalid = { error: 'handle' | 'channel' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
+
+/** Validates a parsed JSON body. -> Signup, or { error } naming the first failing field. */
+export function validateSignup(body: unknown): Signup | Invalid {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'body' };
+  const b = body as Record<string, unknown>;
+  const channel = b.channel;
+  if (channel !== 'telegram' && channel !== 'x') return { error: 'channel' };
+  const handleNorm = normalizeHandle(b.handle, channel);
+  if (!handleNorm) return { error: 'handle' };
+  if (b.consent !== true || typeof b.consentVersion !== 'string' || !CONSENT_VERSIONS.includes(b.consentVersion))
+    return { error: 'consent' };
+  if (b.jurisdiction !== true) return { error: 'jurisdiction' };
+  const token = b.turnstileToken;
+  if (typeof token !== 'string' || !token || token.length > LIMITS.tokenChars) return { error: 'captcha' };
+  return { handleNorm, channel, consentVersion: b.consentVersion, token };
+}
+
+/** Salted SHA-256 of the client IP, hex (the IP itself is never stored). */
+export async function ipHash(ip: string, salt: string): Promise<string> {
+  const data = new TextEncoder().encode(`${salt}|${ip}`);
+  const d = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+// ---- Cloudflare bindings, typed only as far as this file uses them ----
+export interface D1Stmt {
+  bind(...v: unknown[]): D1Stmt;
+  run(): Promise<unknown>;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+}
+export interface D1Like {
+  prepare(sql: string): D1Stmt;
+}
+export type VerifyTurnstile = (token: string, secret: string, ip: string) => Promise<boolean>;
+
+export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+export function turnstileVerifier(fetchFn: typeof fetch = fetch): VerifyTurnstile {
+  return async (token, secret, ip) => {
+    const form = new FormData();
+    form.append('secret', secret);
+    form.append('response', token);
+    if (ip) form.append('remoteip', ip);
+    try {
+      const r = await fetchFn(SITEVERIFY_URL, { method: 'POST', body: form });
+      if (!r.ok) return false;
+      const j = (await r.json()) as { success?: boolean };
+      return j.success === true;
+    } catch {
+      return false;
+    }
+  };
+}
+
+export type JoinEnv = { DB?: D1Like; TURNSTILE_SECRET?: string; IP_HASH_SALT?: string };
+export type JoinDeps = { verify: VerifyTurnstile; now: () => number };
+
+const json = (status: number, body: Record<string, unknown>) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+  });
+
+/**
+ * POST /api/join. Order: config -> content type -> size -> rate limit (every attempt counts) -> validation
+ * -> Turnstile -> insert. A duplicate handle returns the same success as a new one (no enumeration).
+ * Responses: 200 {ok:true} | 400 {ok:false,error} | 403 captcha | 413 | 415 | 429 rate | 500 config/db.
+ */
+export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps): Promise<Response> {
+  const db = env.DB;
+  const secret = env.TURNSTILE_SECRET ?? '';
+  const salt = env.IP_HASH_SALT ?? '';
+  if (!db || !secret || !salt) return json(500, { ok: false, error: 'config' });
+
+  // JSON only: a cross-site form post cannot send it without a CORS preflight, which this endpoint never grants.
+  if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json'))
+    return json(415, { ok: false, error: 'body' });
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > LIMITS.bodyBytes) return json(413, { ok: false, error: 'body' });
+
+  const now = Math.floor(deps.now() / 1000);
+  const ip = request.headers.get('cf-connecting-ip') ?? '';
+  const hash = await ipHash(ip || 'unknown', salt);
+  try {
+    await db.prepare('DELETE FROM join_attempts WHERE created_at < ?').bind(now - LIMITS.ipHashKeepSec).run();
+    const row = await db
+      .prepare('SELECT COUNT(*) AS n FROM join_attempts WHERE ip_hash = ? AND created_at > ?')
+      .bind(hash, now - LIMITS.hourSec)
+      .first<{ n: number }>();
+    if ((row?.n ?? 0) >= LIMITS.perHour) return json(429, { ok: false, error: 'rate' });
+    await db.prepare('INSERT INTO join_attempts (ip_hash, created_at) VALUES (?, ?)').bind(hash, now).run();
+  } catch {
+    return json(500, { ok: false, error: 'db' });
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return json(400, { ok: false, error: 'body' });
+  }
+  const v = validateSignup(body);
+  if ('error' in v) return json(v.error === 'captcha' ? 403 : 400, { ok: false, error: v.error });
+
+  if (!(await deps.verify(v.token, secret, ip))) return json(403, { ok: false, error: 'captcha' });
+
+  try {
+    await db
+      .prepare(
+        'INSERT INTO waitlist (handle_norm, channel, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, 1, ?) ON CONFLICT(handle_norm) DO NOTHING',
+      )
+      .bind(v.handleNorm, v.channel, v.consentVersion, now)
+      .run();
+  } catch {
+    return json(500, { ok: false, error: 'db' });
+  }
+  return json(200, { ok: true });
+}

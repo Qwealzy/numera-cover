@@ -1,0 +1,30 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Wick from '../components/Wick.astro';
+import How from '../components/How.astro';
+import Price from '../components/Price.astro';
+import Underwriters from '../components/Underwriters.astro';
+import Proof from '../components/Proof.astro';
+import Waitlist from '../components/Waitlist.astro';
+import Faq from '../components/Faq.astro';
+import { assertBuildEnv } from '../lib/buildenv.mjs';
+
+const env = assertBuildEnv();
+---
+
+<Base>
+  <Hero />
+  <Wick />
+  <How />
+  <Price />
+  <Underwriters />
+  <Proof />
+  <Waitlist sitekey={env.turnstileSitekey} />
+  <Faq />
+</Base>
+
+<script>
+  import { boot } from '../client/main.ts';
+  boot();
+</script>

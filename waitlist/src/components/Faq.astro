@@ -1,0 +1,96 @@
+---
+// S8: native <details>, seven items, each sourced in src/copy/en.ts.
+import { faq } from '../copy/en.ts';
+---
+
+<section id="faq" class="section faq" aria-labelledby="faq-title">
+  <div class="wrap grid">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{faq.kicker}</p>
+      <h2 id="faq-title">{faq.heading}</h2>
+    </div>
+    <div class="list" data-reveal data-reveal-delay="1">
+      {
+        faq.items.map((it) => (
+          <details>
+            <summary>
+              <span>{it.q}</span>
+              <span class="plus" aria-hidden="true" />
+            </summary>
+            <p>
+              {it.a} {it.link && <a href="/privacy">{it.link}</a>}
+            </p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+    gap: clamp(2rem, 6vw, 5rem);
+    align-items: start;
+  }
+  .list {
+    border-top: 1px solid var(--line);
+  }
+  details {
+    border-bottom: 1px solid var(--line);
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 60px;
+    padding: 0.8rem 0.2rem;
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: 560;
+    color: var(--text-strong);
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary:hover {
+    color: var(--text-accent);
+  }
+  .plus {
+    position: relative;
+    flex: none;
+    width: 14px;
+    height: 14px;
+  }
+  .plus::before,
+  .plus::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 6px;
+    height: 2px;
+    background: currentColor;
+    transition: transform var(--t-ui) var(--spring);
+  }
+  .plus::after {
+    transform: rotate(90deg);
+  }
+  details[open] .plus::after {
+    transform: rotate(0deg);
+  }
+  details p {
+    padding: 0 0.2rem 1.2rem;
+    max-width: 46rem;
+    color: var(--text);
+  }
+  @media (max-width: 860px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

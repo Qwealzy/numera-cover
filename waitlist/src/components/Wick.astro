@@ -1,0 +1,232 @@
+---
+// S2, the problem: three lanes share one scripted wick and one time axis (build spec 2.2 S2).
+import { wick as Wc } from '../copy/en.ts';
+import { laneSvg } from '../lib/lanes.ts';
+const lb = {
+  liq: Wc.marks.liq,
+  level: Wc.marks.level,
+  stop: Wc.marks.stop,
+  fill: Wc.lanes[1].fill!,
+  payout: Wc.marks.payout,
+  small: Wc.marks.small,
+  open: Wc.marks.open,
+  closed: Wc.marks.closed,
+};
+const LW = 900;
+const LH = 132;
+---
+
+<section id="wick" class="section wick" aria-labelledby="wick-title">
+  <div class="wrap">
+    <div class="top">
+      <div class="section-head" data-reveal>
+        <p class="kicker">{Wc.kicker}</p>
+        <h2 id="wick-title">{Wc.heading}</h2>
+        {Wc.body.map((p) => <p class="body">{p}</p>)}
+        <p class="end">{Wc.end}</p>
+      </div>
+      <ul class="figs">
+        {
+          Wc.figures.map((f, i) => (
+            <li data-reveal data-reveal-delay={String(i + 1)}>
+              <span class="fig mono">{f.value}</span>
+              <span class="fig-text">{f.text}</span>
+              <span class="fig-src">Source: {f.source}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div class="lanes" data-lanes data-w={LW} data-h={LH} data-labels={JSON.stringify(lb)} data-reveal>
+      {
+        Wc.lanes.map((l) => (
+          <div class="lane">
+            <div class="lane-head">
+              <h3>{l.title}</h3>
+              <p>{l.end}</p>
+            </div>
+            <svg class="lane-svg" data-lane={l.id} viewBox={`0 0 ${LW} ${LH}`} aria-hidden="true" focusable="false">
+              <Fragment set:html={laneSvg(l.id as 'lev' | 'stop' | 'cover', 1, LW, LH, lb)} />
+            </svg>
+          </div>
+        ))
+      }
+      <div class="scrub">
+        <button type="button" class="icon-btn" data-lanes-replay><span aria-hidden="true">↺</span> {Wc.replay}</button>
+        <label class="visually-hidden" for="wick-scrub">{Wc.scrubber}</label>
+        <input id="wick-scrub" class="range" type="range" min="0" max="1000" step="5" value="1000" data-lanes-scrub aria-valuetext="end of the wick" />
+        <span class="tag tag-sim">{Wc.scripted}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .top {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    gap: clamp(2rem, 6vw, 6rem);
+    align-items: end;
+  }
+  .body {
+    font-size: 1.1rem;
+    max-width: 36rem;
+  }
+  .end {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--text-strong);
+    font-stretch: 85%;
+  }
+  .figs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.4rem;
+  }
+  .figs li {
+    display: grid;
+    gap: 0.2rem;
+    padding-left: 1rem;
+    border-left: 2px solid var(--green);
+  }
+  .fig {
+    font-size: clamp(1.8rem, 1.2rem + 1.8vw, 2.6rem);
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: 1.1;
+  }
+  .fig-text {
+    color: var(--text);
+  }
+  .fig-src {
+    font-size: 0.8rem;
+    color: var(--text-label);
+  }
+  .lanes {
+    margin-top: clamp(3rem, 6vw, 4.5rem);
+    display: grid;
+    gap: 0.75rem;
+    border-top: 1px solid var(--line);
+    padding-top: 1.5rem;
+  }
+  .lane {
+    display: grid;
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+    padding-block: 0.4rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .lane-head {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .lane-head p {
+    font-size: 0.92rem;
+    color: var(--text);
+  }
+  .lane-svg {
+    width: 100%;
+    height: 132px;
+    overflow: visible;
+  }
+  .scrub {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    padding-top: 0.5rem;
+  }
+  .scrub .range {
+    flex: 1 1 14rem;
+  }
+  .lanes :global(.ln-zone) {
+    fill: var(--navy-fill);
+  }
+  .lanes :global(.ln-liq) {
+    stroke: rgb(248 242 239 / 0.75);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 5;
+  }
+  .lanes :global(.ln-stop) {
+    stroke: rgb(248 242 239 / 0.5);
+    stroke-width: 1;
+    stroke-dasharray: 2 4;
+  }
+  .lanes :global(.ln-level) {
+    stroke: var(--green);
+    stroke-width: 2.5;
+  }
+  .lanes :global(.ln-price) {
+    fill: none;
+    stroke: var(--paper);
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+  .lanes :global(.ln-ghost) {
+    fill: none;
+    stroke: rgb(248 242 239 / 0.45);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 4;
+  }
+  .lanes :global(.ln-head) {
+    stroke: rgb(248 242 239 / 0.14);
+    stroke-width: 1;
+  }
+  .lanes :global(.ln-fill) {
+    fill: var(--paper);
+  }
+  .lanes :global(.ln-touch) {
+    fill: none;
+    stroke: var(--green);
+    stroke-width: 2;
+  }
+  .lanes :global(.ln-chip rect) {
+    fill: var(--green);
+  }
+  .lanes :global(.ln-chip text) {
+    fill: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-anchor: middle;
+  }
+  .lanes :global(.ln-pos-frame) {
+    fill: none;
+    stroke: var(--line-strong);
+  }
+  .lanes :global(.ln-pos-frame.closed) {
+    stroke-dasharray: 3 3;
+    stroke: rgb(248 242 239 / 0.6);
+  }
+  .lanes :global(.ln-pos) {
+    fill: var(--paper);
+  }
+  .lanes :global(.ln-t) {
+    fill: var(--text-label);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .lanes :global(.ln-t-green) {
+    fill: var(--text-accent);
+  }
+  .lanes :global(.ln-t-strong) {
+    fill: var(--text-strong);
+  }
+  @media (max-width: 860px) {
+    .top {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lane {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.4rem;
+    }
+    .lane-svg {
+      height: 120px;
+    }
+  }
+</style>

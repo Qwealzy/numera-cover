@@ -1,0 +1,442 @@
+---
+// S7, the waitlist as a cover ticket. The /api/join contract is byte-identical to site/ (handle, channel,
+// consent, consentVersion, jurisdiction, turnstileToken). The door changes wording only; no role on the wire.
+import { waitlist as Wl, CONSENT_VERSION } from '../copy/en.ts';
+import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
+import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
+
+interface Props {
+  sitekey: string;
+}
+const { sitekey } = Astro.props;
+const D = Wl.doors;
+const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
+---
+
+<section id="join" class="section join" aria-labelledby="join-title">
+  <div class="wrap grid">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{Wl.kicker}</p>
+      <h2 id="join-title">{Wl.heading}</h2>
+      <p class="intro">{Wl.intro}</p>
+      <fieldset class="doors">
+        <legend class="label">{D.label}</legend>
+        <div class="seg">
+          <label><input type="radio" name="door" value="trader" checked data-door /><span>{D.trader.tab}</span></label>
+          <label><input type="radio" name="door" value="underwriter" data-door /><span>{D.underwriter.tab}</span></label>
+        </div>
+        <p class="door-note">{D.note}</p>
+      </fieldset>
+    </div>
+
+    <div class="ticket" data-ticket data-state="idle" data-reveal data-reveal-delay="1">
+      <div class="strip" aria-hidden="true">
+        <svg viewBox="0 0 600 84" preserveAspectRatio="none" class="strip-lines" focusable="false">
+          <rect class="s-zone" x="0" y="66" width="600" height="18"></rect>
+          <line class="s-liq" x1="0" x2="600" y1="66" y2="66"></line>
+          <line class="s-level" x1="0" x2="600" y1="56" y2="56"></line>
+          <path class="s-price" d="M0 30 L40 26 L80 31 L120 24 L160 28 L200 22 L240 27 L280 21 L320 25 L360 19 L400 24 L440 18 L480 23 L520 20 L560 22 L600 19"></path>
+          <path class="s-wick" d="M380 22 L400 24 L412 56 L424 30 L440 18"></path>
+          <line class="s-pulse" x1="0" x2="80" y1="56" y2="56"></line>
+        </svg>
+        <span class="s-ring"></span>
+        <svg class="seal" viewBox="-40 -20 600 552" focusable="false">
+          <polygon class="seal-navy" points={poly(MARK_NAVY)}></polygon>
+          <polygon class="seal-green" points={poly(MARK_GREEN)}></polygon>
+        </svg>
+      </div>
+
+      <div class="ticket-body">
+        <p class="t-title" data-door-title>{D.trader.title}</p>
+        <p class="t-line" data-door-line>{D.trader.line}</p>
+
+        <form
+          class="form"
+          method="post"
+          action="/api/join"
+          novalidate
+          data-form
+          data-endpoint={WAITLIST_ENDPOINT}
+          data-turnstile={TURNSTILE_SCRIPT}
+          data-sitekey={sitekey}
+          data-errors={JSON.stringify(Wl.errors)}
+          data-sending={Wl.sending}
+          data-success={Wl.success}
+          data-valid={JSON.stringify(Wl.valid)}
+          data-doors={JSON.stringify({ trader: D.trader, underwriter: D.underwriter })}
+        >
+          <fieldset class="channel">
+            <legend class="label">{Wl.channel.label}</legend>
+            <div class="seg">
+              {Wl.channel.options.map((o, i) => (
+                <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div class="field">
+            <label for="wl-handle" class="label">{Wl.handle.label}</label>
+            <div class="input-wrap">
+              <input
+                id="wl-handle"
+                name="handle"
+                type="text"
+                required
+                maxlength="64"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                aria-describedby="wl-handle-hint wl-terms"
+              />
+              <span class="valid-dot" aria-hidden="true"></span>
+            </div>
+            <p id="wl-handle-hint" class="hint">{Wl.handle.hint}</p>
+            <p id="wl-terms" class="terms mono" aria-live="off"><span data-terms>{Wl.terms.empty}</span> <span class="valid-text" data-valid-text></span></p>
+          </div>
+
+          <div class="check">
+            <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
+            <label for="wl-jurisdiction">{Wl.jurisdiction}</label>
+          </div>
+          <div class="check">
+            <input id="wl-consent" name="consent" type="checkbox" required />
+            <label for="wl-consent">
+              {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}
+            </label>
+          </div>
+          <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
+
+          <div class="cf-box" data-cf-box>
+            <div class="cf-turnstile" data-cf></div>
+          </div>
+
+          <div class="submit-row">
+            <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
+          </div>
+          <p class="status mono" data-status role="status" aria-live="polite"></p>
+          <noscript><p class="noscript">{Wl.noscript}</p></noscript>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(2rem, 6vw, 5.5rem);
+    align-items: start;
+  }
+  .doors {
+    margin: 0.8rem 0 0;
+    padding: 0;
+    border: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .doors legend {
+    margin-bottom: 0.5rem;
+  }
+  .doors .seg {
+    justify-self: start;
+  }
+  .door-note {
+    font-size: 0.82rem;
+    color: var(--text-label);
+  }
+
+  .ticket {
+    position: relative;
+    border: 1px solid var(--line-strong);
+    border-radius: 18px;
+    background: var(--surface-strong);
+    overflow: hidden;
+  }
+  .ticket.shake {
+    animation: shake 300ms linear;
+  }
+  .strip {
+    position: relative;
+    height: 84px;
+    border-bottom: 1px dashed var(--line-strong);
+    background: rgb(12 21 32 / 0.55);
+  }
+  .strip-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .strip-lines * {
+    vector-effect: non-scaling-stroke;
+    fill: none;
+  }
+  .s-zone {
+    fill: var(--navy-fill) !important;
+  }
+  .s-liq {
+    stroke: rgb(248 242 239 / 0.6);
+    stroke-dasharray: 5 5;
+  }
+  .s-level {
+    stroke: var(--green);
+    stroke-width: 2;
+  }
+  .s-price {
+    stroke: var(--paper);
+    stroke-width: 1.8;
+  }
+  .s-wick {
+    stroke: var(--paper);
+    stroke-width: 1.8;
+    opacity: 0;
+  }
+  .s-pulse {
+    stroke: var(--paper);
+    stroke-width: 3;
+    opacity: 0;
+  }
+  .ticket[data-state='submitting'] .s-pulse {
+    animation: s-pulse 900ms linear infinite;
+  }
+  @keyframes s-pulse {
+    0% {
+      transform: translateX(-80px);
+      opacity: 0.9;
+    }
+    100% {
+      transform: translateX(600px);
+      opacity: 0.9;
+    }
+  }
+  .ticket[data-state='success'] .s-wick {
+    opacity: 1;
+    stroke-dasharray: 120;
+    animation: s-draw 520ms var(--ease-out) both;
+  }
+  @keyframes s-draw {
+    from {
+      stroke-dashoffset: 120;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  .s-ring {
+    position: absolute;
+    left: calc(412 / 600 * 100%);
+    top: 56px;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    border-radius: 50%;
+    border: 2px solid var(--green);
+    opacity: 0;
+  }
+  .ticket[data-state='success'] .s-ring {
+    animation: ring 700ms var(--ease-out) 380ms both;
+  }
+  @keyframes ring {
+    from {
+      transform: scale(0.3);
+      opacity: 1;
+    }
+    60% {
+      opacity: 1;
+    }
+    to {
+      transform: scale(2.2);
+      opacity: 0;
+    }
+  }
+  .seal {
+    position: absolute;
+    right: 14px;
+    top: 12px;
+    width: 60px;
+    height: 60px;
+    overflow: visible;
+  }
+  .seal-navy {
+    fill: var(--navy);
+    transform: translate(-90px, 40px);
+    opacity: 0.35;
+  }
+  .seal-green {
+    fill: var(--green);
+    transform: translate(90px, -40px);
+    opacity: 0.35;
+  }
+  .ticket[data-state='success'] .seal-navy,
+  .ticket[data-state='success'] .seal-green {
+    opacity: 1;
+    transform: none;
+    transition: transform 420ms cubic-bezier(0.55, 0, 1, 0.45) 640ms, opacity 200ms linear 640ms;
+  }
+  .ticket[data-state='success'] .seal {
+    animation: thud 360ms var(--ease-out) 1080ms both;
+  }
+  .ticket-body {
+    display: grid;
+    gap: 0.4rem;
+    padding: clamp(1.2rem, 3vw, 1.8rem);
+  }
+  .t-title {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-accent);
+  }
+  .t-line {
+    color: var(--text-strong);
+    margin-bottom: 0.8rem;
+  }
+  .form {
+    display: grid;
+    gap: 1.1rem;
+  }
+  .channel {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: grid;
+    gap: 0.4rem;
+  }
+  .channel legend {
+    margin-bottom: 0.4rem;
+  }
+  .field {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .input-wrap {
+    position: relative;
+  }
+  input[type='text'] {
+    width: 100%;
+    min-height: 52px;
+    padding: 0.7rem 2.6rem 0.7rem 0.95rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text-strong);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+  }
+  input[type='text']:focus-visible {
+    outline: var(--focus);
+    outline-offset: 2px;
+    border-color: var(--green);
+  }
+  input[type='text']:read-only {
+    opacity: 0.7;
+  }
+  input[aria-invalid='true'] {
+    border: 2px dashed var(--paper);
+  }
+  .valid-dot {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin-top: -5px;
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity var(--t-ui) var(--ease-out), transform var(--t-ui) var(--spring);
+  }
+  .field[data-valid='y'] .valid-dot {
+    opacity: 1;
+    transform: none;
+    background: var(--green);
+  }
+  .field[data-valid='n'] .valid-dot {
+    opacity: 1;
+    transform: none;
+    border: 2px solid var(--paper);
+  }
+  .hint {
+    font-size: 0.8rem;
+    color: var(--text-label);
+  }
+  .terms {
+    font-size: 0.8rem;
+    color: var(--text-strong);
+    min-height: 1.5em;
+  }
+  .valid-text {
+    color: var(--text-accent);
+    margin-left: 0.5rem;
+  }
+  .check {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+  .check input {
+    width: 22px;
+    height: 22px;
+    margin: 0.15rem 0 0;
+    accent-color: var(--green);
+    cursor: pointer;
+  }
+  .check input[aria-invalid='true'] {
+    outline: 2px dashed var(--paper);
+    outline-offset: 3px;
+  }
+  .check label {
+    font-size: 0.93rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .cf-box {
+    min-height: 65px;
+  }
+  .submit-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .submit {
+    min-width: 12rem;
+  }
+  .status {
+    min-height: 3em;
+    font-size: 0.86rem;
+    color: var(--text-strong);
+  }
+  .status[data-state='error']::before {
+    content: '○ ';
+  }
+  .status[data-state='ok'] {
+    color: var(--text-accent);
+    font-weight: 600;
+  }
+  .status[data-state='ok']::before {
+    content: '● ';
+  }
+  .noscript {
+    font-size: 0.9rem;
+    color: var(--text-strong);
+    padding: 0.6rem 0.8rem;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 8px;
+  }
+  @media (scripting: none) {
+    .form > :not(noscript) {
+      display: none;
+    }
+  }
+  .form[aria-busy='true'] .submit {
+    cursor: progress;
+  }
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

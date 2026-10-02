@@ -1,0 +1,62 @@
+---
+// Page shell: fonts (self-hosted, Latin subset, only the display face preloaded), the pre-paint boot script
+// (external file; the CSP forbids inline scripts), nav, main, footer.
+import displayFont from '@fontsource-variable/instrument-sans/files/instrument-sans-latin-wdth-normal.woff2?url';
+import monoFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { meta } from '../copy/en.ts';
+import markUrl from '../assets/numera-mark.svg?url';
+
+interface Props {
+  title?: string;
+  description?: string;
+  noindex?: boolean;
+  page?: 'home' | 'doc';
+}
+const { title = meta.title, description = meta.description, noindex = false, page = 'home' } = Astro.props;
+
+// Latin subset (same unicode-range as the fontsource Latin files).
+const LATIN =
+  'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD';
+const fontCss = `
+@font-face{font-family:'Instrument Sans Variable';font-style:normal;font-display:swap;font-weight:400 700;font-stretch:75% 100%;src:url(${displayFont}) format('woff2-variations');unicode-range:${LATIN}}
+@font-face{font-family:'JetBrains Mono Variable';font-style:normal;font-display:swap;font-weight:100 800;src:url(${monoFont}) format('woff2-variations');unicode-range:${LATIN}}
+@font-face{font-family:'Instrument Fallback';src:local('Arial');size-adjust:97%;ascent-override:96%;descent-override:25%;line-gap-override:0%}
+@font-face{font-family:'Mono Fallback';src:local('Consolas'),local('Menlo'),local('DejaVu Sans Mono');size-adjust:109%}
+`;
+---
+
+<!doctype html>
+<html lang="en" data-loops="0">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0c1520" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    {noindex && <meta name="robots" content="noindex" />}
+    <link rel="icon" type="image/svg+xml" href={markUrl} />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/numera-mark-60.png" />
+    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
+    <script is:inline src="/boot.js"></script>
+    <Fragment set:html={`<style>${fontCss}</style>`} />
+    <slot name="head" />
+  </head>
+  <body data-page={page}>
+    <a class="skip" href="#main">Skip to content</a>
+    <Header page={page} />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer />
+    <script>
+      import { bootNav } from '../client/nav.ts';
+      bootNav();
+    </script>
+  </body>
+</html>

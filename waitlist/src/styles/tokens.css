@@ -1,0 +1,62 @@
+/* Design tokens of the waitlist site (v2). The logo palette only, on the dark ground.
+   Brand rules: no red, no orange, no gradient FILLS on UI elements. A state is signalled by shape, weight,
+   motion or the green accent. Every colour below is a palette colour (or the ground) at some alpha.
+   Contrast is checked by test/contrast.test.mjs (WCAG AA: 4.5:1 text, 3:1 UI edges). */
+:root {
+  /* logo palette */
+  --navy: #435c7a;
+  --navy-deep: #22374e;
+  --green: #23b779;
+  --green-deep: #178a57;
+  --paper: #f8f2ef;
+
+  /* ground and surfaces */
+  --bg: #0c1520;
+  --surface: rgb(34 55 78 / 0.34); /* navy-deep, translucent: cards */
+  --surface-strong: rgb(34 55 78 / 0.62); /* the most opaque card surface */
+  --navy-fill: rgb(67 92 122 / 0.32); /* the liquidation zone */
+  --line: rgb(248 242 239 / 0.1);
+  --line-strong: rgb(248 242 239 / 0.26);
+  --edge-green: rgb(35 183 121 / 0.55);
+
+  /* text */
+  --text-strong: #f8f2ef; /* headings, numbers */
+  --text: rgb(248 242 239 / 0.78); /* body */
+  --text-label: rgb(248 242 239 / 0.64); /* micro labels, captions */
+  --text-accent: #23b779; /* green text, only on the dark ground */
+  --on-accent: #0c1520; /* text on the green button */
+
+  --focus: 2px solid #23b779;
+
+  --font-display: 'Instrument Sans Variable', 'Instrument Fallback', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, Arial, sans-serif;
+  --font-body: 'Instrument Sans Variable', 'Instrument Fallback', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'Mono Fallback', ui-monospace, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* motion: one curve for travel and reveals, one spring for toggles and snaps */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-micro: 120ms;
+  --t-ui: 240ms;
+  --t-travel: 480ms;
+  --t-reveal: 960ms;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+  --page: 1240px;
+  --gutter: clamp(16px, 4vw, 48px);
+  --section-y: clamp(5rem, 11vw, 9rem);
+  --label-size: 0.72rem;
+  --label-track: 0.12em;
+  --nav-h: 64px;
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    /* critically damped-ish spring with one small overshoot (sampled from a mass-spring integrator) */
+    --spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%,
+        1.077 22.7%, 1.088 24.8%, 1.084 26.9%, 1.034 34.4%, 1.008 39.6%, 0.995 46.4%, 1 100%);
+  }
+}

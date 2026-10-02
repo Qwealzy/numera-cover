@@ -1,0 +1,31 @@
+{
+  "name": "numera-waitlist-v2",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1 --port 4471",
+    "build": "astro build",
+    "test": "node --test test/*.test.ts test/*.test.mjs",
+    "check:dist": "node scripts/check-dist.mjs",
+    "size": "node scripts/size.mjs",
+    "licenses": "node scripts/licenses.mjs",
+    "grid": "node scripts/run-grid.mjs",
+    "local:db": "wrangler d1 migrations apply numera-waitlist --local",
+    "local:serve": "wrangler pages dev dist --ip 127.0.0.1 --port 4471 --binding TURNSTILE_SECRET=1x0000000000000000000000000000000AA --binding IP_HASH_SALT=local-dev-salt-not-secret"
+  },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "astro": "5.18.2"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "sharp": true,
+    "workerd": true
+  }
+}

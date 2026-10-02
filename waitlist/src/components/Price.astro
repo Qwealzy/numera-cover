@@ -1,0 +1,171 @@
+---
+// S4, the price: method in one line, the sourced grid (1 day and 7 days only), evidence lines.
+import { price as Pr } from '../copy/en.ts';
+---
+
+<section id="price" class="section price" aria-labelledby="price-title">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{Pr.kicker}</p>
+      <h2 id="price-title">{Pr.heading}</h2>
+    </div>
+    <p class="method mono" data-reveal>{Pr.method}</p>
+
+    <div class="grid">
+      <figure class="table-fig" data-reveal>
+        <table>
+          <caption>{Pr.table.caption}</caption>
+          <thead>
+            <tr>{Pr.table.cols.map((c) => <th scope="col">{c}</th>)}</tr>
+          </thead>
+          <tbody>
+            {
+              Pr.table.rows.map((r) => (
+                <tr>
+                  <th scope="row" class="mono">{r[0]}</th>
+                  <td class="mono">{r[1]}</td>
+                  <td class="mono">{r[2]}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+        <figcaption>{Pr.footnote} {Pr.readoutNote}</figcaption>
+      </figure>
+
+      <div class="evidence" data-reveal data-reveal-delay="1">
+        <h3 class="label">{Pr.evidenceHeading}</h3>
+        <ul>
+          {
+            Pr.evidence.map((e) => (
+              <li>
+                <span class="ev-fig mono">{e.fig}</span>
+                <span class="ev-text">{e.text}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="ev-src">{Pr.evidenceSource}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .method {
+    margin-top: 1.75rem;
+    max-width: 62rem;
+    padding: 1rem 1.2rem;
+    border-left: 2px solid var(--green);
+    background: rgb(34 55 78 / 0.25);
+    border-radius: 0 10px 10px 0;
+    font-size: 0.86rem;
+    line-height: 1.75;
+    color: var(--text-strong);
+  }
+  .grid {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: start;
+  }
+  figure {
+    margin: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    padding-bottom: 0.8rem;
+    font-size: 0.82rem;
+    color: var(--text-label);
+  }
+  th,
+  td {
+    padding: 0.85rem 0.6rem;
+    text-align: right;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-label);
+  }
+  th:first-child {
+    text-align: left;
+    padding-left: 0;
+  }
+  tbody th {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  tbody td {
+    color: var(--text-strong);
+    font-size: 1.05rem;
+  }
+  tbody tr:hover td,
+  tbody tr:hover th {
+    background: rgb(248 242 239 / 0.03);
+  }
+  figcaption {
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+  .evidence {
+    display: grid;
+    gap: 1.1rem;
+  }
+  .evidence ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.25rem;
+  }
+  .evidence li {
+    display: grid;
+    gap: 0.3rem;
+    padding-bottom: 1.1rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .ev-fig {
+    font-size: clamp(1.6rem, 1.1rem + 1.4vw, 2.2rem);
+    font-weight: 700;
+    color: var(--text-accent);
+    line-height: 1.1;
+  }
+  .ev-text {
+    color: var(--text-strong);
+  }
+  .ev-src {
+    font-size: 0.82rem;
+    color: var(--text-label);
+  }
+  @media (max-width: 860px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    th,
+    td {
+      padding: 0.75rem 0.3rem;
+      white-space: nowrap;
+    }
+    tbody td,
+    tbody th {
+      font-size: 0.84rem;
+    }
+    thead th {
+      white-space: normal;
+    }
+  }
+</style>

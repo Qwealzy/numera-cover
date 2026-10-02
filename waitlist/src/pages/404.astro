@@ -1,0 +1,77 @@
+---
+// 404: one small on-brand moment. A price line that never reaches its level. No new claims.
+import Base from '../layouts/Base.astro';
+import { notFound } from '../copy/en.ts';
+---
+
+<Base title={`${notFound.title} · Numera`} noindex page="doc">
+  <div class="wrap nf">
+    <svg class="nf-svg" viewBox="0 0 800 220" aria-hidden="true" focusable="false">
+      <rect class="zone" x="0" y="186" width="800" height="34"></rect>
+      <line class="liq" x1="0" x2="800" y1="186" y2="186"></line>
+      <line class="level" x1="0" x2="800" y1="170" y2="170"></line>
+      <path class="price" d="M0 70 L50 64 L100 76 L150 60 L200 90 L250 72 L300 118 L340 138 L360 150 L380 140 L420 96 L470 84 L520 98 L570 70 L620 78 L670 58 L720 66 L800 52"></path>
+      <circle class="miss" cx="360" cy="150" r="6"></circle>
+    </svg>
+    <p class="kicker">404</p>
+    <h1>{notFound.lead}</h1>
+    <p class="text">{notFound.text}</p>
+    <p><a class="btn btn-primary" href="/">{notFound.back}</a></p>
+  </div>
+</Base>
+
+<style>
+  .nf {
+    display: grid;
+    gap: 1.2rem;
+    padding-block: clamp(3rem, 8vw, 6rem);
+    justify-items: start;
+  }
+  .nf-svg {
+    width: 100%;
+    max-width: 800px;
+    height: auto;
+    margin-bottom: 1rem;
+  }
+  .zone {
+    fill: var(--navy-fill);
+  }
+  .liq {
+    stroke: rgb(248 242 239 / 0.7);
+    stroke-dasharray: 6 5;
+  }
+  .level {
+    stroke: var(--green);
+    stroke-width: 2.5;
+  }
+  .price {
+    fill: none;
+    stroke: var(--paper);
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+    stroke-dasharray: 1200;
+    stroke-dashoffset: 0;
+  }
+  :global(html[data-motion='on']) .price {
+    animation: draw 2.4s var(--ease-out) both;
+  }
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1200;
+    }
+  }
+  .miss {
+    fill: none;
+    stroke: var(--paper);
+    stroke-width: 2;
+    stroke-dasharray: 3 3;
+  }
+  h1 {
+    font-size: clamp(3rem, 2rem + 5vw, 6rem);
+    font-stretch: 76%;
+    letter-spacing: -0.035em;
+  }
+  .text {
+    font-size: 1.15rem;
+  }
+</style>

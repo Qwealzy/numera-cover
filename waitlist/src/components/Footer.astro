@@ -1,0 +1,84 @@
+---
+import { brand, footer as F, hero } from '../copy/en.ts';
+import markUrl from '../assets/numera-mark.svg?url';
+---
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="foot-brand">
+      <img src={markUrl} width="40" height="40" alt={brand.markAlt} />
+      <p class="foot-name"><span>{brand.name}</span> · {brand.product}</p>
+    </div>
+    <ul class="foot-links">
+      <li><a href={F.telegram.href} rel="noopener" target="_blank">{F.telegram.label} {F.telegram.handle}</a></li>
+      <li><a href={F.x.href} rel="noopener" target="_blank">{F.x.label} {F.x.handle}</a></li>
+      <li><a href="/privacy">{F.privacy}</a></li>
+    </ul>
+    <ul class="foot-facts mono">
+      <li>{F.agri}</li>
+      <li>{F.license}</li>
+      <li>{F.built}</li>
+    </ul>
+    <p class="pill foot-pill">{hero.status}</p>
+  </div>
+</footer>
+
+<style>
+  .foot {
+    border-top: 1px solid var(--line);
+    padding-block: 3.5rem 3rem;
+  }
+  .foot-in {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+  .foot-brand {
+    display: grid;
+    gap: 0.8rem;
+  }
+  .foot-brand img {
+    width: 40px;
+    height: 40px;
+  }
+  .foot-name {
+    color: var(--text-label);
+    font-size: 0.92rem;
+  }
+  .foot-name span {
+    color: var(--text-strong);
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text-strong);
+  }
+  .foot-facts {
+    font-size: 0.8rem;
+    color: var(--text-label);
+    gap: 0.7rem;
+    padding-top: 0.7rem;
+  }
+  .foot-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
+    font-size: 0.68rem;
+  }
+  @media (max-width: 760px) {
+    .foot-in {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>
