@@ -142,9 +142,10 @@ export function mountInstrument(root: HTMLElement): void {
   }
 
   // ---- layout / sizing ----------------------------------------------------------------------------------
+  const topFrac = () => (w > 0 && w < 640 ? 0.4 : 0.3); // narrow stages: room for the tags above the price
   function target() {
     est = estimate(state.setup);
-    const T = layout(1000, 1000, est.liqDist, est.lvlDist, state.setup.side);
+    const T = layout(1000, 1000, est.liqDist, est.lvlDist, state.setup.side, topFrac());
     return { e: T.entryY / 1000, l: T.levelY / 1000, q: T.liqY / 1000 };
   }
   function relayout(animate: boolean) {
@@ -159,7 +160,7 @@ export function mountInstrument(root: HTMLElement): void {
       glide.to = to;
       glide.t0 = -1;
     }
-    L = layout(w || 1000, h || 560, est.liqDist, est.lvlDist, state.setup.side);
+    L = layout(w || 1000, h || 560, est.liqDist, est.lvlDist, state.setup.side, topFrac());
     stage.dataset.dir = String(L.dir);
     labels();
     hud();
@@ -172,7 +173,10 @@ export function mountInstrument(root: HTMLElement): void {
     dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
-    L = layout(w, h, est.liqDist, est.lvlDist, state.setup.side);
+    L = layout(w, h, est.liqDist, est.lvlDist, state.setup.side, topFrac());
+    const t = target();
+    if (glide.t0 < 0) fr = t;
+    glide.to = t;
     const n = nHist();
     if (hist.length < n) {
       const extra = historyU(n - hist.length, SEED + n, false);

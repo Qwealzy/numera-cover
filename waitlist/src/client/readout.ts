@@ -11,7 +11,7 @@ import {
   defaultLevel,
   px6ToUsd,
 } from '../lib/pricing.ts';
-import { readout as R, controls as C, instrument as I } from '../copy/en.ts';
+import { readout as R, controls as C } from '../copy/en.ts';
 import { state, on, patchSetup, set, type Role } from './store.ts';
 import { motionOn } from './motion.ts';
 
@@ -87,10 +87,10 @@ export function mountReadout(root: HTMLElement): void {
     const lv = state.live;
     roLive.textContent =
       lv.oracleState === 'ok' && lv.oracleAt
-        ? `${I.livePrefix} ${lv.oracleAt.toISOString().slice(11, 19)} UTC · $ = entry at that price`
+        ? R.liveOk(lv.oracleAt.toISOString().slice(11, 19))
         : lv.oracleState === 'failed'
-          ? I.liveFailed
-          : I.liveWaiting;
+          ? R.liveFailed
+          : R.liveWaiting;
     if (liqUsd) {
       liqTxt += ` (${liqUsd} at the testnet oracle price)`;
       lvlTxt += ` (${lvlUsd})`;

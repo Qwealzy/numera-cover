@@ -36,7 +36,7 @@ export function mountSteps(root: HTMLElement): void {
       t.setAttribute('aria-selected', String(k === i));
       t.tabIndex = k === i ? 0 : -1;
     });
-    panels.forEach((p, k) => (p.hidden = k !== i));
+    panels.forEach((p, k) => show(p, k === i));
     if (focus) tabs[i].focus();
     if (changed) {
       const cap = panels[i].querySelector<HTMLElement>('[data-caption]');
@@ -66,7 +66,32 @@ export function mountSteps(root: HTMLElement): void {
       }
     });
   });
-  panels.forEach((p, k) => (p.hidden = k !== sel));
+  // the shown panel; the others are hidden from view, focus and assistive tech, and keep their size
+  function show(p: HTMLElement, on: boolean) {
+    p.classList.toggle('off', !on);
+    p.inert = !on;
+    if (on) p.removeAttribute('aria-hidden');
+    else p.setAttribute('aria-hidden', 'true');
+  }
+  panels.forEach((p, k) => show(p, k === sel));
+  // captions: wrap each word so a swap can rise word by word (the text and its spaces stay the same)
+  for (const cap of root.querySelectorAll<HTMLElement>('[data-caption]')) {
+    const node = [...cap.childNodes].find((n) => n.nodeType === 3 && (n.textContent ?? '').trim());
+    if (!node) continue;
+    const words = (node.textContent ?? '').trim().split(/\s+/);
+    const frag = document.createDocumentFragment();
+    frag.append(' ');
+    words.forEach((w, i) => {
+      const outer = document.createElement('span');
+      outer.className = 'rise';
+      const inner = document.createElement('span');
+      inner.style.setProperty('--i', String(i));
+      inner.textContent = w;
+      outer.append(inner);
+      frag.append(outer, i < words.length - 1 ? ' ' : '');
+    });
+    node.replaceWith(frag);
+  }
 
   // ---- cascade (Buy cover) ----
   function renderCascade(animate: boolean) {

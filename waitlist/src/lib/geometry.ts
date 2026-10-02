@@ -21,12 +21,15 @@ export type Layout = {
   liqY: number;
   /** Edge of the plot on the liquidation side (the navy zone runs from liqY to here). */
   edgeY: number;
+  /** px from entry to the 2x liquidation (the soft map's full scale). */
+  span: number;
 };
 
-export function layout(w: number, h: number, liqDist: number, lvlDist: number, side: Side): Layout {
+/** `top`: where entry sits, as a fraction of the height from the price side (more headroom on narrow screens). */
+export function layout(w: number, h: number, liqDist: number, lvlDist: number, side: Side, top = 0.3): Layout {
   const dir = side === 'long' ? 1 : -1;
-  const entryY = side === 'long' ? h * 0.3 : h * 0.7;
-  const span = h * 0.54; // entry to the 2x liquidation
+  const entryY = side === 'long' ? h * top : h * (1 - top);
+  const span = h * (0.84 - top); // entry to the 2x liquidation
   const k = span / F_MAX;
   return {
     w,
@@ -38,13 +41,13 @@ export function layout(w: number, h: number, liqDist: number, lvlDist: number, s
     levelY: entryY + dir * k * soft(lvlDist),
     liqY: entryY + dir * k * soft(liqDist),
     edgeY: side === 'long' ? h : 0,
+    span,
   };
 }
 
 /** Inverse of the soft map: a y on the canvas -> signed distance from entry (fraction; + = toward liq). */
 export function distAt(L: Layout, y: number): number {
-  const span = L.h * 0.54;
-  const k = span / F_MAX;
+  const k = L.span / F_MAX;
   const s = ((y - L.entryY) * L.dir) / k;
   return s >= 0 ? D0 * (Math.exp(s) - 1) : -D0 * (Math.exp(-s) - 1);
 }

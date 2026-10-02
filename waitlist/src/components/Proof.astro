@@ -136,7 +136,7 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
     height: 32px;
     border-radius: 3px;
     border: 1px solid var(--line-strong);
-    background: var(--bg);
+    background: rgb(248 242 239 / 0);
     transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
   }
   .blocks li[data-ev='y'] .b-tick {
@@ -145,6 +145,9 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
   }
   .blocks li[data-reached='y'] .b-tick {
     background: rgb(248 242 239 / 0.2);
+  }
+  .blocks li[data-ev='y'] .b-tick {
+    background: rgb(35 183 121 / 0);
   }
   .blocks li[data-ev='y'][data-reached='y'] .b-tick {
     background: var(--green);

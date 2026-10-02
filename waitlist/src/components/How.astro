@@ -182,15 +182,21 @@ const st = Hw.station;
   .panels {
     display: grid;
   }
+  /* with JS, every panel sits in one grid cell: switching parts never moves the content below */
+  :global(html.js) .panels .panel {
+    grid-area: 1 / 1;
+  }
+  .panel.off {
+    visibility: hidden;
+  }
   .panel {
     display: grid;
     gap: 0.9rem;
+    align-content: start;
     padding: 1.1rem 0 0.4rem;
     border-radius: 8px;
   }
-  .panel[hidden] {
-    display: none;
-  }
+
   .caption {
     font-family: var(--font-display);
     font-size: clamp(1.25rem, 1rem + 0.9vw, 1.65rem);
@@ -206,16 +212,15 @@ const st = Hw.station;
     vertical-align: 0.25em;
     margin-right: 0.3rem;
   }
-  :global(html.js[data-motion='on']) .panel .caption.swap {
-    animation: cap-rise 520ms var(--ease-out);
+  :global(html.js[data-motion='on']) .panel .caption.swap :global(.rise > span) {
+    animation: cap-rise 620ms var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 16) * 45ms);
   }
   @keyframes cap-rise {
     from {
-      opacity: 0;
-      transform: translateY(10px);
+      transform: translateY(105%);
     }
     to {
-      opacity: 1;
       transform: none;
     }
   }
@@ -227,18 +232,22 @@ const st = Hw.station;
     list-style: none;
     margin: 0.6rem 0 0;
     padding: 0;
-    display: grid;
-    gap: 2px;
-    max-width: 56rem;
+    columns: 2;
+    column-gap: 1.5rem;
+  }
+  .checks li {
+    break-inside: avoid;
+    margin-bottom: 2px;
   }
   .checks li {
     display: grid;
     grid-template-columns: 22px minmax(0, 1fr) auto;
     gap: 0.75rem;
     align-items: center;
-    padding: 0.45rem 0.6rem;
+    padding: 0.38rem 0.6rem;
     border-radius: 8px;
-    font-size: 0.93rem;
+    font-size: 0.9rem;
+    line-height: 1.4;
     color: var(--text);
   }
   .checks li:nth-child(odd) {
@@ -402,6 +411,12 @@ const st = Hw.station;
   @media (max-width: 860px) {
     .tabs {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .panel.off {
+      display: none;
+    }
+    .checks {
+      columns: 1;
     }
     .only ol {
       grid-template-columns: minmax(0, 1fr);

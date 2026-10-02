@@ -129,6 +129,9 @@ export const readout = {
   refusedProb: 'Not offered: touch chance too high',
   label: 'Illustrative estimate, not a quote. Volatility is a preset, not live.',
   uwHeading: 'The pool side',
+  liveWaiting: 'LIVE · testnet oracle · reading…',
+  liveOk: (t: string) => `LIVE · $ at the BTC testnet oracle price · read ${t} UTC`,
+  liveFailed: 'LIVE · testnet oracle read failed · % of entry only',
   uw: (premium: string) =>
     `The pool takes ${premium}. No touch: it stays with the pool. Touch: the pool pays $100, reserved in full when the cover was sold.`,
   uwRefused: 'Not offered at these settings, so the pool takes nothing and reserves nothing.',
