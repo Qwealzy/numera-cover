@@ -10,7 +10,7 @@ import { Addr, Disclaimer } from './components/ui';
 import { hyperEvmTestnet, USE_QUOTE_FIXTURE } from './config';
 
 function Shell() {
-  const { tab, pool, poolKind } = useApp();
+  const { tab, pool } = useApp();
   return (
     <>
       <Header />
@@ -31,7 +31,7 @@ function Shell() {
             {hyperEvmTestnet.name} ({hyperEvmTestnet.id}) · testnet only, no real funds
           </span>
           <span>
-            {poolKind === 'mock' ? 'MOCK demo pool' : 'Real pool'} <Addr a={pool.pool} />
+            {pool.short} pool <Addr a={pool.pool} />
           </span>
           {USE_QUOTE_FIXTURE && <span>quote FIXTURE mode</span>}
           <span>Cover: a fixed payout on an oracle price event.</span>

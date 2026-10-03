@@ -116,7 +116,7 @@ export function parseV2Pools(raw: unknown, chainId: number, engineUrl: string, f
       kind: mode,
       version: 'v2',
       label: `${mode === 'mock' ? 'MOCK sources' : 'Real HyperCore sources'} (CoverPool v2)`,
-      short: mode === 'mock' ? 'MOCK v2' : 'Real v2',
+      short: mode === 'mock' ? 'MOCK demo' : 'Real',
       pool: getAddress(p.pool as string),
       priceSource: getAddress(p.priceSource as string),
       positionSource: getAddress(p.positionSource as string),
@@ -143,7 +143,21 @@ export const POOLS: Record<string, PoolConfig> & { hypercore: PoolConfig; mock: 
   mock: pool('mock'),
   ...Object.fromEntries(parseV2Pools(testnetV2, testnet.chainId, ENGINE_DEFAULT, USDC).map((p) => [p.key, p])),
 };
-export const DEFAULT_POOL_KEY = 'hypercore';
+/** Default pool: the Real v2 pool when deployments/testnet-v2.json has one, else v1 hypercore. */
+export const DEFAULT_POOL_KEY: string = Object.hasOwn(POOLS, 'hypercore-v2') ? 'hypercore-v2' : 'hypercore';
+/** The pools the header switch offers: v2 only. v1 pools stay reachable through ?pool=<key>. */
+export const SWITCH_POOL_KEYS: string[] = Object.values(POOLS)
+  .filter((p) => p.version === 'v2')
+  .map((p) => p.key);
+/**
+ * Pool a load lands on. A ?pool= key wins when it names a pool (v1 included); a remembered (localStorage) key
+ * counts only when it is a v2 pool, so a v1 pool stored earlier never hijacks a fresh load. Pure; unit-tested.
+ */
+export function resolvePoolKey(urlKey: string | null | undefined, storedKey: string | null | undefined): string {
+  if (urlKey && Object.hasOwn(POOLS, urlKey)) return urlKey;
+  if (storedKey && Object.hasOwn(POOLS, storedKey) && POOLS[storedKey].version === 'v2') return storedKey;
+  return DEFAULT_POOL_KEY;
+}
 export const DEPLOYER: Address = getAddress(testnet.deployer);
 export const QUOTE_SIGNER: Address = getAddress(testnet.quoteSigner);
 /** Testnet perp indices from deployments/testnet.json — never hardcoded (indices differ per network). */

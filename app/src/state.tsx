@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getAddress, isAddress, type Address } from 'viem';
-import { DEFAULT_POOL_KEY, PERPS, POLL_MS, POOLS, type PoolConfig, type PoolKind } from './config';
+import { DEFAULT_POOL_KEY, PERPS, POLL_MS, POOLS, resolvePoolKey, type PoolConfig, type PoolKind } from './config';
 import { currentChainId, ensureTestnet, hasInjectedWallet, requestAccounts } from './lib/chain';
 import { describeError } from './lib/errors';
 import { fetchMarket, type Market } from './lib/info';
@@ -46,8 +46,7 @@ function readUrl(): { tab: Tab; pool: string; as: string } {
   } catch {
     /* storage blocked */
   }
-  const want = h.get('pool') ?? storedPool ?? '';
-  const pool = Object.hasOwn(POOLS, want) ? want : DEFAULT_POOL_KEY;
+  const pool = resolvePoolKey(h.get('pool'), storedPool);
   return { tab: TABS.includes(path) ? path : 'about', pool, as: h.get('as') ?? '' };
 }
 

@@ -1,4 +1,4 @@
-import { POOLS, WAITLIST_URL } from '../config';
+import { WAITLIST_URL } from '../config';
 import { useApp } from '../state';
 import { fmtUsdc } from '../lib/format';
 import { Addr } from '../components/ui';
@@ -79,7 +79,7 @@ export function About() {
             <div>
               <dt>HyperEVM CoverPool</dt>
               <dd>
-                ERC-4626 USDC vault + cover book · <Addr a={POOLS.hypercore.pool} />
+                ERC-4626 USDC vault + cover book · <Addr a={pool.pool} />
               </dd>
             </div>
             <div>
