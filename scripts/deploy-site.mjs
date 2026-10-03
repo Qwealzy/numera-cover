@@ -7,7 +7,7 @@
 //   node scripts/deploy-site.mjs --prod --yes     # production deploy (branch "main" = numera-cover.pages.dev)
 //   node scripts/deploy-site.mjs --help
 //
-// Steps: check the build env (the /privacy placeholders, Turnstile site key) and the D1 id; check the Pages
+// Steps: check the build env (the /privacy and /terms placeholders, the Source link, Turnstile site key) and the D1 id; check the Pages
 // secrets exist (names only, values are never read); production build; D1 migrations 0001+0002 --remote; pages deploy.
 // Values come from the shell environment only; this script reads no .env file and prints no secret.
 // Every command runs with cwd waitlist/ through its pinned local wrangler/astro (waitlist/node_modules/.bin).
@@ -28,11 +28,14 @@ if (!existsSync(path.join(SITE, 'node_modules'))) {
   process.exit(1);
 }
 
+// the private origin remote, so the footer Source link can be refused if it points there (read-only git call)
+const originUrl = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot, encoding: 'utf8', windowsHide: true }).stdout?.trim() ?? '';
 const plan = deployPlan(
   args,
   process.env,
   readFileSync(path.join(SITE, 'wrangler.toml'), 'utf8'),
   readdirSync(path.join(SITE, 'migrations')),
+  originUrl,
 );
 const shown = (s) => `${s.env ? 'SITE_ENV=production ' : ''}${s.cmd.join(' ')}`;
 console.log(`[plan] Cloudflare Pages deploy of ${SITE_DIR}/ (${args.prod ? 'PRODUCTION' : 'preview'}), cwd ${SITE_DIR}/:`);

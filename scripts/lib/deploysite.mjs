@@ -20,6 +20,7 @@ export const USAGE = `node scripts/deploy-site.mjs [--prod] [--create-project] [
 Builds and deploys ${SITE_DIR}/ and applies its D1 migrations (${MIGRATIONS.join(', ')}) to the remote database
 ${DB_NAME}. 0002 is not compatible with site/'s handler: never point site/ at the same database afterwards.
 Needs: \`npx wrangler login\` once, and in the shell environment SITE_CONTROLLER_NAME, SITE_DELETE_BY (YYYY-MM-DD),
+SITE_GOVERNING_LAW (the law of the terms of use), SITE_SOURCE_URL (the PUBLIC repository, footer link),
 PUBLIC_TURNSTILE_SITEKEY; optional SITE_LEGAL_REVIEWED=1. Pages secrets ${REQUIRED_SECRETS.join(', ')} must be set
 (npx wrangler pages secret put <NAME> --project-name ${PROJECT}).`;
 
@@ -35,6 +36,18 @@ export function parseArgs(argv) {
   };
 }
 
+/** "host/owner/repo" of a git remote or web URL: lower case, no scheme, credentials, .git or trailing slash. */
+export function repoKey(url) {
+  return String(url)
+    .trim()
+    .toLowerCase()
+    .replace(/^git@([^:]+):/, '$1/')
+    .replace(/^[a-z+]+:\/\//, '')
+    .replace(/^[^@/]*@/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/, '');
+}
+
 /** database_id of the DB binding in waitlist/wrangler.toml, or null. */
 export function d1DatabaseId(toml) {
   const m = toml.match(/database_name\s*=\s*"numera-waitlist"[\s\S]*?database_id\s*=\s*"([^"]*)"/);
@@ -43,9 +56,12 @@ export function d1DatabaseId(toml) {
 
 /** `migrationFiles`: the file names in waitlist/migrations/ (every one in MIGRATIONS must be there).
  *  -> { problems: string[], steps: { name, cmd: string[], env?: object }[], branch } */
-export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS) {
+export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS, originUrl = '') {
   const b = readBuildEnv({ ...env, SITE_ENV: 'production' });
   const problems = [...b.problems];
+  // the footer "Source" link must never be the private origin repository (compared as host/owner/repo)
+  if (b.sourceUrl && originUrl && repoKey(b.sourceUrl) === repoKey(originUrl))
+    problems.push('SITE_SOURCE_URL is the private origin repository; use the PUBLIC repository (made by scripts/export-public.mjs)');
   if (args.unknown.length) problems.push(`unknown argument(s): ${args.unknown.join(' ')}`);
   const dbId = d1DatabaseId(wranglerToml);
   if (!dbId || dbId === PLACEHOLDER_DB_ID)
@@ -58,6 +74,7 @@ export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS)
     SITE_CONTROLLER_NAME: b.controllerName,
     SITE_DELETE_BY: b.deleteBy,
     SITE_GOVERNING_LAW: b.governingLaw,
+    SITE_SOURCE_URL: b.sourceUrl,
     PUBLIC_TURNSTILE_SITEKEY: env.PUBLIC_TURNSTILE_SITEKEY ?? '',
     SITE_LEGAL_REVIEWED: b.legalReviewed ? '1' : '',
   };

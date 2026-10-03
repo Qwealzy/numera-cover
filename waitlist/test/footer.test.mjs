@@ -39,3 +39,34 @@ test('built pages: the footer links to exactly the two accounts, icon-only', () 
     assert.doesNotMatch(foot.replace(/<[^>]+>/g, ' '), /@g?godsonits/, `${page}: no visible handle text`);
   }
 });
+
+test('footer: the Source link comes from SITE_SOURCE_URL (a link when set, a visible placeholder when not), and no private repository is named', () => {
+  assert.match(astro, /sourceUrl \? \(\s*<a href=\{sourceUrl\} target="_blank" rel="noopener noreferrer">\{F\.source\}<\/a>/);
+  assert.match(astro, /\{'\{\{SOURCE_URL\}\}'\}/);
+  assert.doesNotMatch(astro, /github\.com/);
+  const dev = readFileSync(path.join(SITE, 'dist/index.html'), 'utf8').match(/<footer[\s\S]*<\/footer>/)?.[0] ?? '';
+  if (existsSync(path.join(SITE, 'dist/index.html'))) assert.match(dev, /Source: (\{\{SOURCE_URL\}\}|https:\/\/[^<]+)|href="https:\/\/[^"]+"[^>]*>Source</);
+});
+
+test('footer: OFL licence texts for both self-hosted font families ship in the build and are linked', () => {
+  assert.deepEqual(
+    footer.fontLicenses.map((l) => l.href),
+    ['/licenses/instrument-sans-OFL.txt', '/licenses/jetbrains-mono-OFL.txt'],
+  );
+  assert.match(astro, /F\.fontLicenses\.map/);
+  for (const [f, who] of [['instrument-sans-OFL.txt', /Instrument Sans Project Authors/], ['jetbrains-mono-OFL.txt', /JetBrains Mono Project Authors/]]) {
+    const p = path.join(SITE, 'dist', 'licenses', f);
+    if (!existsSync(p)) continue;
+    const t = readFileSync(p, 'utf8');
+    assert.match(t, who);
+    assert.match(t, /SIL OPEN FONT LICENSE Version 1\.1/);
+    assert.match(t, /PERMISSION & CONDITIONS/);
+  }
+  for (const page of ['index.html', 'privacy.html', 'terms.html', '404.html']) {
+    const p = path.join(SITE, 'dist', page);
+    if (!existsSync(p)) continue;
+    const html = readFileSync(p, 'utf8');
+    assert.match(html, /href="\/licenses\/instrument-sans-OFL\.txt"/, page);
+    assert.match(html, /href="\/licenses\/jetbrains-mono-OFL\.txt"/, page);
+  }
+});

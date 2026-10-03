@@ -602,6 +602,13 @@ export const footer = {
   telegram: { label: 'Telegram', handle: '@godsonits', href: 'https://t.me/godsonits', aria: 'Numera on Telegram' },
   x: { label: 'X', handle: '@ggodsonits', href: 'https://x.com/ggodsonits', aria: 'Numera on X' },
   license: 'AGPL-3.0',
+  source: 'Source',
+  fonts: 'Fonts under the SIL Open Font License:',
+  // the licence texts ship with the build (src/pages/licenses/)
+  fontLicenses: [
+    { label: 'Instrument Sans', href: '/licenses/instrument-sans-OFL.txt' },
+    { label: 'JetBrains Mono', href: '/licenses/jetbrains-mono-OFL.txt' },
+  ],
   built: 'Built for Colosseum',
   privacy: 'Privacy notice',
   terms: 'Terms of use',

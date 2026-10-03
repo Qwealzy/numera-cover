@@ -2,11 +2,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { deployPlan, parseArgs, d1DatabaseId, PLACEHOLDER_DB_ID, SITE_DIR, MIGRATIONS, USAGE } from './deploysite.mjs';
+import { deployPlan, parseArgs, repoKey, d1DatabaseId, PLACEHOLDER_DB_ID, SITE_DIR, MIGRATIONS, USAGE } from './deploysite.mjs';
 
 const TOML = (id) =>
   `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "numera-waitlist"\ndatabase_id = "${id}"\nmigrations_dir = "migrations"\n`;
-const ENV = { SITE_CONTROLLER_NAME: 'Example', SITE_DELETE_BY: '2027-03-31', SITE_GOVERNING_LAW: 'Example Land', PUBLIC_TURNSTILE_SITEKEY: '0x4AAAAAAA' };
+const ENV = { SITE_CONTROLLER_NAME: 'Example', SITE_DELETE_BY: '2027-03-31', SITE_GOVERNING_LAW: 'Example Land', SITE_SOURCE_URL: 'https://github.com/example/numera-public', PUBLIC_TURNSTILE_SITEKEY: '0x4AAAAAAA' };
 
 test('deploys waitlist/ with its migrations 0001 + 0002; the committed files are all there', () => {
   assert.equal(SITE_DIR, 'waitlist');
@@ -35,6 +35,7 @@ test('ready env: preview by default, --prod deploys branch main; order build -> 
   assert.equal(ok.steps[2].name, 'apply D1 migrations 0001+0002 (remote)');
   assert.equal(ok.steps[1].env.SITE_ENV, 'production');
   assert.equal(ok.steps[1].env.SITE_GOVERNING_LAW, 'Example Land'); // fills {{GOVERNING_LAW}} on /terms
+  assert.equal(ok.steps[1].env.SITE_SOURCE_URL, 'https://github.com/example/numera-public'); // the footer Source link
   const prod = deployPlan(parseArgs(['--prod', '--create-project']), ENV, TOML('abc-123'));
   assert.equal(prod.branch, 'main');
   assert.equal(prod.steps[0].name, 'create Pages project');
@@ -43,6 +44,17 @@ test('ready env: preview by default, --prod deploys branch main; order build -> 
 test('missing env values and unknown flags are problems; nothing is a mainnet or chain step', () => {
   const p = deployPlan(parseArgs(['--force']), {}, TOML('abc-123'));
   const text = p.problems.join('\n');
-  for (const re of [/SITE_CONTROLLER_NAME/, /SITE_DELETE_BY/, /SITE_GOVERNING_LAW/, /PUBLIC_TURNSTILE_SITEKEY/, /unknown argument\(s\): --force/]) assert.match(text, re);
+  for (const re of [/SITE_CONTROLLER_NAME/, /SITE_DELETE_BY/, /SITE_GOVERNING_LAW/, /SITE_SOURCE_URL/, /PUBLIC_TURNSTILE_SITEKEY/, /unknown argument\(s\): --force/]) assert.match(text, re);
   assert.match(deployPlan(parseArgs([]), { ...ENV, PUBLIC_TURNSTILE_SITEKEY: '1x00000000000000000000AA' }, TOML('a')).problems.join(), /test key/);
+});
+
+test('the footer Source link may not be the private origin repository, in any spelling of its URL', () => {
+  const origin = 'https://github.com/Example-Owner/private-repo.git';
+  for (const same of ['https://github.com/example-owner/private-repo', 'https://github.com/Example-Owner/private-repo.git/', 'git@github.com:Example-Owner/private-repo.git'])
+    assert.equal(repoKey(same), repoKey(origin), same);
+  const bad = deployPlan(parseArgs([]), { ...ENV, SITE_SOURCE_URL: 'https://github.com/example-owner/private-repo' }, TOML('abc-123'), undefined, origin);
+  assert.match(bad.problems.join(' | '), /SITE_SOURCE_URL is the private origin repository/);
+  assert.deepEqual(deployPlan(parseArgs([]), ENV, TOML('abc-123'), undefined, origin).problems, []);
+  // not an https URL at all
+  assert.match(deployPlan(parseArgs([]), { ...ENV, SITE_SOURCE_URL: 'git@github.com:a/b.git' }, TOML('abc-123')).problems.join(), /SITE_SOURCE_URL must be an https URL/);
 });

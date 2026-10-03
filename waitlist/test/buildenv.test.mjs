@@ -9,6 +9,7 @@ const full = {
   SITE_CONTROLLER_NAME: 'Example Controller',
   SITE_DELETE_BY: '2027-03-31',
   SITE_GOVERNING_LAW: 'Example Land',
+  SITE_SOURCE_URL: 'https://github.com/example/numera-public',
   PUBLIC_TURNSTILE_SITEKEY: '0x4AAAAAAA-real-key',
 };
 
@@ -27,6 +28,10 @@ test('production build fails on each missing or malformed value', () => {
     ['SITE_DELETE_BY', '  ', /SITE_DELETE_BY is empty/],
     ['SITE_DELETE_BY', '31.03.2027', /YYYY-MM-DD/],
     ['SITE_GOVERNING_LAW', '', /SITE_GOVERNING_LAW is empty/],
+    ['SITE_SOURCE_URL', '', /SITE_SOURCE_URL is empty/],
+    ['SITE_SOURCE_URL', 'http://github.com/example/x', /SITE_SOURCE_URL must be an https URL/],
+    ['SITE_SOURCE_URL', 'https://user:pw@github.com/example/x', /SITE_SOURCE_URL must be an https URL/],
+    ['SITE_SOURCE_URL', 'https://github.com/', /SITE_SOURCE_URL must be an https URL/],
     ['PUBLIC_TURNSTILE_SITEKEY', '', /SITEKEY is empty/],
     ['PUBLIC_TURNSTILE_SITEKEY', TURNSTILE_TEST_SITEKEY, /test key/],
   ]) {

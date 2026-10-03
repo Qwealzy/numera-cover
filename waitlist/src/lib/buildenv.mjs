@@ -6,6 +6,7 @@
 //   SITE_ENV=production      production build: every check below must pass or the build fails
 //   SITE_CONTROLLER_NAME     controller identity on /privacy            -> {{CONTROLLER_NAME}}
 //   SITE_DELETE_BY           waitlist deletion date, YYYY-MM-DD         -> {{DELETE_BY}}
+//   SITE_SOURCE_URL          public source repository (https URL)        -> footer "Source" link (AGPL-3.0 section 13)
 //   SITE_GOVERNING_LAW       law governing the terms of use (a place)    -> {{GOVERNING_LAW}} on /terms
 //   SITE_LEGAL_REVIEWED=1    hides the "Pending legal review" note
 //   PUBLIC_TURNSTILE_SITEKEY Turnstile site key (public by design); dev builds fall back to the always-pass test key
@@ -13,14 +14,25 @@
 /** Cloudflare's published always-pass Turnstile TEST site key (dev and local only). */
 export const TURNSTILE_TEST_SITEKEY = '1x00000000000000000000AA';
 
+/** An https URL with a host and a path, no user info, query or fragment (the public repository's address). */
+export function isPublicSourceUrl(v) {
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && !!u.hostname && !u.username && !u.password && !u.search && !u.hash && u.pathname.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 const trim = (v) => (typeof v === 'string' ? v.trim() : '');
 
-/** -> { production, controllerName, deleteBy, governingLaw, legalReviewed, turnstileSitekey, problems: string[] } */
+/** -> { production, controllerName, deleteBy, governingLaw, sourceUrl, legalReviewed, turnstileSitekey, problems: string[] } */
 export function readBuildEnv(env = process.env) {
   const production = trim(env.SITE_ENV) === 'production';
   const controllerName = trim(env.SITE_CONTROLLER_NAME);
   const deleteBy = trim(env.SITE_DELETE_BY);
   const governingLaw = trim(env.SITE_GOVERNING_LAW);
+  const sourceUrl = trim(env.SITE_SOURCE_URL);
   const legalReviewed = trim(env.SITE_LEGAL_REVIEWED) === '1';
   const sitekey = trim(env.PUBLIC_TURNSTILE_SITEKEY);
   const problems = [];
@@ -29,6 +41,8 @@ export function readBuildEnv(env = process.env) {
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(deleteBy) || Number.isNaN(Date.parse(`${deleteBy}T00:00:00Z`)))
     problems.push(`SITE_DELETE_BY must be a date YYYY-MM-DD (got "${deleteBy}")`);
   if (!governingLaw) problems.push('SITE_GOVERNING_LAW is empty ({{GOVERNING_LAW}} on /terms)');
+  if (!sourceUrl) problems.push('SITE_SOURCE_URL is empty (the footer "Source" link to the public repository)');
+  else if (!isPublicSourceUrl(sourceUrl)) problems.push(`SITE_SOURCE_URL must be an https URL without credentials, query or fragment (got "${sourceUrl}")`);
   if (!sitekey) problems.push('PUBLIC_TURNSTILE_SITEKEY is empty');
   else if (production && /^[123]x0{20}/.test(sitekey))
     problems.push('PUBLIC_TURNSTILE_SITEKEY is a Cloudflare test key; production needs the real site key');
@@ -37,6 +51,7 @@ export function readBuildEnv(env = process.env) {
     controllerName,
     deleteBy,
     governingLaw,
+    sourceUrl: sourceUrl && isPublicSourceUrl(sourceUrl) ? sourceUrl : '',
     legalReviewed,
     turnstileSitekey: sitekey || TURNSTILE_TEST_SITEKEY,
     problems,

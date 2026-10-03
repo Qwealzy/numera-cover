@@ -1,5 +1,6 @@
 ---
 import { brand, footer as F, hero } from '../copy/en.ts';
+import { assertBuildEnv } from '../lib/buildenv.mjs';
 import markUrl from '../assets/numera-mark.svg?url';
 import { ICON_VIEWBOX, TELEGRAM_PATH, X_PATH } from '../lib/icons.ts';
 // The two contact accounts as icon-only links (inline SVG: no external request, CSP unchanged); the accessible
@@ -8,6 +9,9 @@ const socials = [
   { ...F.telegram, path: TELEGRAM_PATH },
   { ...F.x, path: X_PATH },
 ];
+// The "Source" link (AGPL-3.0 section 13: network users are offered the source) points at the PUBLIC repository,
+// from SITE_SOURCE_URL; without it (dev) the placeholder shows as text, never a link and never a guessed address.
+const { sourceUrl } = assertBuildEnv();
 ---
 
 <footer class="foot">
@@ -32,6 +36,24 @@ const socials = [
     <ul class="foot-facts mono">
       <li>{F.agri}</li>
       <li>{F.license}</li>
+      <li>
+        {
+          sourceUrl ? (
+            <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{F.source}</a>
+          ) : (
+            <span>{F.source}: {'{{SOURCE_URL}}'}</span>
+          )
+        }
+      </li>
+      <li>
+        {F.fonts}
+        {F.fontLicenses.map((l, i) => (
+          <>
+            {i ? ', ' : ' '}
+            <a href={l.href}>{l.label}</a>
+          </>
+        ))}
+      </li>
       <li>{F.built}</li>
     </ul>
     <p class="pill foot-pill">{hero.status}</p>
@@ -113,6 +135,13 @@ const socials = [
     color: var(--text-label);
     gap: 0.7rem;
     padding-top: 0.7rem;
+  }
+  .foot-facts a {
+    color: var(--text-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    display: inline-block;
+    padding-block: 0.35rem;
   }
   .foot-pill {
     grid-column: 1 / -1;

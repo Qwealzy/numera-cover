@@ -10,7 +10,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const ALLOWED = ['rpcs.chain.link', 'rpc.hyperliquid-testnet.xyz', 'challenges.cloudflare.com', 't.me/godsonits', 'x.com/ggodsonits',
+// SITE_SOURCE_URL (the public repository, footer link) is allowed when a production build sets it
+const SOURCE = process.env.SITE_SOURCE_URL ? [process.env.SITE_SOURCE_URL.replace(/^https?:\/\//, '')] : [];
+const ALLOWED = [...SOURCE, 'rpcs.chain.link', 'rpc.hyperliquid-testnet.xyz', 'challenges.cloudflare.com', 't.me/godsonits', 'x.com/ggodsonits',
   // the two Cloudflare pages the privacy notice links to
   'www.cloudflare.com/turnstile-privacy-policy/', 'www.cloudflare.com/cloudflare-customer-dpa/'];
 // Strings in the self-hosted three.js chunk that look like URLs but are never fetched: the XHTML namespace passed
