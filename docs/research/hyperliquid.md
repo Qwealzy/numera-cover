@@ -1,4 +1,4 @@
-# Hyperliquid / HyperEVM facts (research 2026-10-01)
+# Hyperliquid / HyperEVM facts (researched 2026-10-01 and 2026-10-02)
 
 Verified facts the build depends on. Each line carries its source. `[RUN]` = observed by a live
 call on 2026-10-01. Anything marked **VERIFY** must be confirmed in code/tests before relying on it.
@@ -12,14 +12,14 @@ Docs root: https://hyperliquid.gitbook.io/hyperliquid-docs/ (index: `/llms.txt`)
 | EVM RPC | `https://rpc.hyperliquid-testnet.xyz/evm` | `https://rpc.hyperliquid.xyz/evm` |
 | Info API | `https://api.hyperliquid-testnet.xyz/info` | `https://api.hyperliquid.xyz/info` (read-only use OK) |
 | USDC (EVM) | `0x2B3370eE501B4a559b57D449569354196457D8Ab` (from hyper-evm-lib HLConstants; proxy, 6 dec [RUN]; mintability unknown) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` (Circle, 6 dec) [docs hypercore/usdc] |
-| Block explorer | none used | none used |
+| Block explorer | **none working for 998** (see note below) | not used; receipts are read over RPC |
 
-- Testnet explorer, checked 2026-10-02 [RUN]: `explore-testnet.hyperpc.app` (community Blockscout) is STALE. Its API
-  latest block is 60,609,357 (timestamp 2026-08-03) while the RPC head is about 65.77M, and
-  `/api/v2/transactions/0x3fb5…6d44` (the founder's buyCover) returns "Not found". No working 998 explorer was found
-  on 2026-10-02: testnet.hypurrscan.io/evm/tx says "Transaction not found" (checked in a browser), Etherscan V2
-  rejects chainid 998, chainid.network lists no explorers for 998, and purrsec.com is now a spam site. Use
-  `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet` or the app's receipt view (D22).
+- Testnet block explorers, checked 2026-10-02 [RUN]: the community Blockscout instance for 998 is STALE. Its API
+  latest block was 60,609,357 (timestamp 2026-08-03) while the RPC head was about 65.77M, and it returned
+  "Not found" for a known testnet `buyCover` transaction. No working 998 explorer was found on 2026-10-02: the
+  other candidate explorers did not find that transaction, Etherscan V2 rejects chainid 998, and chainid.network
+  lists no explorers for 998. Numera therefore links no explorer. Use
+  `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet` or the app's receipt view.
 - Gas token HYPE. Testnet HYPE faucets: https://faucet.chainstack.com/hyperliquid-testnet-faucet (1/24h),
   https://faucet.quicknode.com/hyperliquid [docs builder-tools/hyperevm-tools].
 - Testnet mock USDC (on **Core**, not EVM): https://app.hyperliquid-testnet.xyz/drip — 1,000 USDC,
@@ -79,7 +79,7 @@ Raw `staticcall(abi.encode(args))`, no selector. Values = HyperCore state when t
   max leverage (1.25% at 40× … 16.7% at 3×).
   `liq_price = price − side × margin_available / position_size / (1 − l × side)`, `l = 1/MAINTENANCE_LEVERAGE`.
 - Testnet oracle mirrors real markets for majors ([RUN] BTC/ETH identical to mainnet); HYPE differs.
-  Testnet book is thin (mark deviates). **We cannot crash testnet prices** → demo plan in ARCHITECTURE §8.
+  Testnet book is thin (mark deviates). **We cannot crash testnet prices** → demo plan in `docs/ARCHITECTURE.md` §8.
 
 ## Info API (data for pricing/backtest)
 
@@ -119,4 +119,4 @@ Source: https://app.hyperliquid.xyz/terms. Paraphrased; section numbers as in th
 - §11.4: governed by the law of England and Wales; disputes go to LCIA arbitration seated in London.
 - Implication for Numera: the same restriction applies to our audience (Numera cover is linked to a
   Hyperliquid position). The early-access waitlist asks for a self-declaration that the person is not a
-  Restricted Person (`docs/research/website.md` §6).
+  Restricted Person.
