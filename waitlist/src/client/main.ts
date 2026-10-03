@@ -1,4 +1,4 @@
-// Page boot: nav (backdrop, Motion toggle, Join CTAs), section reveals, and every interactive section.
+// Page boot: section reveals, the Join CTAs and every interactive section (the nav itself boots in nav.ts).
 import { nav as N } from '../copy/en.ts';
 import { motionOn, onMotion, onceVisible } from './motion.ts';
 import { on } from './store.ts';

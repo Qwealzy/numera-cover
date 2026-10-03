@@ -28,9 +28,6 @@ export const nav = {
   join: 'Join the waitlist',
   joinShort: 'Join',
   joined: 'On the list',
-  motion: 'Motion',
-  motionOn: 'on',
-  motionOff: 'off',
 };
 
 export const hero = {

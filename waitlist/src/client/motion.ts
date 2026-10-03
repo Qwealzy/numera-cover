@@ -17,15 +17,9 @@ export function motionOn(): boolean {
   return html.dataset.motion === 'on';
 }
 
-export function setMotion(on: boolean, persist = true): void {
+/** Motion on or off for this page view (never stored): the OS reduced-motion setting and the hero's pause button. */
+export function setMotion(on: boolean): void {
   html.dataset.motion = on ? 'on' : 'off';
-  if (persist) {
-    try {
-      window.localStorage.setItem('numera-motion', on ? 'on' : 'off');
-    } catch {
-      // storage blocked: the setting lasts for this page view only
-    }
-  }
   for (const f of motionListeners) f(on);
   pump();
 }
@@ -122,20 +116,11 @@ export function onceVisible(el: Element, f: () => void, ratio = 0.35): void {
   io.observe(el);
 }
 
-// The OS reduced-motion setting can change while the page is open; follow it unless the viewer chose with the
-// nav toggle (boot.js reads the setting once, before paint).
+// The OS reduced-motion setting can change while the page is open; follow it (boot.js reads it once, before
+// paint). Nothing is kept in browser storage.
 try {
   const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-  mq.addEventListener('change', () => {
-    let saved: string | null = null;
-    try {
-      saved = window.localStorage.getItem('numera-motion');
-    } catch {
-      saved = null;
-    }
-    if (mq.matches) setMotion(false, false);
-    else if (saved !== 'off') setMotion(true, false);
-  });
+  mq.addEventListener('change', () => setMotion(!mq.matches));
 } catch {
   // no matchMedia: the boot-time state stays
 }

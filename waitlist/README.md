@@ -147,10 +147,10 @@ three of:
 
 - **Scheduler.** One rAF scheduler runs every loop. A loop runs only while it is on screen, the tab is visible and
   motion is on. `<html data-loops>` shows how many loops are running.
-- **Motion off.** Motion turns off when the OS asks for reduced motion (also when that setting changes while the
-  page is open), when the nav **Motion** switch is turned off (saved in `localStorage`, every access wrapped in
-  try/catch) or when the hero **Pause motion** button is pressed. The switch has the fixed name "Motion" and
-  `aria-pressed`; the hero button's label says what a press does ("Pause motion" / "Resume motion").
+- **Motion off.** Motion is on for everyone, except when the OS asks for reduced motion (also when that setting
+  changes while the page is open) or when the hero **Pause motion** button is pressed (this page view only; the
+  label says what a press does, "Pause motion" / "Resume motion"). There is no site-wide motion switch, and the
+  page reads and writes no browser storage (no `localStorage`, no cookies of its own).
 - **Reveals fail open.** Section blocks are hidden for their entry reveal only after the page module has attached
   its observers (`html.reveals`). If it never does, `boot.js` adds `html.reveal-fail` after 3.5 s and everything
   shows. A block reveals at 12 % visible or when a quarter of the viewport shows it, so blocks taller than the
