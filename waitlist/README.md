@@ -19,7 +19,7 @@ Migration `0002` removes the unique constraint on `handle_norm`, so a handler th
 Deploy this folder only against a D1 database that uses these migrations.
 
 The site's canonical address is https://cover.numeralabs.xyz (custom domain on the Cloudflare Pages project `numera-cover`; `SITE_URL` in
-`src/config.ts`, used for the canonical link and `og:url`).
+`src/site.ts`, used for the canonical link and `og:url`).
 
 Testnet only. Not an offer. Nothing on the page is a quote.
 
@@ -124,6 +124,7 @@ three of:
 
 | Path | What |
 |---|---|
+| `functions/_middleware.ts`, `src/server/redirect.ts` | 301 from the exact host `numera-cover.pages.dev` to the canonical domain (path and query kept); preview, hash-preview, canonical and local hosts pass through |
 | `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | `/api/join`, D1, Turnstile; email required, Telegram and X each optional since `0002` |
 | `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Build-variable loader and chain reads. `chain.ts` holds the ledger and oracle reads. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |

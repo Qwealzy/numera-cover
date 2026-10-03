@@ -52,5 +52,4 @@ if (RECORDED_RUN.seconds !== 3) throw new Error('recorded run: the copy says 3 s
 export const WAITLIST_ENDPOINT = '/api/join';
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
 
-// Canonical public address of the early-access site (custom domain on the Cloudflare Pages project numera-cover).
-export const SITE_URL = 'https://cover.numeralabs.xyz';
+export { SITE_URL } from './site.ts';
