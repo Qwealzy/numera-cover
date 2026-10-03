@@ -6,6 +6,7 @@
 //   SITE_ENV=production      production build: every check below must pass or the build fails
 //   SITE_CONTROLLER_NAME     controller identity on /privacy            -> {{CONTROLLER_NAME}}
 //   SITE_DELETE_BY           waitlist deletion date, YYYY-MM-DD         -> {{DELETE_BY}}
+//   SITE_GOVERNING_LAW       law governing the terms of use (a place)    -> {{GOVERNING_LAW}} on /terms
 //   SITE_LEGAL_REVIEWED=1    hides the "Pending legal review" note
 //   PUBLIC_TURNSTILE_SITEKEY Turnstile site key (public by design); dev builds fall back to the always-pass test key
 
@@ -14,11 +15,12 @@ export const TURNSTILE_TEST_SITEKEY = '1x00000000000000000000AA';
 
 const trim = (v) => (typeof v === 'string' ? v.trim() : '');
 
-/** -> { production, controllerName, deleteBy, legalReviewed, turnstileSitekey, problems: string[] } */
+/** -> { production, controllerName, deleteBy, governingLaw, legalReviewed, turnstileSitekey, problems: string[] } */
 export function readBuildEnv(env = process.env) {
   const production = trim(env.SITE_ENV) === 'production';
   const controllerName = trim(env.SITE_CONTROLLER_NAME);
   const deleteBy = trim(env.SITE_DELETE_BY);
+  const governingLaw = trim(env.SITE_GOVERNING_LAW);
   const legalReviewed = trim(env.SITE_LEGAL_REVIEWED) === '1';
   const sitekey = trim(env.PUBLIC_TURNSTILE_SITEKEY);
   const problems = [];
@@ -26,6 +28,7 @@ export function readBuildEnv(env = process.env) {
   if (!deleteBy) problems.push('SITE_DELETE_BY is empty ({{DELETE_BY}} on /privacy)');
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(deleteBy) || Number.isNaN(Date.parse(`${deleteBy}T00:00:00Z`)))
     problems.push(`SITE_DELETE_BY must be a date YYYY-MM-DD (got "${deleteBy}")`);
+  if (!governingLaw) problems.push('SITE_GOVERNING_LAW is empty ({{GOVERNING_LAW}} on /terms)');
   if (!sitekey) problems.push('PUBLIC_TURNSTILE_SITEKEY is empty');
   else if (production && /^[123]x0{20}/.test(sitekey))
     problems.push('PUBLIC_TURNSTILE_SITEKEY is a Cloudflare test key; production needs the real site key');
@@ -33,6 +36,7 @@ export function readBuildEnv(env = process.env) {
     production,
     controllerName,
     deleteBy,
+    governingLaw,
     legalReviewed,
     turnstileSitekey: sitekey || TURNSTILE_TEST_SITEKEY,
     problems,
@@ -47,9 +51,10 @@ export function assertBuildEnv(env = process.env) {
   return b;
 }
 
-/** Replaces {{CONTROLLER_NAME}} / {{DELETE_BY}}; an empty value leaves the placeholder visible (dev). */
+/** Replaces {{CONTROLLER_NAME}} / {{DELETE_BY}} / {{GOVERNING_LAW}}; an empty value leaves the placeholder visible (dev). */
 export function fillPlaceholders(text, b) {
   return text
     .replaceAll('{{CONTROLLER_NAME}}', b.controllerName || '{{CONTROLLER_NAME}}')
-    .replaceAll('{{DELETE_BY}}', b.deleteBy || '{{DELETE_BY}}');
+    .replaceAll('{{DELETE_BY}}', b.deleteBy || '{{DELETE_BY}}')
+    .replaceAll('{{GOVERNING_LAW}}', b.governingLaw || '{{GOVERNING_LAW}}');
 }

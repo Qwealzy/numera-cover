@@ -152,7 +152,8 @@ test('the waitlist wording: email first, honest intro, explicit email consent; o
   // the consent statement names the email and the way out (Law No. 6563: explicit consent to e-messages)
   const consent = en.waitlist.consent.before + en.waitlist.consent.link + en.waitlist.consent.after;
   assert.match(consent, /^Email me when the next testnet round opens, and store my email/);
-  assert.match(consent, /privacy notice describes\. I can unsubscribe any time\.$/);
+  assert.match(consent, /privacy notice describes\. I can unsubscribe any time\. This site is used under the $/);
+  assert.equal(en.waitlist.consent.termsLink, 'terms of use'); // linked to /terms right after the privacy link
   // the "I would" toggle and its wording are gone
   assert.equal('doors' in en.waitlist, false);
   assert.equal('terms' in en.waitlist, false);

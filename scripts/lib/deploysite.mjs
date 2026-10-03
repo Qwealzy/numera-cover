@@ -57,6 +57,7 @@ export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS)
     SITE_ENV: 'production',
     SITE_CONTROLLER_NAME: b.controllerName,
     SITE_DELETE_BY: b.deleteBy,
+    SITE_GOVERNING_LAW: b.governingLaw,
     PUBLIC_TURNSTILE_SITEKEY: env.PUBLIC_TURNSTILE_SITEKEY ?? '',
     SITE_LEGAL_REVIEWED: b.legalReviewed ? '1' : '',
   };

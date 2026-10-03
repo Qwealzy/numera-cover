@@ -44,13 +44,14 @@ The dev and local servers bind to `127.0.0.1:4471`.
 
 ### Build environment
 
-These variables are read by `src/lib/buildenv.mjs`, which is copied unchanged from `site/`.
+These variables are read by `src/lib/buildenv.mjs`, which started as a copy of `site/`'s.
 
 | Variable | Effect |
 |---|---|
 | `SITE_ENV=production` | The build fails unless every value below is set |
 | `SITE_CONTROLLER_NAME` | Fills `{{CONTROLLER_NAME}}` on `/privacy` |
 | `SITE_DELETE_BY` | A `YYYY-MM-DD` date; fills `{{DELETE_BY}}` |
+| `SITE_GOVERNING_LAW` | The law that governs the terms of use; fills `{{GOVERNING_LAW}}` on `/terms` |
 | `PUBLIC_TURNSTILE_SITEKEY` | Required in production, and a Cloudflare test key is refused there. Dev builds fall back to the always-pass test key. |
 | `SITE_LEGAL_REVIEWED=1` | Hides the "Pending legal review" badge |
 

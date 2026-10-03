@@ -26,12 +26,14 @@ test('markup: icon-only links (inline SVG), aria-label, target _blank, rel noope
 });
 
 test('built pages: the footer links to exactly the two accounts, icon-only', () => {
-  for (const page of ['index.html', 'privacy.html']) {
+  for (const page of ['index.html', 'privacy.html', 'terms.html', '404.html']) {
     const f = path.join(SITE, 'dist', page);
     if (!existsSync(f)) continue;
     const foot = readFileSync(f, 'utf8').match(/<footer[\s\S]*<\/footer>/)?.[0] ?? '';
     const ext = [...foot.matchAll(/href="(https?:[^"]+)"/g)].map((m) => m[1]);
     assert.deepEqual(ext, ['https://t.me/godsonits', 'https://x.com/ggodsonits'], page);
+    assert.match(foot, /href="\/privacy"/);
+    assert.match(foot, /href="\/terms"/);
     assert.match(foot, /aria-label="Numera on Telegram"/);
     assert.match(foot, /aria-label="Numera on X"/);
     assert.doesNotMatch(foot.replace(/<[^>]+>/g, ' '), /@g?godsonits/, `${page}: no visible handle text`);

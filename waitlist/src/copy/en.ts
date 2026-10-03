@@ -505,7 +505,10 @@ export const waitlist = {
   consent: {
     before: 'Email me when the next testnet round opens, and store my email (and handles, if given) as the ',
     link: 'privacy notice',
-    after: ' describes. I can unsubscribe any time.',
+    after: ' describes. I can unsubscribe any time. This site is used under the ',
+    // the terms of use (src/pages/terms.astro), linked next to the privacy notice
+    termsLink: 'terms of use',
+    end: '.',
   },
   // founder wording 2026-10-03: age, residence, citizenship and location; the US, the UK, Ontario and sanctioned jurisdictions (one checkbox)
   jurisdiction:
@@ -601,6 +604,7 @@ export const footer = {
   license: 'AGPL-3.0',
   built: 'Built for Colosseum',
   privacy: 'Privacy notice',
+  terms: 'Terms of use',
   agri: 'Numera agri product under construction',
   affiliation: 'Not affiliated with or endorsed by Hyperliquid.',
 };
@@ -705,6 +709,69 @@ export const privacy = {
         'Your rights under Art. 11: to learn whether your data is processed and ask for information; to learn the purpose and whether it is used accordingly; to know the recipients in the country or abroad; to ask for correction; to ask for deletion or destruction (Art. 7) and for that to be notified to recipients; to object to a result against you from exclusively automated analysis (we do none); and to ask for compensation for damage from unlawful processing.',
         'How to use them: write to the contact above, with the email address you gave. We reply within the 30 days the law allows.',
       ],
+    },
+  ] as NoticeSection[],
+  back: 'Back to the home page',
+};
+
+export const terms = {
+  title: 'Terms of use',
+  pending: 'Pending legal review',
+  updated: 'Version 2026-10-03',
+  intro: 'Plain terms for using this early-access site and the Numera testnet. Please read them before you join the waitlist.',
+  sections: [
+    {
+      h: 'What this is',
+      p: [
+        'Numera Liquidation Cover is a testnet experiment. It runs on HyperEVM testnet with mock USDC. Nothing on this site uses real funds.',
+      ],
+    },
+    {
+      h: 'Not insurance, not an offer, not advice',
+      p: [
+        'It is not insurance. Nothing here is an offer or a solicitation to buy or sell anything, and nothing here is financial, investment, legal or tax advice. Figures on the site are illustrative estimates, not quotes.',
+      ],
+    },
+    {
+      h: 'Mock funds, no real payout',
+      p: [
+        'Testnet covers pay mock funds that have no value. No real payout is made or promised. A future mainnet product, if there is one, would come with its own terms.',
+      ],
+    },
+    {
+      h: 'Who may use it',
+      p: [
+        'You must be 18 or older, and not a resident or citizen of, or located in, the US, the UK, Ontario (Canada) or a sanctioned jurisdiction. Do not hide your location to get around this. We may refuse requests from those regions.',
+        'This follows the restrictions that apply to Hyperliquid, to which the product is linked. We are not affiliated with or endorsed by Hyperliquid.',
+      ],
+    },
+    {
+      h: 'The waitlist',
+      p: ['Joining the waitlist is free and gives you no right to access, to a payout or to any product. How we handle your details is in the privacy notice.'],
+    },
+    {
+      h: 'No warranty',
+      p: [
+        'The site, the testnet contracts and the estimates are provided as they are, without warranty of any kind, express or implied. The contracts have had no independent audit and may contain bugs, the testnet can be reset, and the figures may be wrong or out of date.',
+      ],
+    },
+    {
+      h: 'Limit of liability',
+      p: [
+        'To the extent the law allows, the operator is not liable for any loss or damage, including indirect or consequential loss, that arises from your use of this site or the testnet. This does not limit any liability that the law does not allow us to limit.',
+      ],
+    },
+    {
+      h: 'Changes to these terms',
+      p: ['We may change these terms. The version at the top shows the current text; a change applies from when it is published and only to later use.'],
+    },
+    {
+      h: 'Governing law',
+      p: ['These terms are governed by the law of {{GOVERNING_LAW}}.'],
+    },
+    {
+      h: 'Contact',
+      p: ['Operator: {{CONTROLLER_NAME}}.', 'Telegram @godsonits or X @ggodsonits, the same channels as in the privacy notice.'],
     },
   ] as NoticeSection[],
   back: 'Back to the home page',

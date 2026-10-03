@@ -1,4 +1,4 @@
-// Copied unchanged from site/test/buildenv.test.mjs (waitlist v2 build, 2026-10-02): the same contract must pass here.
+// From site/test/buildenv.test.mjs (waitlist v2 build, 2026-10-02), plus SITE_GOVERNING_LAW for /terms (2026-10-03).
 // node --test: the production gate on /privacy placeholders and the Turnstile site key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,6 +8,7 @@ const full = {
   SITE_ENV: 'production',
   SITE_CONTROLLER_NAME: 'Example Controller',
   SITE_DELETE_BY: '2027-03-31',
+  SITE_GOVERNING_LAW: 'Example Land',
   PUBLIC_TURNSTILE_SITEKEY: '0x4AAAAAAA-real-key',
 };
 
@@ -16,7 +17,7 @@ test('dev build: empty values pass, placeholders stay visible, test site key use
   assert.equal(b.production, false);
   assert.equal(b.turnstileSitekey, TURNSTILE_TEST_SITEKEY);
   assert.equal(b.legalReviewed, false);
-  assert.equal(fillPlaceholders('C: {{CONTROLLER_NAME}} by {{DELETE_BY}}', b), 'C: {{CONTROLLER_NAME}} by {{DELETE_BY}}');
+  assert.equal(fillPlaceholders('C: {{CONTROLLER_NAME}} by {{DELETE_BY}} under {{GOVERNING_LAW}}', b), 'C: {{CONTROLLER_NAME}} by {{DELETE_BY}} under {{GOVERNING_LAW}}');
 });
 
 test('production build fails on each missing or malformed value', () => {
@@ -25,6 +26,7 @@ test('production build fails on each missing or malformed value', () => {
     ['SITE_CONTROLLER_NAME', '', /SITE_CONTROLLER_NAME is empty/],
     ['SITE_DELETE_BY', '  ', /SITE_DELETE_BY is empty/],
     ['SITE_DELETE_BY', '31.03.2027', /YYYY-MM-DD/],
+    ['SITE_GOVERNING_LAW', '', /SITE_GOVERNING_LAW is empty/],
     ['PUBLIC_TURNSTILE_SITEKEY', '', /SITEKEY is empty/],
     ['PUBLIC_TURNSTILE_SITEKEY', TURNSTILE_TEST_SITEKEY, /test key/],
   ]) {
@@ -34,7 +36,7 @@ test('production build fails on each missing or malformed value', () => {
 
 test('production fills the placeholders; SITE_LEGAL_REVIEWED=1 hides the pending note', () => {
   const b = assertBuildEnv({ ...full, SITE_LEGAL_REVIEWED: '1' });
-  assert.equal(fillPlaceholders('{{CONTROLLER_NAME}} / {{DELETE_BY}}', b), 'Example Controller / 2027-03-31');
+  assert.equal(fillPlaceholders('{{CONTROLLER_NAME}} / {{DELETE_BY}} / {{GOVERNING_LAW}}', b), 'Example Controller / 2027-03-31 / Example Land');
   assert.equal(b.legalReviewed, true);
   assert.equal(readBuildEnv({ ...full, SITE_LEGAL_REVIEWED: 'yes' }).legalReviewed, false);
 });

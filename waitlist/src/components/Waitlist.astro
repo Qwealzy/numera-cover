@@ -113,7 +113,7 @@ const Nx = Wl.issued.next;
             <div class="check">
               <input id="wl-consent" name="consent" type="checkbox" required />
               <label for="wl-consent">
-                {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}
+                {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}<a href="/terms">{Wl.consent.termsLink}</a>{Wl.consent.end}
               </label>
             </div>
             <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
