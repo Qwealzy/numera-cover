@@ -268,7 +268,7 @@ test('handler: Turnstile failure is 403 and stores nothing; verify gets token, s
   });
   assert.equal(r.status, 403);
   assert.deepEqual(await r.json(), { ok: false, error: 'captcha' });
-  assert.deepEqual(seen, [['XXXX.DUMMY.TOKEN.XXXX', 'test-secret', '203.0.113.7']]);
+  assert.deepEqual(seen, [['XXXX.DUMMY.TOKEN.XXXX', 'test-secret', '203.0.113.7', undefined]]);
   assert.equal(f.waitlist.length, 0);
 });
 
@@ -323,6 +323,33 @@ test('turnstileVerifier: posts secret/response/remoteip to siteverify; only succ
     throw new Error('offline');
   }) as unknown as typeof fetch);
   assert.equal(await throwing('tok', 'sec', ''), false);
+});
+
+test('turnstileVerifier: hostname allowlist (TURNSTILE_HOSTNAMES) allows, denies, and is skipped when unset', async () => {
+  const mk = (res: unknown) =>
+    turnstileVerifier((async () => new Response(JSON.stringify(res), { status: 200 })) as unknown as typeof fetch);
+  const list = 'cover.numeralabs.xyz, numera-cover.pages.dev,preview.numera-cover.pages.dev';
+  // allowed (case and spaces ignored)
+  assert.equal(await mk({ success: true, hostname: 'cover.numeralabs.xyz' })('t', 's', '', list), true);
+  assert.equal(await mk({ success: true, hostname: 'Preview.Numera-Cover.pages.dev' })('t', 's', '', list), true);
+  // denied: other host, missing hostname, success false even on an allowed host
+  assert.equal(await mk({ success: true, hostname: 'evil.example' })('t', 's', '', list), false);
+  assert.equal(await mk({ success: true })('t', 's', '', list), false);
+  assert.equal(await mk({ success: false, hostname: 'cover.numeralabs.xyz' })('t', 's', '', list), false);
+  // unset, empty or blank: today's behaviour (success only)
+  for (const unset of [undefined, '', ' , '])
+    assert.equal(await mk({ success: true, hostname: 'evil.example' })('t', 's', '', unset), true);
+  assert.equal(await mk({ success: true })('t', 's', ''), true);
+});
+
+test('handler: TURNSTILE_HOSTNAMES from env reaches the verifier', async () => {
+  const f = fakeD1();
+  const seen: unknown[] = [];
+  await handleJoin(req(goodBody()), { ...env(f.db), TURNSTILE_HOSTNAMES: 'cover.numeralabs.xyz' }, {
+    verify: async (...a) => (seen.push(a[3]), true),
+    now: () => T0,
+  });
+  assert.deepEqual(seen, ['cover.numeralabs.xyz']);
 });
 
 test('consent: the current version and all earlier versions are accepted; anything else is refused', () => {

@@ -120,12 +120,17 @@ export interface D1Stmt {
 export interface D1Like {
   prepare(sql: string): D1Stmt;
 }
-export type VerifyTurnstile = (token: string, secret: string, ip: string) => Promise<boolean>;
+/** hostnames: the TURNSTILE_HOSTNAMES env value (comma list). Unset or blank keeps the success-only check. */
+export type VerifyTurnstile = (token: string, secret: string, ip: string, hostnames?: string) => Promise<boolean>;
 
 export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 export function turnstileVerifier(fetchFn: typeof fetch = fetch): VerifyTurnstile {
-  return async (token, secret, ip) => {
+  return async (token, secret, ip, hostnames) => {
+    const allowed = (hostnames ?? '')
+      .split(',')
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean);
     const form = new FormData();
     form.append('secret', secret);
     form.append('response', token);
@@ -133,15 +138,18 @@ export function turnstileVerifier(fetchFn: typeof fetch = fetch): VerifyTurnstil
     try {
       const r = await fetchFn(SITEVERIFY_URL, { method: 'POST', body: form });
       if (!r.ok) return false;
-      const j = (await r.json()) as { success?: boolean };
-      return j.success === true;
+      const j = (await r.json()) as { success?: boolean; hostname?: string };
+      if (j.success !== true) return false;
+      // the token must have been issued on one of our hostnames (a token minted on another site with a leaked sitekey fails)
+      if (allowed.length && !(typeof j.hostname === 'string' && allowed.includes(j.hostname.toLowerCase()))) return false;
+      return true;
     } catch {
       return false;
     }
   };
 }
 
-export type JoinEnv = { DB?: D1Like; TURNSTILE_SECRET?: string; IP_HASH_SALT?: string };
+export type JoinEnv = { DB?: D1Like; TURNSTILE_SECRET?: string; IP_HASH_SALT?: string; TURNSTILE_HOSTNAMES?: string };
 export type JoinDeps = { verify: VerifyTurnstile; now: () => number };
 
 const json = (status: number, body: Record<string, unknown>) =>
@@ -195,7 +203,7 @@ export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps)
   const v = validateSignup(body);
   if ('error' in v) return json(v.error === 'captcha' ? 403 : 400, { ok: false, error: v.error });
 
-  if (!(await deps.verify(v.token, secret, ip))) return json(403, { ok: false, error: 'captcha' });
+  if (!(await deps.verify(v.token, secret, ip, env.TURNSTILE_HOSTNAMES))) return json(403, { ok: false, error: 'captcha' });
 
   try {
     await db

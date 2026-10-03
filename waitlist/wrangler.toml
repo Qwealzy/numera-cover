@@ -6,6 +6,10 @@ name = "numera-cover"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-09-01"
 
+[vars]
+# Hostnames a Turnstile token may have been issued on (checked against siteverify's "hostname"). Not a secret.
+TURNSTILE_HOSTNAMES = "cover.numeralabs.xyz,numera-cover.pages.dev,preview.numera-cover.pages.dev"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "numera-waitlist"
