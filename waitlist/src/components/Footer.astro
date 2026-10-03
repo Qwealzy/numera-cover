@@ -1,6 +1,13 @@
 ---
 import { brand, footer as F, hero } from '../copy/en.ts';
 import markUrl from '../assets/numera-mark.svg?url';
+import { ICON_VIEWBOX, TELEGRAM_PATH, X_PATH } from '../lib/icons.ts';
+// The two contact accounts as icon-only links (inline SVG: no external request, CSP unchanged); the accessible
+// name is the aria-label, and each link is a 44 px tap target with a visible focus ring.
+const socials = [
+  { ...F.telegram, path: TELEGRAM_PATH },
+  { ...F.x, path: X_PATH },
+];
 ---
 
 <footer class="foot">
@@ -10,8 +17,15 @@ import markUrl from '../assets/numera-mark.svg?url';
       <p class="foot-name"><span>{brand.name}</span> · {brand.product}</p>
     </div>
     <ul class="foot-links">
-      <li><a href={F.telegram.href} rel="noopener" target="_blank">{F.telegram.label} {F.telegram.handle}</a></li>
-      <li><a href={F.x.href} rel="noopener" target="_blank">{F.x.label} {F.x.handle}</a></li>
+      <li class="socials">
+        {
+          socials.map((o) => (
+            <a class="icon-link" href={o.href} target="_blank" rel="noopener noreferrer" aria-label={o.aria}>
+              <svg viewBox={ICON_VIEWBOX} width="22" height="22" aria-hidden="true" focusable="false"><path d={o.path} fill-rule="evenodd" /></svg>
+            </a>
+          ))
+        }
+      </li>
       <li><a href="/privacy">{F.privacy}</a></li>
     </ul>
     <ul class="foot-facts mono">
@@ -64,6 +78,33 @@ import markUrl from '../assets/numera-mark.svg?url';
     align-items: center;
     min-height: 44px;
     color: var(--text-strong);
+  }
+  .socials {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .foot-links .icon-link {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    color: var(--text-strong);
+    transition: border-color var(--t-ui) var(--ease-out), color var(--t-ui) var(--ease-out);
+  }
+  .icon-link svg {
+    fill: currentColor;
+  }
+  .icon-link:focus-visible {
+    outline: var(--focus);
+    outline-offset: 3px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .icon-link:hover {
+      border-color: var(--green);
+      color: var(--text-accent);
+    }
   }
   .foot-facts {
     font-size: 0.8rem;

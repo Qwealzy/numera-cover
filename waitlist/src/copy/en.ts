@@ -586,8 +586,9 @@ export const faq = {
 };
 
 export const footer = {
-  telegram: { label: 'Telegram', handle: '@godsonits', href: 'https://t.me/godsonits' },
-  x: { label: 'X', handle: '@ggodsonits', href: 'https://x.com/ggodsonits' },
+  // the footer shows these as icon-only links; `aria` is their accessible name
+  telegram: { label: 'Telegram', handle: '@godsonits', href: 'https://t.me/godsonits', aria: 'Numera on Telegram' },
+  x: { label: 'X', handle: '@ggodsonits', href: 'https://x.com/ggodsonits', aria: 'Numera on X' },
   license: 'AGPL-3.0',
   built: 'Built for Colosseum',
   privacy: 'Privacy notice',

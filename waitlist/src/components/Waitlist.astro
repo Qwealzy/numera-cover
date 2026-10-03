@@ -85,7 +85,7 @@ const Nx = Wl.issued.next;
                     <div class="field" data-field={k}>
                       <label for={`wl-${k}`} class="visually-hidden">{Wl[k].label}</label>
                       <div class="input-wrap has-icon">
-                        <svg class="in-icon" viewBox={ICON_VIEWBOX} aria-hidden="true" focusable="false"><path d={k === 'telegram' ? TELEGRAM_PATH : X_PATH} /></svg>
+                        <svg class="in-icon" viewBox={ICON_VIEWBOX} aria-hidden="true" focusable="false"><path d={k === 'telegram' ? TELEGRAM_PATH : X_PATH} fill-rule="evenodd" /></svg>
                         <input
                           id={`wl-${k}`}
                           name={k}

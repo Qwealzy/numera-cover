@@ -17,7 +17,7 @@ test('email and submit on one row; the handle block behind <button aria-expanded
   assert.match(astro, /<div id="wl-more" class="more-body" data-more-body hidden>[\s\S]*\(\['telegram', 'x'\] as const\)\.map/);
   // two optional inputs with their own icon; no channel toggle any more
   assert.match(astro, /id=\{`wl-\$\{k\}`\}/);
-  assert.match(astro, /<svg class="in-icon" viewBox=\{ICON_VIEWBOX\} aria-hidden="true" focusable="false"><path d=\{k === 'telegram' \? TELEGRAM_PATH : X_PATH\} \/><\/svg>/);
+  assert.match(astro, /<svg class="in-icon" viewBox=\{ICON_VIEWBOX\} aria-hidden="true" focusable="false"><path d=\{k === 'telegram' \? TELEGRAM_PATH : X_PATH\} fill-rule="evenodd" \/><\/svg>/);
   assert.doesNotMatch(astro, /name="channel"|wl-handle"/);
   assert.match(client, /moreToggle\.setAttribute\('aria-expanded', String\(open\)\)/);
 });
