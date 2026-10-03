@@ -158,21 +158,24 @@ const Nx = Wl.issued.next;
 
 <style>
   /* the left column runs the height of the form, so the mark behind the headline and intro has room */
-  .join-head {
-    align-self: stretch;
-    grid-template-rows: auto 1fr;
-  }
+  /* The mark's box has a fixed height (--join-mark-h) and the column's width: it never depends on the form,
+     so opening the Telegram/X block (which grows the card) leaves the mark exactly as it was. The lead block is
+     at least as tall as the box, so the box never reaches the form on narrow screens. */
   .join-lead {
+    --join-mark-h: 18rem;
     position: relative;
     isolation: isolate;
     display: grid;
     align-content: start;
     gap: 1.1rem;
-    min-height: 15rem;
+    min-height: var(--join-mark-h);
   }
   .join-mark {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--join-mark-h);
     z-index: -1;
     pointer-events: none;
     overflow: hidden;
@@ -434,6 +437,10 @@ const Nx = Wl.issued.next;
   .more-body[hidden] {
     display: none;
   }
+  /* while the disclosure animates its height (src/client/join.ts) */
+  .more-body.sizing {
+    overflow: hidden;
+  }
   .id-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -583,6 +590,9 @@ const Nx = Wl.issued.next;
   }
   /* narrow screens: the email and the button stack, the channel toggle sits above the handle */
   @media (max-width: 560px) {
+    .join-lead {
+      --join-mark-h: 15rem;
+    }
     .email-row,
     .id-row {
       grid-template-columns: minmax(0, 1fr);

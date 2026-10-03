@@ -202,9 +202,10 @@ no GSAP and no source-available package.
 not the kicker or the form) at `--join-mark-opacity` (0.3, in `src/styles/tokens.css`); on narrow screens that
 block sits above the form. When the section comes within `JOIN_MARK_ROOT_MARGIN` (600 px) of the viewport, motion
 is on and WebGL works, `src/client/joinmark.ts` imports `src/client/mark3d.ts`, a separate chunk with three.js
-(about 140 KB gz, same origin, so the CSP is unchanged), which extrudes the same two polygons and turns them slowly
-(`MARK_SPIN_RAD_S` 0.125 rad/s, `MARK_TILT_RAD` 0.12, device pixel ratio capped at `MARK_MAX_DPR` 2); the camera
-keeps the whole mark inside its box at any aspect. It renders through the page's rAF scheduler, so it stops off
+(about 140 KB gz, same origin, so the CSP is unchanged), which extrudes the same two polygons and swings them gently
+(`MARK_SWING_RAD` ±35°, `MARK_SWING_PERIOD_S` 9 s, `MARK_TILT_RAD` 0.12, device pixel ratio capped at `MARK_MAX_DPR`
+2), so the mark is never seen edge-on; the camera keeps the whole mark inside its box. The box has a fixed height
+(`--join-mark-h`, 18rem; 15rem on phones), so opening the Telegram/X block never resizes the mark. It renders through the page's rAF scheduler, so it stops off
 screen, in a hidden tab and with motion off. Reduced motion or no WebGL keeps the flat mark.
 `test/contrast.test.mjs` takes the mark's brightest pixel as white: at 0.3 the headline reads 6.17:1 (large text,
 3:1 needed) and the intro 4.50:1 (4.5:1 needed).

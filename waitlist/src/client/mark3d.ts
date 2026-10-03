@@ -1,6 +1,6 @@
 // Lazy chunk: the Numera mark extruded from its own two polygons (the same points as the flat SVG, from
 // src/lib/geometry.ts) and turning slowly, behind the join section. Ported from the 3D hub on the site-phase2
-// branch (site/src/scene/hub.ts buildMark): only the mark geometry and a slow rotation, no rings, nodes or
+// branch (site/src/scene/hub.ts buildMark): only the mark geometry and a slow swing, no rings, nodes or
 // environment map. It sits behind the join section's headline and intro. It renders through the page's one rAF scheduler, so it stops while the section is off
 // screen, the tab is hidden or motion is off. Its opacity is the CSS token --join-mark-opacity.
 import {
@@ -20,8 +20,11 @@ import {
 import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
 import { loop, onMotion } from './motion.ts';
 
-/** Turn speed around the vertical axis (radians per second): one turn in about 50 s. */
-export const MARK_SPIN_RAD_S = 0.125;
+/** The mark swings around the vertical axis by at most this much either way (35 degrees), so it is never seen
+ *  edge-on (a full turn showed it as an unreadable slab). */
+export const MARK_SWING_RAD = (35 * Math.PI) / 180;
+/** One full swing, there and back (seconds). */
+export const MARK_SWING_PERIOD_S = 9;
 /** The mark also rocks gently around the horizontal axis by this much (radians). */
 export const MARK_TILT_RAD = 0.12;
 /** The mark is 2 units across; this much must fit in the box both ways while it turns (margin included). */
@@ -74,7 +77,7 @@ export function mountMark3d(box: HTMLElement): void {
 
   let t = 0;
   const render = () => {
-    mark.rotation.y = t * MARK_SPIN_RAD_S;
+    mark.rotation.y = Math.sin((t * 2 * Math.PI) / MARK_SWING_PERIOD_S) * MARK_SWING_RAD;
     mark.rotation.x = Math.sin(t * 0.3) * MARK_TILT_RAD;
     renderer.render(scene, camera);
   };

@@ -90,9 +90,31 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   }
 
   // ---- the optional Telegram/X block, collapsed behind a disclosure button ----
+  /** Opens or closes the block; the height animates (240 ms) unless motion is off (reduced motion, paused). */
+  let moreAnim: Animation | null = null;
   function setMore(open: boolean) {
+    if ((moreToggle.getAttribute('aria-expanded') === 'true') === open && moreBody.hidden === !open) return;
     moreToggle.setAttribute('aria-expanded', String(open));
-    moreBody.hidden = !open;
+    moreAnim?.cancel();
+    moreAnim = null;
+    if (!motionOn() || typeof moreBody.animate !== 'function') {
+      moreBody.hidden = !open;
+      return;
+    }
+    moreBody.hidden = false;
+    const h = moreBody.scrollHeight;
+    moreBody.classList.add('sizing');
+    const a = moreBody.animate(
+      [{ height: `${open ? 0 : h}px` }, { height: `${open ? h : 0}px` }],
+      { duration: 240, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    );
+    moreAnim = a;
+    a.onfinish = () => {
+      moreBody.classList.remove('sizing');
+      if (!open) moreBody.hidden = true;
+      moreAnim = null;
+    };
+    a.oncancel = () => moreBody.classList.remove('sizing');
   }
   moreToggle.addEventListener('click', () => {
     const open = moreToggle.getAttribute('aria-expanded') !== 'true';

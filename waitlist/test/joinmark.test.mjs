@@ -28,6 +28,31 @@ test('the 3D mark caps the pixel ratio at 2 and renders through the shared sched
   assert.match(t, /MARK_MAX_DPR = 2;/);
   assert.match(t, /setPixelRatio\(Math\.min\(window\.devicePixelRatio \|\| 1, MARK_MAX_DPR\)\)/);
   assert.match(t, /loop\('join-mark', box,/);
+  assert.match(t, /camera\.position\.z = Math\.max\(/, 'the whole mark fits its box at any aspect');
+});
+
+test('the mark box size does not depend on the form: fixed height, column width, lead block at least as tall', () => {
+  const astro = read('src/components/Waitlist.astro');
+  const rule = (sel) => astro.match(new RegExp(`\\n  ${sel.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
+  const mark = rule('.join-mark');
+  assert.match(mark, /height: var\(--join-mark-h\);/);
+  assert.doesNotMatch(mark, /inset: 0|bottom:/, 'not stretched to its container');
+  assert.match(rule('.join-lead'), /--join-mark-h: \d+rem;[\s\S]*min-height: var\(--join-mark-h\);/);
+  // the left column no longer stretches to the row (the row grows with the form's disclosure)
+  assert.doesNotMatch(astro, /\.join-head \{[^}]*align-self: stretch/);
+  assert.match(rule('.grid'), /align-items: start;/);
+});
+
+test('the mark swings at most 35 degrees either way (never edge-on); no continuous spin', () => {
+  const t = read('src/client/mark3d.ts');
+  assert.match(t, /MARK_SWING_RAD = \(35 \* Math\.PI\) \/ 180;/);
+  assert.match(t, /mark\.rotation\.y = Math\.sin\([^;]*\) \* MARK_SWING_RAD;/);
+  assert.doesNotMatch(t, /MARK_SPIN/);
+});
+
+test('the disclosure animates its height only with motion on', () => {
+  const t = read('src/client/join.ts');
+  assert.match(t, /if \(!motionOn\(\) \|\| typeof moreBody\.animate !== 'function'\) \{\s*moreBody\.hidden = !open;\s*return;/);
 });
 
 test('CSP: no new origin; scripts from self and Turnstile only', () => {
