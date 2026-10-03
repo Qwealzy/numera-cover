@@ -3,7 +3,7 @@
 Position-linked, parametric liquidation cover for Hyperliquid perps, underwritten by a USDC pool on
 HyperEVM and priced by an actuarial engine. Target: Colosseum Crypto World's Fair, Hyperliquid track +
 general prizes. Submission closes **2026-10-12 23:59 PT**. Facts and sources: `docs/research/hyperliquid.md`.
-Decisions and their reasons: `docs/DECISIONS.md`. This file is the **contract** every worker builds against;
+Design rationale is given inline in each section. This file is the **contract** every component builds against;
 change it here first, then in code.
 
 ## 1. Product in one paragraph
@@ -41,15 +41,15 @@ underwriter yield product on the other side.
 ```
 
 Ownership: contracts/ ↔ engine/ ↔ app/ meet only at **§4 (EIP-712 Quote)**, **§5 (contract ABI/events)**
-and **§6 (Quote API)**. Workers may change internals freely; these three sections change only via the
-orchestrator.
+and **§6 (Quote API)**. Each component may change its internals freely; these three sections change only
+together: doc first, then all sides.
 
 ## 3. Units and conventions (all components)
 
 - **Price**: `uint64`, USD × 1e6 ("px6"). From precompile: `px6 = raw × 10^szDecimals`.
 - **USDC amounts**: `uint256`, 6 decimals.
 - **Time**: unix seconds (`uint64`) on-chain; milliseconds only inside Info API calls.
-- **Perp index**: `uint32`, network-specific, never hardcoded (see research table).
+- **Perp index**: `uint32`, network-specific, never hardcoded (see the perp index table in `docs/research/hyperliquid.md`).
 - **Basis points**: `uint16`, `10_000` = 100 % (all `*Bps` limits).
 - **Direction**: `isLong = true` → cover triggers when `oraclePx ≤ level`; `false` → when `oraclePx ≥ level`.
 - **Environment names** (logs, UI, deploy files): `local` (anvil, chain 31337), `testnet` (998). `mainnet` (999) is out of scope and mechanically blocked.
@@ -86,7 +86,7 @@ queued LP exits.
 **Status.** v2 is specified here (2026-10-02, from the 2026-10-02 security audit: H1, H2, M2, L1, L2, L8
 and the contract half of M1). It is **not yet implemented or deployed**; the live testnet pools in
 `deployments/testnet.json` run v1 (§5.11). Every §5 item below is v2 unless marked v1. Revised the same day
-after the security-auditor's spec review (approve with changes; all 12 edits accepted by the architect).
+after a review of the spec by the security auditor (approved with changes; all 12 edits accepted).
 
 ### 5.1 Cover book (unchanged from v1)
 
@@ -546,8 +546,8 @@ Facts (research 2026-10-02, primary sources):
 - An address opts into big blocks with the HyperCore L1 action `{"type":"evmUserModify","usingBigBlocks":true}`,
   signed by the same key (official Python SDK `Exchange.use_big_blocks(enable)`, example
   `examples/basic_evm_use_big_blocks.py` on the testnet API URL); `false` switches back. The address must
-  already be a HyperCore user. The deployer `0x2BA5…52A9` is not one yet (`userRole: missing`); the
-  founder will fund it with Core USDC. The mempool accepts only the next 8 nonces per address. A
+  already be a HyperCore user. The deployer is not one yet (`userRole: missing`); it has to be
+  funded with Core USDC first. The mempool accepts only the next 8 nonces per address. A
   `bigBlockGasPrice` RPC method exists.
 - v1 pool deploy used 2,670,847 gas (89 % of the small block); v2 adds code and will exceed 3M.
 - EIP-170 (24,576-byte runtime limit) enforcement on HyperEVM is NOT VERIFIED (docs silent). v2 keeps the
@@ -561,7 +561,7 @@ guardian keeps an immediate pause role on the pool). A further split (the redeem
 is the last resort.
 
 Plan:
-1. Founder funds the deployer on HyperCore testnet (makes it a Core user).
+1. Fund the deployer on HyperCore testnet (makes it a Core user).
 2. Deployer sends `evmUserModify usingBigBlocks=true` (SDK `use_big_blocks(True)`, testnet URL).
 3. Deploy, in this order (forge script, chain guard 998/31337 unchanged): price and position sources →
    `cachePerp` for each perp in `deployments/<env>.json` → pool (its constructor validates those perps).
@@ -570,8 +570,8 @@ Plan:
 5. Record addresses, tx hashes and the measured deploy gas in `deployments/testnet-v2.json` (v1's
    `deployments/testnet.json` stays as it is).
 
-Steps 2 and 4 are `python scripts/big-blocks.py on|off|status` (official SDK, `DEPLOYER_KEY` read from
-`.env` inside the script). Step 3 is `node scripts/deploy-v2.mjs` (the founder runs it):
+Steps 2 and 4 are a small helper script, `big-blocks on|off|status` (official SDK, `DEPLOYER_KEY` read from
+the environment file inside the script). Step 3 is the v2 deploy wrapper, run by the founder wallet:
 - It loads `.env` into the child process env only (never argv, never printed), checks `eth_chainId` is 998
   or 31337 on the RPC, prints the plan and needs an explicit `--yes`. `--dry-run` runs the same steps against
   a local anvil (31337).
@@ -616,9 +616,8 @@ needs `bigBlockGasPrice` instead of `eth_gasPrice`, and timestamp behaviour acro
   may call
   `guardianPause()` on a rule the operator sets.
 - **Deploy script**: v2 constructor args (limits, guardian, perps from `deployments/<env>.json`, delays,
-  `strict=false` on 998), the deploy order, the stand-in route and big-block steps above
-  (`scripts/deploy-v2.mjs`, `scripts/big-blocks.py`).
-- **Docs**: SECURITY.md "Mainnet blockers" 1–6 move to "fixed in v2" once deployed with evidence.
+  `strict=false` on 998), the deploy order, the stand-in route and big-block steps above.
+- **Docs**: the security notes' "mainnet blockers" 1–6 move to "fixed in v2" once deployed with evidence.
 
 ### 5.11 v1 (deployed 2026-10-01, live testnet pools)
 
@@ -647,7 +646,7 @@ Response `{quote: <§4 fields>, signature, breakdown: {sigma, touchProb, loading
 or `{error, reason}`.
 `GET /health` → `{ok, env, signer, chainId, pool}`. Engine never signs for chainId 999.
 
-Accepted 2026-10-01 after engine merge (`2998ec4`):
+Accepted 2026-10-01:
 - Error codes: `invalid_request`, `unknown_perp`, `duration_out_of_range`, `market_data_unavailable`,
   `signer_unavailable`, `chain_not_allowed`, `level_already_breached`, `prob_too_high`, `capacity`.
 - HTTP status: 400 bad request (`invalid_request`, `unknown_perp`, `duration_out_of_range`), 422 refusal
@@ -658,7 +657,7 @@ Accepted 2026-10-01 after engine merge (`2998ec4`):
 - `capacity` is an engine-side sanity cap only (`NUMERA_MAX_PAYOUT`); the on-chain utilization and
   per-perp checks (§5 check 5) are authoritative.
 
-Added 2026-10-01 (D10, engine merge `de5690c`):
+Added 2026-10-01:
 - Optional request field `pool` (address). Default: the configured pool. It must be in the allowlist
   (configured pool + every pool in `deployments/<env>.json`), else 400 `unknown_pool`. The quote is signed
   with `verifyingContract = pool` and priced against that pool's own price source.
@@ -706,37 +705,37 @@ Added 2026-10-02 (v2 review; engine-side only, contracts unchanged):
   must then pass both the open-window and the reset check (property-tested against a contract model at
   every second of the TTL in `engine/tests/test_poolv2.py`).
 
-## 7. Pricing model (engine, v4 — final, D13)
+## 7. Pricing model (engine, v4, final)
 
 Evidence and compared methods: [`engine/reports/calibration.md`](../engine/reports/calibration.md).
 Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D / 1 y`:
 
-1. **Spot** `S = pool.priceSource().oraclePx6(i)` via `eth_call` — the price `buyCover` checks (D10).
+1. **Spot** `S = pool.priceSource().oraclePx6(i)` via `eth_call` — the price `buyCover` checks.
    Fallback: testnet Info API `oraclePx`; reported as `breakdown.spotSource`. `spotRef = S`.
 2. **σ** = max(EWMA λ = 0.94 of 1 h log returns, 30-day realized σ), annualized, from **mainnet** 1 h
    candles of the same coin (read-only; testnet books are thin).
 3. **Touch probability**, driftless GBM, down barrier `H < S` (mirror for up):
    `p = N((b + σ²T/2)/(σ√T)) + (S/H)·N((b − σ²T/2)/(σ√T))`, `b = ln(H/S)`.
    Discrete-monitoring correction is negligible at the ~3 s keeper cadence (Broadie–Glasserman level shift
-   ≈ 0.007 % at σ = 40 %; documented, not applied) (D18).
+   ≈ 0.007 % at σ = 40 %; documented, not applied).
 4. **Tail tables** (`tail_multipliers.json`, `z-per-horizon-v4`): `z = ln(H/S)/(σ√T)`; one table per
    horizon h ∈ {1h, 4h, 1d, 7d} (smallest h ≥ D), coins pooled, buckets of |z| per direction. The 1h and
    4h tables are fitted on 1 h candles; the **1d table (like 7d) is fitted on daily candles** (HL-traded
-   history since 2023/2024; one window = one UTC day, touch read from the daily low/high) (D13).
-   **Nearward pooling** (D13): a thin bucket (< 300 windows or 0 touches) is pooled with its
+   history since 2023/2024; one window = one UTC day, touch read from the daily low/high).
+   **Nearward pooling**: a thin bucket (< 300 windows or 0 touches) is pooled with its
    nearer-the-money buckets, one at a time, until the pool has ≥ 300 windows and ≥ 1 touch; the touch
    frequency cannot rise with |z|, so the pooled bound is still an upper bound for that bucket.
-   Data-rich buckets keep their own counts. The rest as D11: per bucket `q` = Wilson 95 % upper bound of
+   Data-rich buckets keep their own counts. The rest as in the earlier model: per bucket `q` = Wilson 95 % upper bound of
    the (pooled) touch frequency, `k = clamp(q / mean p, 1, 10)`; q is made non-increasing in |z| and
    interpolated, so the price never rises as the level moves away.
 5. **Priced probability** `= min(max(p·k_z, q_z), pMax)`; refuse `prob_too_high` if `max(p·k, q) > pMax`
    (0.5), `level_already_breached` if S is already past H.
 6. **Premium** `= ceil(P × priced × (1 + θ)) + fee`, θ = 0.20, fee = 0 (configurable).
 
-Out of sample (fit first half, test second): 15 % buckets fail (15/224 counted as D11 did, 15/256
+Out of sample (fit first half, test second): 15 % buckets fail (15/224 counted as in the earlier model, 15/256
 including HYPE 1d/7d); loss ratio 1h 0.43 / 4h 0.41 / 1d 0.66 / 7d 0.65. In sample: 10/256 fail, each
 named in calibration.md. Example: BTC 6 %/1d cover costs 3.24 % of payout vs a 2.46 % empirical touch
-frequency (loss ratio ≈ 0.76). Short horizons are priced conservatively on purpose (D11). The live
+frequency (loss ratio ≈ 0.76). Short horizons are priced conservatively on purpose. The live
 engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/64, loss ratio 0.49.
 
 ## 8. Trigger semantics and demo
@@ -746,7 +745,7 @@ engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/6
   the liquidation price. Documented in UI.
 - A cover pays if **a `trigger()` call before expiry observes the breach on-chain**. The keeper polls every
   ~3 s: one Multicall3 `eth_call` reads cover state and price sources (no `eth_getLogs` on the hot path),
-  with RPC failover and backoff (D18). A wick shorter than the poll interval can be missed — stated in docs;
+  with RPC failover and backoff. A wick shorter than the poll interval can be missed — stated in docs;
   the pricing effect is negligible (Broadie–Glasserman shift ≈ 0.007 % at σ = 40 %). `trigger()` stays
   permissionless, so anyone watching faster can call it.
 - Demo A (real): testnet pool on HyperCore sources; buy a short cover with a level close to spot; the
@@ -760,7 +759,7 @@ engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/6
 - **Calibration backtest**: for BTC/ETH/SOL/HYPE × horizons {1h, 4h, 1d, 7d} × distances {1…20 %},
   predicted p vs realized touch frequency (candle lows/highs as proxy; 1 h data ≈ 7 months, 1 d since
   2023-02). Output table + reliability plot. Pass: out-of-sample failing buckets ≤ 10 % and loss ratio per
-  horizon 0.4–0.8 (F15); in-sample failures listed in the report. Strict per-bucket rule tracked as F6.
+  horizon 0.4–0.8; in-sample failures listed in the report. A strict per-bucket rule is an open item.
 - **Pool P&L simulation**: sell covers at model premium through history → LP return, worst drawdown.
 - **Contracts**: unit + fuzz tests (accounting invariant: `USDC balance ≥ lockedAssets` always; v2 adds
   owed payouts, the sale throttle, the floors and the redeem queue, §5.8),
