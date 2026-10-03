@@ -122,7 +122,7 @@ describe('version detection and v2 pools', () => {
     };
     const ps = parseV2Pools(raw, 998, 'http://e', USDC);
     expect(ps).toHaveLength(1);
-    expect(ps[0]).toMatchObject({ key: 'mock-v2', kind: 'mock', version: 'v2', short: 'MOCK v2', pool: getAddress(a(1)), usdc: getAddress(a(4)), deployTx: '0x' + 'ab'.repeat(32) });
+    expect(ps[0]).toMatchObject({ key: 'mock-v2', kind: 'mock', version: 'v2', short: 'MOCK demo', pool: getAddress(a(1)), usdc: getAddress(a(4)), deployTx: '0x' + 'ab'.repeat(32) });
     expect(parseV2Pools(null, 998, 'e', USDC)).toEqual([]);
     expect(POOLS.hypercore.version).toBeUndefined(); // v1 entries: detected on chain
   });

@@ -1,4 +1,4 @@
-import { POOLS, hyperEvmTestnet } from '../config';
+import { POOLS, SWITCH_POOL_KEYS, hyperEvmTestnet } from '../config';
 import { shortAddr } from '../lib/format';
 import { ensureTestnet } from '../lib/chain';
 import { useApp, type Tab } from '../state';
@@ -42,7 +42,7 @@ export function Header() {
           </nav>
           <div className="header__end">
             <div className="seg" role="group" aria-label="Pool">
-              {Object.keys(POOLS).map((k) => (
+              {SWITCH_POOL_KEYS.map((k) => (
                 <button key={k} aria-pressed={poolKey === k} onClick={() => setPoolKey(k)} title={POOLS[k].label}>
                   {POOLS[k].short}
                 </button>

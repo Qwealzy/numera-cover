@@ -18,6 +18,6 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 900 }, // viem + react in one chunk (~200 kB gzip) is fine for a demo app
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 } as Parameters<typeof defineConfig>[0]);
