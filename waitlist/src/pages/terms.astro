@@ -1,0 +1,11 @@
+---
+// The terms of use. The text lives in src/copy/en.ts (terms); {{GOVERNING_LAW}} and {{CONTROLLER_NAME}} are filled
+// from the build env (buildenv.mjs); the layout is shared with /privacy (DocPage).
+import DocPage from '../components/DocPage.astro';
+import { terms } from '../copy/en.ts';
+import { assertBuildEnv } from '../lib/buildenv.mjs';
+
+const env = assertBuildEnv();
+---
+
+<DocPage env={env} title={terms.title} pending={terms.pending} updated={terms.updated} intro={terms.intro} sections={terms.sections} back={terms.back} />

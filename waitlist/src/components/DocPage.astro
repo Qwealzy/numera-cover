@@ -1,0 +1,139 @@
+---
+// A legal document page (privacy notice, terms of use): the "Pending legal review" badge, a version line,
+// numbered sections (each paragraph may hold the {{...}} build placeholders) and optional link lists.
+import Base from '../layouts/Base.astro';
+import { fillPlaceholders } from '../lib/buildenv.mjs';
+import type { NoticeSection } from '../copy/en.ts';
+
+interface Props {
+  env: Parameters<typeof fillPlaceholders>[1] & { legalReviewed: boolean };
+  title: string;
+  pending: string;
+  updated: string;
+  intro: string;
+  sections: NoticeSection[];
+  back: string;
+}
+const { env, title, pending, updated, intro, sections, back } = Astro.props;
+const fill = (t: string) => fillPlaceholders(t, env);
+---
+
+<Base title={`${title} · Numera Liquidation Cover`} page="doc">
+  <article class="wrap doc">
+    <header class="doc-head">
+      {!env.legalReviewed && <p class="pending mono">{pending}</p>}
+      <p class="label">{updated}</p>
+      <h1>{title}</h1>
+      <p class="intro">{intro}</p>
+    </header>
+    <ol class="sections">
+      {
+        sections.map((s, i) => (
+          <li>
+            <section aria-labelledby={`p-${i}`}>
+              <span class="num mono" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
+              <div>
+                <h2 id={`p-${i}`}>{s.h}</h2>
+                {s.p.map((t) => (
+                  <p>{fill(t)}</p>
+                ))}
+                {s.links && (
+                  <ul class="links">
+                    {s.links.map((l) => (
+                      <li>
+                        <a href={l.href} target="_blank" rel="noopener noreferrer">{l.label}</a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="back"><a class="btn btn-ghost" href="/">{back}</a></p>
+  </article>
+</Base>
+
+<style>
+  .doc {
+    max-width: calc(52rem + 2 * var(--gutter));
+    padding-block: clamp(3rem, 7vw, 5.5rem);
+    display: grid;
+    gap: 2rem;
+  }
+  .doc-head {
+    display: grid;
+    gap: 1rem;
+  }
+  h1 {
+    font-size: clamp(2.6rem, 1.6rem + 4vw, 4.6rem);
+    font-stretch: 78%;
+    letter-spacing: -0.03em;
+  }
+  .intro {
+    font-size: 1.15rem;
+    color: var(--text-strong);
+  }
+  .pending {
+    justify-self: start;
+    padding: 0.4rem 0.9rem;
+    border: 2px dashed var(--paper);
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-strong);
+  }
+  .sections {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+  }
+  section {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr);
+    gap: 1rem;
+    padding-block: 1.6rem;
+    border-top: 1px solid var(--line);
+  }
+  section > div {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.25rem;
+  }
+  .links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text-accent);
+  }
+  .num {
+    font-size: 0.8rem;
+    color: var(--text-accent);
+    padding-top: 0.35rem;
+  }
+  h2 {
+    font-size: 1.35rem;
+    font-stretch: 90%;
+    letter-spacing: -0.01em;
+  }
+  .back {
+    margin-top: 1rem;
+  }
+  @media (max-width: 560px) {
+    section {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.4rem;
+    }
+  }
+</style>

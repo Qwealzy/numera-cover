@@ -1,0 +1,1121 @@
+---
+// Hero: headline, lead, status pill, CTAs and the instrument (build spec 2.3). The instrument's default scene
+// (BTC long 10x, 1d, normal volatility) is rendered here at build time as an inline SVG from the same geometry
+// module the canvas uses; the canvas replaces it only after JS loads and getContext('2d') works.
+// Desktop: copy | instrument on the first row, setup controls | readout on the second, and a one-line estimate
+// strip on the stage so the premium is in the first view.
+import { hero, instrument as I, controls as C, readout as R } from '../copy/en.ts';
+import {
+  DEFAULT_SETUP,
+  estimate,
+  premiumDollars,
+  fmtUsd,
+  fmtPct,
+  fmtProb,
+  GRID_META,
+} from '../lib/pricing.ts';
+import { layout, historyU, pathD, liqTicks, labelTops, PATH_STEP, SVG_HEAD_FRAC } from '../lib/geometry.ts';
+import { BTC_INDEX, ORACLE_SOURCE, TESTNET_CHAIN_ID, TESTNET_RPCS } from '../config.ts';
+
+const s = DEFAULT_SETUP;
+const e = estimate(s);
+const premium = e.premium === null ? '' : fmtUsd(premiumDollars(e.premium));
+const W = 1000;
+const H = 560;
+const L = layout(W, H, e.liqDist, e.lvlDist, s.side);
+L.headX = Math.round(W * SVG_HEAD_FRAC);
+const SEED = 20261002;
+const n = Math.round(L.headX / PATH_STEP) + 1;
+const us = historyU(n, SEED, true);
+const d = pathD(L, us);
+const touchX = (Math.round(n * 0.78) * L.headX) / (n - 1);
+const ticks = liqTicks(L, 56);
+const tops = labelTops(L.entryY, L.levelY, L.liqY, L.dir, 16 * (H / 520));
+const pctX = (x: number) => +((x / W) * 100).toFixed(3);
+const pctY = (y: number) => +((y / H) * 100).toFixed(3);
+const words = hero.titleLines.map((line) => line.split(' '));
+let wi = 0;
+const durLabel = C.durations.find((x) => x.sec === s.dur)?.label ?? '';
+const volLabel = C.vols.find((v) => v.sigma === s.sigma)?.label ?? '';
+const summary =
+  `BTC ${s.side} ${s.lev}×, ${durLabel}, volatility ${volLabel}: ` +
+  `liquidation ${fmtPct(e.liqDist)} ${R.below}, level ${fmtPct(e.lvlDist)} ${R.below}, cover price ${premium} ${R.perPayout}. ${R.label}`;
+const pct = (x: number) => fmtProb(x);
+---
+
+<section class="hero" id="top" aria-labelledby="hero-title" data-hero>
+  <div class="hero-grid">
+    <div class="copy">
+      <p class="eyebrow mono">{hero.eyebrow}</p>
+      <h1 id="hero-title" class="display" data-words>
+        {
+          words.map((line) => (
+            <span class="line">
+              {line.map((w, j) => (
+                <>
+                  <span class="rise">
+                    <span style={`--i:${wi++}`}>{w}</span>
+                  </span>
+                  {j < line.length - 1 ? ' ' : ''}
+                </>
+              ))}
+              {' '}
+            </span>
+          ))
+        }
+      </h1>
+      <p class="lead">{hero.lead}</p>
+      <p class="pill">{hero.status}</p>
+      <div class="ctas">
+        <a class="btn btn-primary join-cta" href="#join" data-join><span class="cta-label">{hero.primary}</span></a>
+        <a class="btn btn-ghost" href="#how">{hero.secondary.replace(' ↓', '')} <span class="arrow" aria-hidden="true">↓</span></a>
+      </div>
+    </div>
+
+    <div class="inst" data-instrument data-rpcs={TESTNET_RPCS.join(' ')} data-chain={TESTNET_CHAIN_ID} data-oracle={ORACLE_SOURCE} data-perp={BTC_INDEX}>
+      <div class="halo" aria-hidden="true"></div>
+      <div class="stage" data-stage data-dir={L.dir}>
+        <svg class="fallback" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <rect class="zone" x="0" y={Math.min(L.liqY, L.edgeY)} width={W} height={Math.abs(L.edgeY - L.liqY)}></rect>
+          <line class="expiry" x1={L.expiryX} x2={L.expiryX} y1="0" y2={H}></line>
+          <line class="entry" x1="0" x2={W} y1={L.entryY} y2={L.entryY}></line>
+          <line class="liq" x1="0" x2={W} y1={L.liqY} y2={L.liqY}></line>
+          {ticks.map((x) => <path class="tick" d={`M${x - 4} ${L.liqY - 4}L${x + 4} ${L.liqY + 4}M${x + 4} ${L.liqY - 4}L${x - 4} ${L.liqY + 4}`} />)}
+          <line class="level" x1="0" x2={W} y1={L.levelY} y2={L.levelY}></line>
+          <path class="price" d={d}></path>
+          <circle class="touch" cx={touchX} cy={L.levelY} r="7"></circle>
+        </svg>
+        <canvas class="canvas" aria-hidden="true" hidden></canvas>
+
+        <div class="hud" aria-hidden="true">
+          <div class="hud-tags">
+            <span class="tag tag-live js-only" data-live-tag data-state="waiting">{I.liveWaiting}</span>
+            <span class="tag tag-sim">{I.sim}</span>
+          </div>
+          <div class="wallet" data-wallet data-paid="1" data-role="wallet">
+            <span class="label" data-wallet-label>{I.wallet}</span>
+            <span class="wallet-value mono" data-wallet-value>{I.walletPaid}</span>
+          </div>
+          <span class="lbl lbl-entry mono" data-lbl="entry" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.entry)}`}><b>{I.entry}</b><span class="lbl-px" data-entry-px></span></span>
+          <span class="lbl lbl-level mono" data-lbl="level" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.level)}`}><b>{I.level}</b> <span data-level-val>−{fmtPct(e.lvlDist)}</span><span class="lbl-px" data-level-px></span><span class="lbl-note" data-level-note hidden> · {R.notOffered.toLowerCase()}</span></span>
+          <span class="lbl lbl-liq mono" data-lbl="liq" style={`--x:${pctX(L.expiryX)};--y:${pctY(tops.liq)}`}><b>{I.liquidation}</b> <span data-liq-val>−{fmtPct(e.liqDist)}</span><span class="lbl-px" data-liq-px></span></span>
+          <span class="lbl lbl-expiry mono" data-lbl="expiry" style={`--x:${pctX(L.expiryX)};--y:100`}>{I.expiry} · <span data-expiry-val>{durLabel}</span></span>
+          <span class="stamp mono" data-stamp data-on="1" style={`--x:${pctX(touchX)};--y:${pctY(L.levelY)}`}>{I.trigger}</span>
+          <span class="chip mono" data-chip>{I.payoutChip}</span>
+          <span class="pull-hint mono js-only" data-pull-hint data-off="1" style={`--x:${pctX(L.headX)};--y:${pctY(L.entryY)}`}>{I.pullHint}</span>
+          <div class="position" data-position data-state="open">
+            <span class="position-text mono" data-position-text>{I.positionOpen}</span>
+            <span class="position-bar"><span data-position-fill></span></span>
+          </div>
+        </div>
+
+        <div
+          class="handle js-only"
+          data-handle
+          role="slider"
+          tabindex="0"
+          aria-label={I.handle}
+          aria-valuemin="-60"
+          aria-valuemax="60"
+          aria-valuenow="0"
+          aria-valuetext={`Price at entry. Level ${fmtPct(e.lvlDist)} below, liquidation ${fmtPct(e.liqDist)} below.`}
+          aria-describedby="inst-hint"
+          style={`--x:${pctX(L.headX)};--y:${pctY(L.entryY)}`}
+        >
+          <span class="handle-dot"></span>
+        </div>
+      </div>
+
+      <p class="strip-ro mono" data-strip aria-hidden="true">
+        <span class="tag tag-sim tiny">{I.simShort}</span>
+        <span class="sr-setup" data-strip-setup>BTC {s.side} {s.lev}× · {durLabel} · {volLabel}</span>
+        <span class="sr-out"><span class="sr-arrow">→</span> <b class="sr-prem" data-strip-prem>{premium}</b> <span class="sr-unit" data-strip-unit>{I.strip}</span></span>
+      </p>
+
+      <div class="inst-bar">
+        <p class="verdict" data-verdict role="status" aria-live="polite">{I.introVerdict}</p>
+        <div class="inst-actions js-only">
+          <button type="button" class="icon-btn" data-pause data-state="running"><span class="pause-glyph" aria-hidden="true"></span><span data-pause-label>{I.pause}</span></button>
+          <button type="button" class="icon-btn" data-replay><span class="replay-glyph" aria-hidden="true">↺</span>{I.replay}</button>
+        </div>
+      </div>
+      <p class="inst-hint js-only" id="inst-hint">{I.hint} <span class="keeper-note">{I.keeper}.</span></p>
+    </div>
+
+    <form class="controls js-only" id="setup" data-controls aria-labelledby="setup-title">
+      <p class="label ctl-title" id="setup-title">{C.legend}</p>
+      <fieldset class="ctl">
+        <legend class="label">{C.side}</legend>
+        <div class="seg">
+          <label><input type="radio" name="side" value="long" checked /><span>{C.long}</span></label>
+          <label><input type="radio" name="side" value="short" /><span>{C.short}</span></label>
+        </div>
+      </fieldset>
+      <div class="ctl ctl-lev">
+        <label class="label" for="lev">{C.leverage} <output class="lev-out mono" for="lev" data-lev-out>{s.lev}×</output></label>
+        <input id="lev" class="range" type="range" name="lev" min="2" max={s.maxLev} step="1" value={s.lev} aria-valuetext={`${s.lev}×`} />
+      </div>
+      <fieldset class="ctl">
+        <legend class="label">{C.duration}</legend>
+        <div class="seg">
+          {C.durations.map((x) => (
+            <label><input type="radio" name="dur" value={x.sec} checked={x.sec === s.dur} /><span>{x.label}</span></label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset class="ctl">
+        <legend class="label">{C.volatility} <span class="note">· {C.volatilityNote}</span></legend>
+        <div class="seg">
+          {C.vols.map((v) => (
+            <label><input type="radio" name="vol" value={v.sigma} checked={v.sigma === s.sigma} /><span>{v.label}</span></label>
+          ))}
+        </div>
+      </fieldset>
+      <p class="ctl perp label"><span>{C.perp}</span> <span class="perp-chip mono">BTC</span> <span class="note">{C.perpNote}</span></p>
+    </form>
+
+    <div class="readout-wrap" data-readout>
+      <div class="seg role js-only" role="radiogroup" aria-label={C.role}>
+        <label><input type="radio" name="role" value="trader" checked /><span>{C.trade}</span></label>
+        <label><input type="radio" name="role" value="underwriter" /><span>{C.underwrite}</span></label>
+      </div>
+      <div class="card" data-card data-face="trader" data-refused="">
+        <div class="face face-front" data-face-front>
+          <p class="label">{R.heading} <span class="tag tag-sim tiny">{I.simShort}</span></p>
+          <dl class="rows">
+            <div class="prem-row" data-hl="prem">
+              <dt>{R.premium}</dt>
+              <dd>
+                <span class="prem mono" data-r="prem">{premium}</span>
+                <span class="unit" data-r="unit">{R.perPayout}</span>
+                <span class="floor-note" data-r="floor" hidden={!e.floorApplied}>{R.floor}</span>
+              </dd>
+            </div>
+            <div data-hl="liq"><dt>{R.liquidation}</dt><dd class="two"><span class="mono" data-r="liq">{fmtPct(e.liqDist)} {R.below}</span><span class="usd mono" data-r="liq-usd"></span></dd></div>
+            <div data-hl="level"><dt>{R.level}</dt><dd class="two"><span class="mono" data-r="lvl">{fmtPct(e.lvlDist)} {R.below}</span><span class="usd mono" data-r="lvl-usd"></span></dd></div>
+            <div data-hl="level"><dt>{R.touch} <span class="note">({R.touchNote})</span></dt><dd class="mono" data-r="p">{fmtProb(e.p)}</dd></div>
+            <div data-hl="level" class="pp-row">
+              <dt>{R.priced} <span class="note" data-r="pp-note">({e.pricedByFloor ? R.pricedFloor : R.pricedTail})</span></dt>
+              <dd class="two"><span class="mono" data-r="pp">{pct(e.priced)}</span><a class="why" href="#price">{R.pricedWhy}</a></dd>
+            </div>
+          </dl>
+          <p class="refusal" data-r="refusal"></p>
+          <p class="ro-live mono js-only" data-ro-live>{R.liveWaiting}</p>
+          <p class="iso">{R.isolated}</p>
+          <p class="cap" data-hl="cap">{R.cap}</p>
+        </div>
+        <div class="face face-back" data-face-back aria-hidden="true">
+          <p class="label">{R.uwHeading} <span class="tag tag-sim tiny">{I.simShort}</span></p>
+          <p class="uw" data-r="uw">{R.uw(premium)}</p>
+          <p class="cap">{R.cap}</p>
+        </div>
+      </div>
+      <p class="fine">{R.label}</p>
+      <p class="visually-hidden" data-summary aria-live="polite">{summary}</p>
+    </div>
+  </div>
+  <!-- grid: engine {String(GRID_META.engine_commit).slice(0, 7)}, tail table sha256 {String(GRID_META.tail_sha256).slice(0, 12)} -->
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding-top: clamp(1.5rem, 3vw, 2.5rem);
+    padding-bottom: clamp(3rem, 6vw, 5rem);
+  }
+  .hero-grid {
+    --stage-h: clamp(340px, 56vh, 540px);
+    display: grid;
+    grid-template-columns:
+      [full-start] minmax(var(--gutter), 1fr)
+      [copy-start] minmax(0, 470px)
+      [copy-end] clamp(28px, 3.4vw, 56px)
+      [inst-start] minmax(0, 720px)
+      [inst-end] minmax(var(--gutter), 1fr)
+      [full-end];
+    grid-template-rows: auto auto;
+    row-gap: 1.75rem;
+    align-items: start;
+  }
+  .copy {
+    grid-column: copy;
+    grid-row: 1;
+    display: grid;
+    gap: 1.35rem;
+    padding-top: clamp(1rem, 4vh, 3.5rem);
+  }
+  .eyebrow {
+    font-size: var(--label-size);
+    letter-spacing: var(--label-track);
+    text-transform: uppercase;
+    color: var(--text-accent);
+  }
+  .display {
+    font-size: clamp(2.6rem, 1rem + 3.4vw, 4.6rem);
+    line-height: 0.95;
+    letter-spacing: -0.035em;
+    font-weight: 660;
+    font-stretch: 76%;
+  }
+  .display .line {
+    display: block;
+    white-space: nowrap;
+  }
+  .lead {
+    font-size: clamp(1.02rem, 0.95rem + 0.3vw, 1.15rem);
+    line-height: 1.6;
+    max-width: 34rem;
+  }
+  .pill {
+    justify-self: start;
+    max-width: 100%;
+  }
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  /* ---- instrument ---- */
+  .inst {
+    grid-column: inst-start / full-end;
+    grid-row: 1;
+    position: relative;
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+  .halo {
+    position: absolute;
+    left: 10%;
+    right: 0;
+    top: -8%;
+    height: 80%;
+    pointer-events: none;
+    z-index: -1;
+    background: radial-gradient(closest-side, rgb(35 183 121 / 0.26), transparent);
+    opacity: 0.5;
+    filter: blur(10px);
+  }
+  .stage {
+    position: relative;
+    height: var(--stage-h);
+    container-type: size;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line);
+    border-radius: var(--radius) 0 0 var(--radius);
+    overflow: hidden;
+    background: rgb(12 21 32 / 0.55);
+  }
+  .fallback,
+  .canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .fallback .zone {
+    fill: var(--navy-fill);
+  }
+  .fallback line,
+  .fallback path {
+    vector-effect: non-scaling-stroke;
+    fill: none;
+  }
+  .fallback .entry {
+    stroke: rgb(248 242 239 / 0.22);
+    stroke-width: 1;
+  }
+  .fallback .expiry {
+    stroke: rgb(248 242 239 / 0.18);
+    stroke-dasharray: 2 6;
+  }
+  .fallback .liq {
+    stroke: rgb(248 242 239 / 0.8);
+    stroke-width: 1.5;
+    stroke-dasharray: 7 6;
+  }
+  .fallback .tick {
+    stroke: rgb(248 242 239 / 0.8);
+    stroke-width: 1.5;
+  }
+  .fallback .level {
+    stroke: var(--green);
+    stroke-width: 3;
+  }
+  .fallback .price {
+    stroke: var(--paper);
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+  .fallback .touch {
+    fill: none;
+    stroke: var(--green);
+    stroke-width: 2;
+  }
+  /* a refused setup has no cover: the level is drawn dashed and nothing is marked as paid */
+  .fallback[data-refused='1'] .level {
+    stroke-width: 2;
+    stroke-dasharray: 10 7;
+  }
+  .fallback[data-refused='1'] .touch,
+  .stage[data-refused='1'] .stamp {
+    display: none;
+  }
+  /* before the canvas mounts (motion on), the end frame's path, stamp, wallet value and verdict stay hidden, so
+     the intro never rewinds a scene the visitor already saw; a canvas-free or failed boot shows them */
+  :global(html.js[data-motion='on']:not(.reveal-fail)) .inst:not(.mounted) :is(.fallback .price, .fallback .touch, .stamp, .wallet-value, .verdict) {
+    visibility: hidden;
+  }
+
+  .hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .hud-tags {
+    position: absolute;
+    left: 14px;
+    top: 12px;
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+    max-width: calc(100% - 252px);
+  }
+  .hud-tags .tag-sim {
+    background: rgb(12 21 32 / 0.72);
+  }
+  .wallet {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    display: grid;
+    gap: 2px;
+    width: 216px;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: rgb(12 21 32 / 0.82);
+    transition: border-color var(--t-ui) var(--ease-out), box-shadow var(--t-ui) var(--ease-out);
+  }
+  .wallet[data-paid='1'] {
+    border-color: var(--green);
+  }
+  .wallet[data-refused='1'] {
+    border-style: dashed;
+  }
+  .wallet-value {
+    font-size: 0.86rem;
+    line-height: 1.4;
+    color: var(--text-strong);
+  }
+  .wallet[data-paid='1'] .wallet-value {
+    color: var(--text-accent);
+  }
+  .wallet.bump {
+    animation: thud 360ms var(--ease-out);
+  }
+  .wallet:global(.hl) {
+    box-shadow: 0 0 0 3px rgb(35 183 121 / 0.4);
+  }
+  .lbl {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(calc(var(--x) * 1cqw), calc(var(--y) * 1cqh));
+    font-size: 0.72rem;
+    line-height: 1.3;
+    color: var(--text-label);
+    white-space: nowrap;
+    border-radius: 4px;
+    transition: box-shadow var(--t-ui) var(--ease-out);
+  }
+  .lbl b {
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  /* line labels sit right-aligned against the expiry line; the head is kept left of them (instrument.ts) */
+  .lbl-entry,
+  .lbl-level,
+  .lbl-liq,
+  .lbl-expiry {
+    opacity: var(--la, 1);
+  }
+  /* a flat ground-colour backing: where lines sit a few px apart (40x) none of them runs through the text */
+  .lbl-entry,
+  .lbl-level,
+  .lbl-liq {
+    transform: translate(calc(var(--x) * 1cqw - 100% - 10px), calc(var(--y) * 1cqh));
+    text-align: right;
+    line-height: 16px;
+    padding: 0 4px;
+    background: rgb(12 21 32 / 0.86);
+  }
+  .lbl-level,
+  .lbl-level b {
+    color: var(--text-accent);
+  }
+  .lbl:global(.hl) {
+    background: rgb(12 21 32 / 0.9);
+    box-shadow: 0 0 0 4px rgb(12 21 32 / 0.9), 0 0 0 5px currentColor;
+  }
+  .lbl-expiry {
+    transform: translate(calc(var(--x) * 1cqw - 100% - 8px), calc(var(--y) * 1cqh - 100% - 8px));
+    font-size: 0.66rem;
+  }
+  .stamp {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(calc(var(--x) * 1cqw - 100% - 8px), calc(var(--y) * 1cqh + 9px));
+    padding: 0.28rem 0.65rem;
+    border: 2px solid var(--green);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--text-accent);
+    font-size: 1.06rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    opacity: 0;
+  }
+  .stamp[data-on='1'] {
+    opacity: 1;
+  }
+  .stage[data-dir='-1'] .stamp {
+    transform: translate(calc(var(--x) * 1cqw - 100% - 8px), calc(var(--y) * 1cqh - 100% - 9px));
+  }
+  .stamp[data-side='r'] {
+    transform: translate(calc(var(--x) * 1cqw + 12px), calc(var(--y) * 1cqh + 9px));
+  }
+  .stage[data-dir='-1'] .stamp[data-side='r'] {
+    transform: translate(calc(var(--x) * 1cqw + 12px), calc(var(--y) * 1cqh - 100% - 9px));
+  }
+  .chip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 0.25rem 0.55rem;
+    border-radius: var(--radius-pill);
+    background: var(--green);
+    color: var(--on-accent);
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+    opacity: 0;
+    will-change: transform;
+  }
+  /* the hint sits under the head, in the direction of the pull (away from the labels at the right edge and
+     below the path), and pressing it grabs the head */
+  .pull-hint {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(calc(var(--x) * 1cqw - 50%), calc(var(--y) * 1cqh + 34px));
+    padding: 0.15rem 0.45rem;
+    border-radius: 6px;
+    border: 1px dashed var(--line-strong);
+    background: rgb(12 21 32 / 0.8);
+    color: var(--text-strong);
+    font-size: 0.68rem;
+    white-space: nowrap;
+    pointer-events: auto;
+    touch-action: none;
+    cursor: grab;
+    transition: opacity var(--t-ui) var(--ease-out);
+  }
+  .stage[data-dir='-1'] .pull-hint {
+    transform: translate(calc(var(--x) * 1cqw - 50%), calc(var(--y) * 1cqh - 100% - 34px));
+  }
+  .pull-hint[data-off='1'] {
+    opacity: 0;
+    pointer-events: none;
+  }
+  :global(html.js[data-motion='on']) .pull-hint:not([data-off='1']) {
+    animation: hint-bob 700ms var(--ease-out) 4 alternate;
+  }
+  @keyframes hint-bob {
+    to {
+      translate: 0 4px;
+    }
+  }
+  .position {
+    position: absolute;
+    left: 14px;
+    bottom: 12px;
+    display: grid;
+    gap: 5px;
+    width: 172px;
+    border-radius: 4px;
+    transition: box-shadow var(--t-ui) var(--ease-out);
+  }
+  .position:global(.hl) {
+    box-shadow: 0 0 0 6px rgb(12 21 32 / 0.9), 0 0 0 7px rgb(248 242 239 / 0.5);
+  }
+  .position-text {
+    font-size: 0.74rem;
+    color: var(--text-strong);
+  }
+  .position-bar {
+    display: block;
+    height: 8px;
+    border-radius: 3px;
+    border: 1px solid var(--line-strong);
+    overflow: hidden;
+  }
+  .position-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--paper);
+    transform-origin: left center;
+    transform: scaleX(var(--fill, 1));
+  }
+  .position[data-state='closed'] .position-bar {
+    border-style: dashed;
+  }
+
+  .handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+    transform: translate(calc(var(--x) * 1cqw), calc(var(--y) * 1cqh));
+    border-radius: 50%;
+    cursor: grab;
+    touch-action: none;
+    display: grid;
+    place-items: center;
+    z-index: 2;
+  }
+  .handle:active {
+    cursor: grabbing;
+  }
+  .handle-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--paper);
+    box-shadow: 0 0 0 4px rgb(248 242 239 / 0.14);
+    transition: box-shadow var(--t-ui) var(--ease-out);
+  }
+  .handle:focus-visible .handle-dot {
+    box-shadow: 0 0 0 7px rgb(248 242 239 / 0.2);
+  }
+  .handle:focus-visible {
+    outline: var(--focus);
+    outline-offset: 0;
+  }
+  .stage.js-canvas .handle-dot {
+    background: transparent;
+    box-shadow: none;
+  }
+  .stage.js-canvas .handle:focus-visible .handle-dot {
+    box-shadow: 0 0 0 9px rgb(248 242 239 / 0.12);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .handle:hover .handle-dot {
+      box-shadow: 0 0 0 7px rgb(248 242 239 / 0.2);
+    }
+    .stage.js-canvas .handle:hover .handle-dot {
+      box-shadow: 0 0 0 9px rgb(248 242 239 / 0.12);
+    }
+  }
+
+  /* the estimate strip: under the stage by default; on wide stages it sits in the empty lower band of the
+     stage, just above the position bar, so the premium is in the first view */
+  .strip-ro {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.45rem;
+    margin: 0;
+    padding-right: var(--gutter);
+    min-height: 1.6em;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  @media (min-width: 1200px) {
+    .strip-ro {
+      position: absolute;
+      left: 14px;
+      top: calc(var(--stage-h) - 52px);
+      transform: translateY(-100%);
+      max-width: calc(90% - 110px);
+      min-height: 0;
+      padding: 0.25rem 0.55rem;
+      border-radius: 7px;
+      background: rgb(12 21 32 / 0.78);
+      pointer-events: none;
+    }
+  }
+  .strip-ro .tiny {
+    margin-left: 0;
+  }
+  .sr-setup {
+    color: var(--text-label);
+  }
+  .sr-out {
+    white-space: nowrap;
+  }
+  .sr-arrow {
+    color: var(--text-label);
+  }
+  .sr-prem {
+    font-size: 0.95rem;
+    color: var(--text-accent);
+    font-weight: 700;
+  }
+  .strip-ro[data-refused='1'] .sr-prem {
+    color: var(--text-strong);
+  }
+  .strip-ro[data-refused='1'] .sr-unit {
+    display: none;
+  }
+
+  .inst-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding-right: var(--gutter);
+  }
+  .verdict {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--text-strong);
+    /* three lines reserved: the longest verdict never moves what is below */
+    min-height: calc(3 * 1.55em);
+    display: flex;
+    align-items: center;
+    flex: 1 1 18rem;
+  }
+  .inst-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .inst-hint {
+    font-size: 0.82rem;
+    color: var(--text-label);
+    padding-right: var(--gutter);
+    margin-top: -0.4rem;
+  }
+  .pause-glyph {
+    width: 10px;
+    height: 10px;
+    border-left: 3px solid currentColor;
+    border-right: 3px solid currentColor;
+  }
+  .icon-btn[data-state='paused'] .pause-glyph {
+    border: 0;
+    width: 0;
+    height: 0;
+    border-left: 9px solid currentColor;
+    border-top: 5.5px solid transparent;
+    border-bottom: 5.5px solid transparent;
+  }
+
+  /* ---- setup controls (left column on desktop) ---- */
+  .controls {
+    grid-column: copy;
+    grid-row: 2;
+    display: grid;
+    gap: 0.85rem;
+    align-content: start;
+    padding: 1.1rem 1.2rem 1.2rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: rgb(12 21 32 / 0.5);
+  }
+  .ctl-title {
+    color: var(--text-accent);
+  }
+  fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .ctl {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .ctl legend {
+    padding: 0;
+    margin-bottom: 0.4rem;
+  }
+  .note {
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    color: var(--text-label);
+  }
+  .lev-out {
+    margin-left: 0.4rem;
+    color: var(--text-strong);
+    font-size: 0.85rem;
+    letter-spacing: 0;
+  }
+  .ctl-lev .label {
+    display: flex;
+    align-items: baseline;
+  }
+  .perp {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .perp-chip {
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--text-strong);
+    letter-spacing: 0.04em;
+  }
+
+  /* ---- readout ---- */
+  .readout-wrap {
+    grid-column: inst;
+    grid-row: 2;
+    display: grid;
+    gap: 0.6rem;
+    align-content: start;
+    min-width: 0;
+  }
+  .role {
+    justify-self: start;
+  }
+  .card {
+    position: relative;
+    display: grid;
+    perspective: 1100px;
+    container-type: inline-size;
+  }
+  .face {
+    grid-area: 1 / 1;
+    display: grid;
+    gap: 0.7rem;
+    align-content: start;
+    padding: 1.1rem 1.2rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-strong);
+    background: var(--surface-strong);
+    backface-visibility: hidden;
+    transition: transform 520ms var(--spring), border-color var(--t-ui) var(--ease-out);
+  }
+  .face-back {
+    transform: rotateY(180deg);
+    border-color: var(--edge-green);
+  }
+  .card[data-face='underwriter'] .face-front {
+    transform: rotateY(-180deg);
+  }
+  .card[data-face='underwriter'] .face-back {
+    transform: rotateY(0deg);
+  }
+  /* premium on the left as the instrument's main number, the four distances and chances on the right */
+  .rows {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    column-gap: 1.4rem;
+    row-gap: 0.3rem;
+  }
+  .rows > div {
+    grid-column: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.2rem 0.35rem 0.35rem;
+    margin-inline: -0.35rem;
+    border-bottom: 1px solid var(--line);
+    border-radius: 6px 6px 0 0;
+    transition: background-color var(--t-ui) var(--ease-out);
+  }
+  .rows > .prem-row {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: 0.25rem;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    border-radius: 6px 0 0 6px;
+    padding-right: 1rem;
+  }
+  .rows > :global(.hl) {
+    background: rgb(35 183 121 / 0.09);
+  }
+  .rows > :global(.hl) dt {
+    color: var(--text-strong);
+  }
+  .rows dt {
+    font-size: 0.84rem;
+    color: var(--text-label);
+    min-width: 0;
+  }
+  .rows dd {
+    font-size: 0.86rem;
+    color: var(--text-strong);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .rows dd.two {
+    display: grid;
+    justify-items: end;
+  }
+  /* the $ line is empty until the live read: its line box is exactly the reserved height (no 3 px shift) */
+  .usd {
+    display: block;
+    min-height: 1.35em;
+    line-height: 1.35;
+    font-size: 0.78rem;
+    color: var(--text-label);
+  }
+  .why {
+    font-size: 0.74rem;
+    color: var(--text-label);
+    white-space: nowrap;
+  }
+  .prem-row dd {
+    display: grid;
+    justify-items: start;
+    text-align: left;
+    white-space: normal;
+  }
+  .prem {
+    font-size: clamp(2.1rem, 1.5rem + 1.6vw, 2.7rem);
+    line-height: 1.05;
+    font-weight: 700;
+    color: var(--text-strong);
+    display: inline-flex;
+    white-space: pre;
+    overflow: clip;
+  }
+  .prem :global(.dg) {
+    display: inline-block;
+    white-space: pre;
+  }
+  .prem :global(.dg.roll) {
+    animation: roll 380ms var(--ease-out) both;
+    animation-delay: calc(var(--k, 0) * 30ms);
+  }
+  @keyframes roll {
+    from {
+      transform: translateY(60%);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  .unit,
+  .floor-note {
+    font-size: 0.78rem;
+    color: var(--text-label);
+  }
+  .floor-note {
+    color: var(--text-accent);
+    max-width: 14rem;
+  }
+  .ro-live {
+    font-size: 0.68rem;
+    line-height: 1.4;
+    color: var(--text-label);
+    min-height: 1.4em;
+  }
+  .iso {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text-label);
+  }
+  .refusal {
+    display: none;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-strong);
+    padding: 0.5rem 0.6rem;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 8px;
+  }
+  .card[data-refused]:not([data-refused='']) .refusal {
+    display: block;
+  }
+  .card[data-refused]:not([data-refused='']) .face-front {
+    border-style: dashed;
+    background: transparent;
+  }
+  /* refused: only the big "Not offered" is drawn hollow; the small unit and floor note are not shown */
+  .card[data-refused]:not([data-refused='']) .prem {
+    font-size: clamp(1.6rem, 1.2rem + 1vw, 2rem);
+    white-space: normal;
+  }
+  /* hollow type only where the outline is drawn; otherwise the words stay solid */
+  @supports (-webkit-text-stroke: 1px black) {
+    .card[data-refused]:not([data-refused='']) .prem {
+      color: transparent;
+      -webkit-text-stroke: 1px var(--paper);
+    }
+  }
+  .card[data-refused]:not([data-refused='']) :is(.unit, .floor-note) {
+    display: none;
+  }
+  .cap {
+    font-size: 0.8rem;
+    color: var(--text-label);
+    border-radius: 4px;
+  }
+  .cap:global(.hl) {
+    color: var(--text-strong);
+  }
+  .uw {
+    font-size: 0.98rem;
+    color: var(--text-strong);
+    line-height: 1.5;
+  }
+  .fine {
+    font-size: 0.76rem;
+    color: var(--text-label);
+  }
+  .tiny {
+    padding: 0.08rem 0.4rem;
+    font-size: 0.62rem;
+    margin-left: 0.35rem;
+    vertical-align: 1px;
+  }
+  @container (max-width: 520px) {
+    .rows {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .rows > div,
+    .rows > .prem-row {
+      grid-column: 1;
+      grid-row: auto;
+    }
+    .rows > .prem-row {
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 0.6rem;
+      margin-bottom: 0.2rem;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .hero-grid {
+      --stage-h: clamp(300px, 50svh, 520px);
+      grid-template-columns:
+        [full-start] var(--gutter)
+        [copy-start inst-start] minmax(0, 1fr)
+        [mid] minmax(0, 1fr)
+        [copy-end inst-end] var(--gutter)
+        [full-end];
+      grid-template-rows: auto;
+      row-gap: 1.5rem;
+      column-gap: 1.25rem;
+    }
+    .copy {
+      grid-column: copy;
+      padding-top: 0.5rem;
+    }
+    .inst {
+      grid-column: full;
+      grid-row: 2;
+    }
+    .controls {
+      grid-column: copy-start / mid;
+      grid-row: 3;
+    }
+    .readout-wrap {
+      grid-column: mid / inst-end;
+      grid-row: 3;
+    }
+    .stage {
+      border-radius: 0;
+      border-left: 0;
+    }
+    .inst-bar,
+    .inst-hint {
+      padding-inline: var(--gutter);
+    }
+    .strip-ro {
+      padding-inline: var(--gutter);
+    }
+  }
+  @media (max-width: 720px) {
+    .controls,
+    .readout-wrap {
+      grid-column: copy;
+    }
+    .readout-wrap {
+      grid-row: 4;
+    }
+    .lbl-px {
+      display: none;
+    }
+    .display {
+      font-size: clamp(2.5rem, 0.6rem + 9.6vw, 4rem);
+    }
+    .lbl-expiry {
+      display: none;
+    }
+  }
+  @media (max-width: 560px) {
+    /* the strip wraps to two lines on phones; both are reserved */
+    .strip-ro {
+      min-height: 3.1em;
+      align-content: start;
+    }
+    .verdict {
+      min-height: calc(4 * 1.55em);
+    }
+  }
+  /* a narrow instrument (phones, tablets): tags take the top rows, the wallet moves to the bottom right */
+  @container (max-width: 640px) {
+    .hud-tags {
+      max-width: calc(100% - 20px);
+      top: 10px;
+      left: 10px;
+    }
+    .hud-tags .tag {
+      font-size: 0.62rem;
+    }
+    /* the LIVE tag grows from "reading…" to the read time; two lines are reserved so the SIM tag never moves */
+    .hud-tags .tag-live {
+      min-height: calc(2 * 1.35em + 0.56rem);
+    }
+    .wallet {
+      top: auto;
+      right: 10px;
+      bottom: 10px;
+      width: 172px;
+      padding: 0.4rem 0.6rem;
+    }
+    .wallet-value {
+      font-size: 0.74rem;
+    }
+    .position {
+      left: 10px;
+      bottom: 10px;
+      width: 124px;
+    }
+    .lbl-expiry {
+      display: none;
+    }
+    /* "· not offered" would push the level label into the head's column; the strip, the wallet tile and the
+       verdict already say it */
+    .lbl-note {
+      display: none;
+    }
+    .stamp {
+      font-size: 0.9rem;
+    }
+  }
+</style>

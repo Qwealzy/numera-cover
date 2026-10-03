@@ -1,0 +1,193 @@
+---
+import { brand, nav } from '../copy/en.ts';
+import markUrl from '../assets/numera-mark.svg?url';
+interface Props {
+  page?: 'home' | 'doc';
+}
+const { page = 'home' } = Astro.props;
+const base = page === 'home' ? '' : '/';
+---
+
+<header class="nav" data-nav>
+  <div class="nav-in">
+    <a class="brand" href={page === 'home' ? '#top' : '/'}>
+      <img src={markUrl} width="28" height="28" alt={brand.markAlt} />
+      <span class="brand-name">{brand.name}</span>
+      <span class="brand-sep" aria-hidden="true">·</span>
+      <span class="brand-product">{brand.product}</span>
+    </a>
+    <nav aria-label={nav.label} class="links">
+      <a href={`${base}#how`}>{nav.how}</a>
+      <a href={`${base}#price`}>{nav.price}</a>
+      <a href={`${base}#underwriters`}>{nav.underwriters}</a>
+      <a href={`${base}#proof`}>{nav.proof}</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="btn btn-primary btn-small join-cta" href={`${base}#join`} data-join>
+        <span class="cta-label">{nav.join}</span><span class="cta-short" aria-hidden="true">{nav.joinShort}</span>
+      </a>
+    </div>
+  </div>
+  <span class="progress" aria-hidden="true"></span>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: var(--nav-h);
+    transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+    border-bottom: 1px solid transparent;
+  }
+  .nav.scrolled {
+    background: rgb(12 21 32 / 0.84);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom-color: var(--line);
+  }
+  .nav-in {
+    height: 100%;
+    max-width: calc(var(--page) + 2 * var(--gutter));
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    min-width: 0;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 44px;
+    text-decoration: none;
+    color: var(--text-strong);
+    flex: none;
+    white-space: nowrap;
+  }
+  .brand img {
+    width: 28px;
+    height: 28px;
+  }
+  .brand-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    font-size: 0.9rem;
+  }
+  .brand-sep,
+  .brand-product {
+    color: var(--text-label);
+    font-size: 0.88rem;
+  }
+  .links {
+    display: flex;
+    gap: 0.25rem;
+    margin-inline: auto;
+  }
+  .links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.8rem;
+    border-radius: var(--radius-pill);
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.92rem;
+    white-space: nowrap;
+    transition: color var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out);
+  }
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-left: auto;
+    flex: none;
+  }
+  .links + .nav-actions {
+    margin-left: 0;
+  }
+  .cta-short {
+    display: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .links a:hover {
+      color: var(--text-strong);
+      background: rgb(248 242 239 / 0.06);
+    }
+  }
+  .progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    display: none;
+  }
+  @supports (animation-timeline: scroll()) {
+    .progress {
+      display: block;
+      background: var(--green);
+      transform-origin: left center;
+      transform: scaleX(0);
+      animation: progress linear both;
+      animation-timeline: scroll(root block);
+    }
+    @keyframes progress {
+      to {
+        transform: scaleX(1);
+      }
+    }
+    html[data-motion='off'] .progress {
+      animation: none;
+      display: none;
+    }
+  }
+  /* the four section links need about 1,100 px next to the brand and the actions; below that they go */
+  @media (max-width: 1100px) {
+    .links {
+      display: none;
+    }
+  }
+  @media (max-width: 860px) {
+    .brand-sep,
+    .brand-product {
+      display: none;
+    }
+  }
+  @media (max-width: 520px) {
+    .nav-in {
+      gap: 0.5rem;
+    }
+    .brand-name {
+      letter-spacing: 0.14em;
+    }
+    .nav-actions {
+      gap: 0.25rem;
+    }
+    .nav-actions .btn {
+      padding: 0 0.85rem;
+      font-size: 0.86rem;
+    }
+  }
+  /* small phones and 400 % zoom: the CTA shows "Join" (its accessible name stays "Join the waitlist") */
+  @media (max-width: 440px) {
+    .cta-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    .cta-short {
+      display: inline;
+    }
+  }
+  @media (max-width: 350px) {
+    .brand-name {
+      display: none;
+    }
+  }
+</style>

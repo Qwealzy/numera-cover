@@ -1,0 +1,276 @@
+---
+// S6, proof: the recorded keeper run e2e_F9_2026-10-02_3 from deployments/testnet-v2.json, as a block track and
+// three receipt cards (block, call, status). src/client/proof.ts sweeps a playhead along it in a loop; the markup
+// is the finished run (no JS, reduced motion). No transaction hashes and no explorer links (D22).
+import { proof as Pf } from '../copy/en.ts';
+import { RECORDED_RUN as R } from '../config.ts';
+
+const first = R.buy.block;
+const last = R.trigger.block;
+const blocks = Array.from({ length: last - first + 1 }, (_, i) => first + i);
+const fmt = (n: number) => n.toLocaleString('en-US');
+const events = [
+  { block: R.buy.block, name: 'buyCover', what: 'cover 3 bought from an engine quote' },
+  { block: R.drop.block, name: 'setPrice', what: 'staged price drop, 50 bps past the level' },
+  {
+    block: R.trigger.block,
+    name: `trigger(${R.coverId})`,
+    what: `keeper call, ${R.payout / 1e6} mUSDC paid`,
+  },
+];
+---
+
+<section id="proof" class="section proof" aria-labelledby="proof-title">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{Pf.kicker}</p>
+      <h2 id="proof-title">{Pf.heading}</h2>
+      <p class="quote mono">{Pf.quote}</p>
+    </div>
+
+    <div class="run" data-run data-bracket="on" data-reveal>
+      <div class="track-wrap">
+        <ol class="blocks" aria-label={Pf.track} data-blocks>
+          {
+            blocks.map((b, i) => {
+              const ev = events.find((e) => e.block === b);
+              return (
+                <li data-b={b} data-ev={ev ? 'y' : 'n'} data-reached="y" style={`--i:${i}`}>
+                  <span class="b-tick" aria-hidden="true" />
+                  <span class="b-num mono">{String(b).slice(-3)}</span>
+                  {ev && <span class="b-ev mono">{ev.name}</span>}
+                </li>
+              );
+            })
+          }
+        </ol>
+        <div class="bracket" style={`--a:${blocks.indexOf(R.drop.block)};--b:${blocks.indexOf(R.trigger.block)};--n:${blocks.length}`} aria-hidden="true"></div>
+        <p class="bracket-label mono">{Pf.bracket}</p>
+      </div>
+
+      <ol class="receipts">
+        {
+          events.map((e) => (
+            <li class="rc" data-rc-block={e.block} data-reached="y">
+              <p class="rc-line mono">
+                block {fmt(e.block)} · <b>{e.name}</b> · {Pf.status}
+              </p>
+              <p class="rc-what">{e.what} <span class="rc-pending mono">· {Pf.pending}</span></p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+
+    <div class="notyet" data-reveal>
+      <h3>{Pf.notYetHeading}</h3>
+      <ul>
+        {Pf.notYet.map((t) => <li>{t}</li>)}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .quote {
+    font-size: 0.86rem;
+    color: var(--text-strong);
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    justify-self: start;
+    max-width: 100%;
+  }
+  .run {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+    display: grid;
+    gap: 1.6rem;
+  }
+  .track-wrap {
+    display: grid;
+    gap: 0.6rem;
+  }
+  .blocks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    position: relative;
+  }
+  .blocks::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 15px;
+    height: 2px;
+    background: var(--line-strong);
+  }
+  .blocks li {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 0.35rem;
+    padding-top: 0;
+  }
+  .b-tick {
+    width: 12px;
+    height: 32px;
+    border-radius: 3px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
+  }
+  .blocks li[data-ev='y'] .b-tick {
+    width: 18px;
+    border: 2px solid var(--green);
+  }
+  .blocks li[data-reached='y'] .b-tick {
+    background: rgb(248 242 239 / 0.2);
+  }
+  .blocks li[data-ev='y'][data-reached='y'] .b-tick {
+    background: var(--green);
+  }
+  /* the playhead: a paper ring on the block it is on */
+  .blocks li[data-head='y'] .b-tick {
+    outline: 2px solid var(--paper);
+    outline-offset: 2px;
+  }
+  /* a call's name is drawn in label colour until the playhead reaches its block (no fading) */
+  .blocks li[data-reached='n'] .b-ev {
+    color: var(--text-label);
+  }
+  .b-num {
+    font-size: 0.72rem;
+    color: var(--text-label);
+  }
+  .b-ev {
+    font-size: 0.72rem;
+    color: var(--text-accent);
+    white-space: nowrap;
+  }
+  .bracket {
+    position: relative;
+    margin-left: calc((var(--a) + 0.5) / var(--n) * 100%);
+    width: calc((var(--b) - var(--a)) / var(--n) * 100%);
+    border: 1.5px solid var(--green);
+    border-top: 0;
+    height: 12px;
+    border-radius: 0 0 6px 6px;
+    transform-origin: left center;
+    transition: transform var(--t-travel) var(--ease-out);
+  }
+  .run[data-bracket='off'] .bracket {
+    transform: scaleX(0);
+  }
+  .run[data-bracket='off'] .bracket-label {
+    visibility: hidden;
+  }
+  .bracket-label {
+    font-size: 0.76rem;
+    color: var(--text-strong);
+    text-align: right;
+  }
+  .receipts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+  .rc {
+    display: grid;
+    gap: 0.5rem;
+    align-content: start;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  /* not reached yet: dashed card, label-colour text and the words "not reached yet" (no fading). The note keeps
+     its box in both states (visibility), so nothing below moves while the run plays (CLS 0). */
+  .rc {
+    transition: border-color var(--t-ui) var(--ease-out);
+  }
+  .rc[data-reached='n'] {
+    border-style: dashed;
+    border-color: var(--line);
+    background: transparent;
+  }
+  .rc[data-reached='n'] :is(.rc-line, .rc-line b, .rc-what) {
+    color: var(--text-label);
+  }
+  .rc-pending {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--text-label);
+    visibility: hidden;
+  }
+  .rc[data-reached='n'] .rc-pending {
+    visibility: visible;
+  }
+  .rc-line {
+    font-size: 0.82rem;
+    color: var(--text-strong);
+  }
+  .rc-line b {
+    color: var(--text-accent);
+  }
+  .rc-what {
+    font-size: 0.9rem;
+    color: var(--text);
+  }
+  .notyet {
+    margin-top: clamp(3rem, 6vw, 4rem);
+    display: grid;
+    gap: 1rem;
+    padding: 1.4rem 1.5rem;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: var(--radius);
+  }
+  .notyet ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 2rem;
+  }
+  .notyet li {
+    position: relative;
+    padding-left: 1.4rem;
+    color: var(--text-strong);
+  }
+  .notyet li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.5em;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid var(--paper);
+  }
+  @media (max-width: 960px) {
+    .receipts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .notyet ul {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 640px) {
+    .b-ev {
+      position: absolute;
+      top: 54px;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 0.64rem;
+    }
+    .blocks {
+      margin-bottom: 4.5rem;
+    }
+  }
+</style>

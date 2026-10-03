@@ -1,0 +1,604 @@
+---
+// S3, how it works: six parts over one shared stage (build spec 2.2 S3). Without JS every part is a plain
+// section with its own heading. With JS (src/client/steps.ts) they become an ARIA tablist: the stage draws
+// one continuous flow and the selected part works harder; its caption and details sit beside the stage.
+import { steps, how as Hw, instrument as I } from '../copy/en.ts';
+import { DEFAULT_SETUP, estimate, premiumDollars, fmtUsd, fmtPct } from '../lib/pricing.ts';
+import { cascade } from '../lib/cascade.ts';
+import { controls as C } from '../copy/en.ts';
+
+const e = estimate(DEFAULT_SETUP);
+const rows = cascade(DEFAULT_SETUP, e);
+const st = Hw.station;
+const Q = Hw.quoteCard;
+const prem = e.premium === null ? '' : fmtUsd(premiumDollars(e.premium));
+const durLabel = C.durations.find((x) => x.sec === DEFAULT_SETUP.dur)?.label ?? '';
+const facts = Hw.facts as Record<string, readonly string[]>;
+---
+
+<section id="how" class="section how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{Hw.kicker}</p>
+      <h2 id="how-title">{Hw.heading}</h2>
+      <p class="intro">{Hw.intro}</p>
+    </div>
+
+    <div class="parts" data-parts data-reveal>
+      <div class="tabs js-only" role="tablist" aria-label={Hw.tablist}>
+        {
+          steps.map((s, i) => (
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              id={`tab-${s.id}`}
+              aria-controls={`panel-${s.id}`}
+              aria-selected={i === 0 ? 'true' : 'false'}
+              tabindex={i === 0 ? '0' : '-1'}
+              data-step={s.id}
+            >
+              <span class="tab-n mono">{String(i + 1).padStart(2, '0')}</span>
+              <span class="tab-l">{s.label}</span>
+            </button>
+          ))
+        }
+      </div>
+
+      <div class="stage-box" aria-hidden="true">
+        <canvas class="stage-canvas" data-stage-canvas></canvas>
+      </div>
+
+      <div class="panels">
+        {
+          steps.map((s, i) => (
+            <section class="panel" id={`panel-${s.id}`} data-panel={s.id} aria-labelledby={`ph-${s.id}`}>
+              <h3 class="panel-h" id={`ph-${s.id}`}>
+                <span class="cap-n mono">{String(i + 1).padStart(2, '0')}</span> {s.label}
+              </h3>
+              <p class="caption" data-caption>{s.text}</p>
+              <div class="detail">
+                {s.id === 'quote' && (
+                  <>
+                    <p class="d-line"><strong>{st.quote.title}.</strong> {st.quote.note}</p>
+                    <div class="qcard mono" data-qcard>
+                      <p class="tag tag-sim">{Q.tag}</p>
+                      <dl class="qrows">
+                      <div><dt>{Q.buyer[0]}</dt><dd>{Q.buyer[1]}</dd></div>
+                      <div><dt>{Q.perp[0]}</dt><dd>{Q.perp[1]}</dd></div>
+                      <div><dt>{Q.side}</dt><dd data-q="side">{DEFAULT_SETUP.side}</dd></div>
+                      <div><dt>{Q.level}</dt><dd data-q="level">{fmtPct(e.lvlDist)} {Q.below}</dd></div>
+                      <div><dt>{Q.payout[0]}</dt><dd>{Q.payout[1]}</dd></div>
+                      <div><dt>{Q.premium}</dt><dd data-q="premium">{prem}</dd></div>
+                      <div><dt>{Q.expiry}</dt><dd data-q="expiry">{Q.fromNow(durLabel)}</dd></div>
+                      <div><dt>{Q.deadline[0]}</dt><dd>{Q.deadline[1]}</dd></div>
+                      <div><dt>{Q.nonce[0]}</dt><dd>{Q.nonce[1]}</dd></div>
+                      </dl>
+                      <p class="q-refused" data-q="refused" hidden>{Q.refused}</p>
+                    </div>
+                  </>
+                )}
+                {s.id === 'buy' && (
+                  <div class="cascade" data-cascade>
+                    <p class="d-line">
+                      <strong>{st.buy.title}</strong> <span class="tag tag-sim">{st.buy.note}</span>
+                    </p>
+                    <ul class="legend mono" aria-hidden="true">
+                      {st.buy.legend.map(([k, t]) => (
+                        <li data-state={k}>
+                          <span class="glyph" />
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                    <p class="engine-row" data-engine data-state="fail" hidden>
+                      <span class="glyph" aria-hidden="true" />
+                      <span>{Hw.checks.engine}</span>
+                      <span class="c-state mono">{st.buy.fail}</span>
+                    </p>
+                    <ol class="checks" data-checks>
+                      {rows.map((r) => (
+                        <li data-state={r.state}>
+                          <span class="glyph" aria-hidden="true" />
+                          <span class="c-text">{r.text}</span>
+                          <span class="c-state mono">{r.stateText}</span>
+                        </li>
+                      ))}
+                    </ol>
+                    <p class="c-end mono" data-cascade-end>{st.buy.done}</p>
+                    <p class="c-foot">{Hw.engineFoot}</p>
+                  </div>
+                )}
+                {s.id === 'oracle' && (
+                  <div class="oracle">
+                    <p class="d-line"><strong>{st.oracle.title}.</strong> {st.oracle.note}</p>
+                    <p class="oracle-read js-only">
+                      <span class="tag tag-live" data-oracle-tag data-state="waiting">{I.liveWaiting}</span>
+                      <span class="oracle-px mono" data-oracle-px>…</span>
+                    </p>
+                  </div>
+                )}
+                {s.id === 'keeper' && <p class="d-line"><strong>{st.keeper.title}.</strong> {st.keeper.note}</p>}
+                {s.id === 'pool' && (
+                  <>
+                    <p class="d-line"><strong>{st.pool.title}.</strong> {st.pool.note}</p>
+                    <div class="pcard" data-pcard>
+                      <p class="tag tag-sim">{Hw.poolCard.tag}</p>
+                      <p class="mono" data-p="reserved">{Hw.poolCard.reserved}</p>
+                      <p class="mono" data-p="premium">{Hw.poolCard.premium(prem)}</p>
+                    </div>
+                  </>
+                )}
+                {s.id === 'payout' && <p class="d-line"><strong>{st.payout.title}.</strong> {st.payout.note}</p>}
+                {facts[s.id] && (
+                  <ul class="facts">
+                    {facts[s.id].map((f) => (
+                      <li>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="rules" data-reveal>
+      <p><span class="r-mark" aria-hidden="true"></span>{Hw.rule}</p>
+      <p><span class="r-mark hollow" aria-hidden="true"></span>{Hw.caveat}</p>
+    </div>
+
+    <div class="only" data-reveal>
+      <h3>{Hw.only.heading}</h3>
+      <ol>
+        {Hw.only.items.map((t) => <li>{t}</li>)}
+      </ol>
+    </div>
+  </div>
+</section>
+
+<style>
+  .parts {
+    margin-top: clamp(2.25rem, 4.5vw, 3.25rem);
+    display: grid;
+    gap: 1.25rem;
+  }
+  /* until steps.ts has mounted (or without JS): no tabs, no stage, every part as a plain section */
+  :global(.parts:not(.tabs-on) > .tabs),
+  :global(.parts:not(.tabs-on) > .stage-box) {
+    display: none;
+  }
+  .tabs {
+    grid-area: tabs;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .tab {
+    display: grid;
+    gap: 0.15rem;
+    justify-items: start;
+    min-height: 64px;
+    padding: 0.7rem 0.85rem;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out),
+      color var(--t-ui) var(--ease-out);
+  }
+  .tab[aria-selected='true'] {
+    border-color: var(--green);
+    background: rgb(35 183 121 / 0.08);
+    color: var(--text-strong);
+  }
+  .tab-n {
+    font-size: 0.7rem;
+    color: var(--text-label);
+  }
+  .tab[aria-selected='true'] .tab-n {
+    color: var(--text-accent);
+  }
+  .tab-l {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.02rem;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .tab:hover {
+      border-color: var(--line-strong);
+      color: var(--text-strong);
+    }
+  }
+  .stage-box {
+    grid-area: stage;
+    position: relative;
+    min-height: 300px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: rgb(12 21 32 / 0.5);
+    overflow: hidden;
+  }
+  .stage-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .panels {
+    grid-area: panels;
+    display: grid;
+    gap: 2rem;
+    min-width: 0;
+  }
+  /* mounted: every panel sits in one grid cell, so switching parts never moves the content below */
+  :global(.tabs-on) .panels {
+    gap: 0;
+  }
+  :global(.tabs-on) .panels .panel {
+    grid-area: 1 / 1;
+  }
+  .panel:global(.off) {
+    visibility: hidden;
+  }
+  .panel {
+    display: grid;
+    gap: 0.9rem;
+    align-content: start;
+    min-width: 0;
+    border-radius: 8px;
+  }
+  .panel-h {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+  }
+  /* with the tablist the tab names the panel; the heading stays for the outline only */
+  :global(.tabs-on) .panel-h {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .caption {
+    font-family: var(--font-display);
+    font-size: clamp(1.15rem, 0.95rem + 0.7vw, 1.45rem);
+    line-height: 1.35;
+    color: var(--text-strong);
+    max-width: 52rem;
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+  .cap-n {
+    font-size: 0.9rem;
+    color: var(--text-accent);
+    vertical-align: 0.25em;
+    margin-right: 0.3rem;
+  }
+  :global(html.js[data-motion='on']) .panel .caption:global(.swap) :global(.rise > span) {
+    animation: cap-rise 620ms var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 16) * 45ms);
+  }
+  @keyframes cap-rise {
+    from {
+      transform: translateY(105%);
+    }
+    to {
+      transform: none;
+    }
+  }
+  .detail {
+    display: grid;
+    gap: 0.8rem;
+    align-content: start;
+  }
+  .d-line {
+    color: var(--text);
+    max-width: 52rem;
+  }
+  .facts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+  .facts li {
+    position: relative;
+    padding-left: 1.1rem;
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+  .facts li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.62em;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+  /* the quote card: ARCHITECTURE §4 fields for the hero setup */
+  .qcard,
+  .pcard {
+    margin: 0;
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.8rem 0.95rem;
+    border: 1px dashed var(--line-strong);
+    border-radius: 10px;
+    font-size: 0.8rem;
+  }
+  .qcard .tag,
+  .pcard .tag {
+    justify-self: start;
+    margin-bottom: 0.35rem;
+  }
+  .qrows {
+    margin: 0;
+    display: grid;
+    gap: 0.2rem;
+  }
+  .qrows div {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .qcard dt {
+    color: var(--text-label);
+  }
+  .qcard dd {
+    color: var(--text-strong);
+  }
+  .qcard[data-refused='1'] .qrows {
+    display: none;
+  }
+  .q-refused {
+    color: var(--text-strong);
+  }
+  .pcard p {
+    color: var(--text-strong);
+  }
+
+  /* the purchase-check cascade: state by glyph shape and a word, never by fading the text */
+  .legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1rem;
+    font-size: 0.72rem;
+    color: var(--text-label);
+  }
+  .legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .checks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .checks li,
+  .engine-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    gap: 0.65rem;
+    align-items: center;
+    padding: 0.3rem 0.55rem;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    line-height: 1.4;
+    color: var(--text);
+  }
+  .checks li:nth-child(odd) {
+    background: rgb(248 242 239 / 0.025);
+  }
+  .glyph {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    justify-self: center;
+  }
+  .engine-row {
+    outline: 1.5px dashed var(--line-strong);
+    outline-offset: -1px;
+    color: var(--text-strong);
+  }
+  .engine-row[hidden] {
+    display: none;
+  }
+  .engine-row .glyph {
+    border: 2px solid var(--paper);
+    width: 14px;
+    height: 14px;
+  }
+  .c-foot {
+    font-size: 0.82rem;
+    color: var(--text-label);
+  }
+  [data-state='pass'] > .glyph {
+    background: var(--green);
+  }
+  [data-state='fail'] > .glyph {
+    border: 2px solid var(--paper);
+    width: 14px;
+    height: 14px;
+  }
+  [data-state='chain'] > .glyph {
+    width: 12px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-label);
+  }
+  [data-state='skip'] > .glyph {
+    border: 1.5px dashed var(--text-label);
+  }
+  /* not reached: a dashed row outline and the words "not reached"; the text keeps label contrast */
+  li[data-state='skip'] {
+    color: var(--text-label);
+    background: transparent;
+    outline: 1px dashed var(--line);
+    outline-offset: -1px;
+  }
+  li[data-state='fail'] {
+    outline: 1.5px dashed var(--line-strong);
+    outline-offset: -1px;
+    color: var(--text-strong);
+  }
+  .c-state {
+    font-size: 0.72rem;
+    color: var(--text-label);
+    text-align: right;
+    white-space: nowrap;
+  }
+  li[data-state='pass'] .c-state {
+    color: var(--text-accent);
+  }
+  li[data-state='fail'] .c-state {
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  :global(html.js[data-motion='on']) .checks:global(.run) li {
+    animation: check-in 420ms var(--ease-out) both;
+    animation-delay: calc(var(--k, 0) * 55ms);
+  }
+  @keyframes check-in {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+  }
+  .c-end {
+    font-size: 0.82rem;
+    color: var(--text-strong);
+  }
+  .oracle-read {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.4rem;
+  }
+  .oracle-px {
+    font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.3rem);
+    font-weight: 700;
+    color: var(--text-strong);
+  }
+  .rules {
+    margin-top: 2.25rem;
+    display: grid;
+    gap: 0.6rem;
+    padding: 1.2rem 1.3rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+  }
+  .rules p {
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    color: var(--text-strong);
+  }
+  .r-mark {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    transform: translateY(1px);
+  }
+  .r-mark.hollow {
+    background: transparent;
+    border: 2px solid var(--paper);
+  }
+  .only {
+    margin-top: 2.25rem;
+    display: grid;
+    gap: 1.2rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  .only h3 {
+    font-size: clamp(1.4rem, 1rem + 1.2vw, 1.9rem);
+    font-stretch: 82%;
+  }
+  .only ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+    counter-reset: only;
+  }
+  .only li {
+    counter-increment: only;
+    display: grid;
+    gap: 0.5rem;
+    align-content: start;
+    color: var(--text);
+  }
+  .only li::before {
+    content: counter(only, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-accent);
+  }
+  /* desktop: tabs on top, the stage on the left, the selected part's caption and details on the right;
+     the stage stretches to the tallest panel, so no blank band is left under a short one */
+  @media (min-width: 900px) {
+    .parts:global(.tabs-on) {
+      grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+      grid-template-areas: 'tabs tabs' 'stage panels';
+      column-gap: 2rem;
+      align-items: stretch;
+    }
+    .parts:global(.tabs-on) .stage-box {
+      min-height: 420px;
+    }
+    .parts:global(.tabs-on.no-stage) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'tabs' 'panels';
+    }
+  }
+  /* narrow: one column, tabs above the stage above the selected part. The named areas must exist at every
+     width once the three items carry grid-area names, or they all land in one implicit cell (round-2 review). */
+  @media (max-width: 899px) {
+    .parts:global(.tabs-on) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'tabs' 'stage' 'panels';
+    }
+    .parts:global(.tabs-on.no-stage) {
+      grid-template-areas: 'tabs' 'panels';
+    }
+    .tabs {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .parts:global(.tabs-on) .panel:global(.off) {
+      display: none;
+    }
+    .stage-box {
+      height: 300px;
+    }
+    .only ol {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .checks li,
+    .engine-row {
+      grid-template-columns: 18px minmax(0, 1fr);
+    }
+    .c-state {
+      grid-column: 2;
+      text-align: left;
+    }
+  }
+</style>

@@ -1,0 +1,595 @@
+/* Base styles: reset, type, layout primitives, buttons, tags, focus, reveal and motion-off rules. */
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--nav-h) + 16px);
+  background: var(--bg);
+  color-scheme: dark;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion='on'] {
+    scroll-behavior: smooth;
+  }
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  font-stretch: 100%;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+/* ambient light: a navy vignette at the top and a film grain (decoration only, palette colours) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(120% 70% at 70% -10%, rgb(34 55 78 / 0.55), transparent 60%),
+    radial-gradient(80% 60% at 0% 110%, rgb(34 55 78 / 0.35), transparent 70%);
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url('/grain.png');
+  background-size: 160px 160px;
+  opacity: 0.5;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+dl,
+dd,
+figure,
+blockquote {
+  margin: 0;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  color: var(--text-strong);
+  font-weight: 640;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: clamp(2.1rem, 1.4rem + 3vw, 3.9rem);
+  font-stretch: 80%;
+  font-weight: 650;
+  text-wrap: balance;
+}
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+p {
+  text-wrap: pretty;
+}
+a {
+  color: var(--text-strong);
+  text-decoration-color: var(--edge-green);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+@media (hover: hover) and (pointer: fine) {
+  a:hover {
+    text-decoration-color: var(--green);
+  }
+}
+strong {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+::selection {
+  background: var(--green);
+  color: var(--bg);
+}
+:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.wrap {
+  width: 100%;
+  max-width: calc(var(--page) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+.section {
+  padding-block: var(--section-y);
+  position: relative;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 100;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--green);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip:focus {
+  top: 12px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 0;
+}
+.kicker {
+  font-family: var(--font-mono);
+  font-size: var(--label-size);
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--text-accent);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.kicker::after {
+  content: '';
+  flex: 0 0 48px;
+  height: 1px;
+  background: var(--edge-green);
+}
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--label-size);
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+.section-head {
+  display: grid;
+  gap: 1.1rem;
+  max-width: 50rem;
+}
+.section-head .intro {
+  font-size: 1.125rem;
+  max-width: 38rem;
+}
+
+/* buttons: flat fills only */
+.btn {
+  --h: 48px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: var(--h);
+  padding: 0 1.35rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out),
+    color var(--t-ui) var(--ease-out), background-color var(--t-ui) var(--ease-out);
+}
+.btn-primary {
+  background: var(--green);
+  color: var(--on-accent);
+}
+/* hover: a flat paper wipe slides in from the left (a solid layer, not a gradient) */
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--paper);
+  transform: scaleX(0);
+  transform-origin: right center;
+  transition: transform 550ms var(--ease-out);
+}
+.btn .arrow {
+  display: inline-block;
+  transition: transform var(--t-ui) var(--ease-out);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-strong);
+  border-color: var(--line-strong);
+}
+/* hover styles only where a real hover exists: on touch screens a tap must not leave a sticky hover state */
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover::before {
+    transform: scaleX(1);
+    transform-origin: left center;
+  }
+  .btn:hover .arrow {
+    transform: translateY(2px);
+  }
+  .btn-ghost:hover {
+    border-color: var(--paper);
+  }
+  .icon-btn:hover {
+    border-color: var(--paper);
+  }
+  .seg label:hover input:not(:checked) + span {
+    color: var(--text-strong);
+    background: rgb(248 242 239 / 0.06);
+  }
+}
+.btn-small {
+  --h: 44px;
+  padding: 0 1rem;
+  font-size: 0.95rem;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn[disabled],
+.btn[aria-disabled='true'] {
+  cursor: progress;
+}
+.btn.joined {
+  background: transparent;
+  color: var(--text-accent);
+  border-color: var(--edge-green);
+}
+.btn.joined::before {
+  display: none;
+}
+
+/* range input and small outlined buttons (shared) */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 3px solid var(--green);
+}
+.range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 3px solid var(--green);
+}
+.range:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* tags: LIVE = solid mono tag, SIM = outlined tag (build spec 2.2: one visual code everywhere) */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.tag-live {
+  background: var(--surface-strong);
+  color: var(--text-strong);
+  border: 1px solid var(--line);
+}
+.tag-live::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.tag-live[data-state='failed']::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--paper);
+}
+.tag-sim {
+  border: 1px dashed var(--line-strong);
+  color: var(--text-label);
+}
+.tag-sim::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--text-label);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 16px; /* the disclaimer pill wraps to several lines on phones */
+  line-height: 1.45;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+  background: rgb(12 21 32 / 0.6);
+}
+.pill::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  border: 1.5px solid var(--green);
+}
+
+/* segmented control (radio group) */
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgb(12 21 32 / 0.55);
+}
+.seg label {
+  position: relative;
+  display: inline-flex;
+}
+.seg input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.seg span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 44px;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text);
+  transition: background-color var(--t-ui) var(--ease-out), color var(--t-ui) var(--ease-out);
+  pointer-events: none;
+}
+.seg input:checked + span {
+  background: var(--paper);
+  color: var(--bg);
+  font-weight: 600;
+}
+.seg input:focus-visible + span {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .seg span {
+    min-height: 44px;
+  }
+}
+
+/* section reveal: only when JS runs, motion is on and the page module has attached its observers
+   (html.reveals). It fails open: without that class, or with boot.js's html.reveal-fail, everything shows. */
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) {
+  opacity: 0;
+  transform: translateY(28px);
+}
+html.js.reveals[data-motion='on'] [data-reveal].in {
+  transition: opacity 900ms var(--ease-out), transform 1100ms var(--ease-out);
+}
+html.js.reveals[data-motion='on'] [data-reveal-delay='1'].in {
+  transition-delay: 90ms;
+}
+html.js.reveals[data-motion='on'] [data-reveal-delay='2'].in {
+  transition-delay: 180ms;
+}
+html.js.reveals[data-motion='on'] [data-reveal-delay='3'].in {
+  transition-delay: 270ms;
+}
+/* words rise from masks */
+.rise {
+  display: inline-block;
+  overflow: clip;
+  vertical-align: top;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+.rise > span {
+  display: inline-block;
+}
+/* the hero headline rises on load (CSS only, so it never waits for a script or an observer) */
+html.js[data-motion='on'] [data-words] .rise > span {
+  animation: rise 900ms var(--ease-out) both;
+  animation-delay: calc(80ms + var(--i, 0) * 45ms);
+}
+@keyframes rise {
+  from {
+    transform: translateY(110%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* controls that only work with JavaScript are not shown without it (the static content stays) */
+@media (scripting: none) {
+  .js-only {
+    display: none !important;
+  }
+}
+
+/* section headings: words rise from masks on entry; the kicker rule draws (same fail-open condition) */
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) h2 .rise > span {
+  transform: translateY(110%);
+}
+html.js.reveals[data-motion='on'] [data-reveal].in h2 .rise > span {
+  transition: transform 900ms var(--ease-out);
+  transition-delay: calc(120ms + var(--i, 0) * 45ms);
+}
+html.js.reveals[data-motion='on']:not(.reveal-fail) [data-reveal]:not(.in) .kicker::after {
+  transform: scaleX(0);
+}
+html.js.reveals[data-motion='on'] [data-reveal] .kicker::after {
+  transform-origin: left center;
+}
+html.js.reveals[data-motion='on'] [data-reveal].in .kicker::after {
+  transition: transform 1.2s var(--ease-out) 250ms;
+}
+
+/* motion off (OS setting or the nav toggle): nothing animates, every state shows at once */
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='on']) *,
+  html:not([data-motion='on']) *::before,
+  html:not([data-motion='on']) *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+@keyframes thud {
+  0% {
+    transform: translateY(-6px) scale(1.04);
+  }
+  45% {
+    transform: translateY(3px) scale(1);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes pulse-value {
+  0% {
+    color: var(--text-accent);
+  }
+  100% {
+    color: var(--text-strong);
+  }
+}

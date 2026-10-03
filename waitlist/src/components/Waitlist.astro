@@ -1,0 +1,627 @@
+---
+// S7, the waitlist as a cover ticket. The /api/join body is site/'s plus `email` (required since 2026-10-03; the
+// old handle + channel pair became optional telegram and x fields). No role on the wire.
+// On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
+import { waitlist as Wl, footer as F, CONSENT_VERSION } from '../copy/en.ts';
+import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
+import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
+import { ICON_VIEWBOX, TELEGRAM_PATH, X_PATH } from '../lib/icons.ts';
+
+interface Props {
+  sitekey: string;
+}
+const { sitekey } = Astro.props;
+const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
+const Nx = Wl.issued.next;
+---
+
+<section id="join" class="section join" aria-labelledby="join-title">
+  <div class="wrap grid">
+    <div class="section-head join-head" data-reveal>
+      <p class="kicker">{Wl.kicker}</p>
+      <!-- the Numera mark sits behind the headline and the intro only (not the kicker, not the form): flat SVG
+           first; src/client/joinmark.ts swaps in a turning 3D mark when the section comes near, motion is on and
+           WebGL works. Its opacity is the token --join-mark-opacity (test/contrast.test.mjs). -->
+      <div class="join-lead" data-join-lead>
+        <div class="join-mark" data-join-mark aria-hidden="true">
+          <svg class="join-mark-flat" viewBox="0 0 512 512" focusable="false">
+            <polygon fill="#435c7a" points={poly(MARK_NAVY)}></polygon>
+            <polygon fill="#23b779" points={poly(MARK_GREEN)}></polygon>
+          </svg>
+        </div>
+        <h2 id="join-title">{Wl.heading}</h2>
+        <p class="intro">{Wl.intro}</p>
+      </div>
+    </div>
+
+    <div class="ticket" data-ticket data-state="idle" data-reveal data-reveal-delay="1">
+      <div class="ticket-body">
+        <p class="t-title">{Wl.ticketTitle}</p>
+
+        <div class="form-wrap">
+          <form
+            class="form"
+            method="post"
+            action="/api/join"
+            novalidate
+            data-form
+            data-endpoint={WAITLIST_ENDPOINT}
+            data-turnstile={TURNSTILE_SCRIPT}
+            data-sitekey={sitekey}
+            data-errors={JSON.stringify(Wl.errors)}
+            data-sending={Wl.sending}
+            data-success={Wl.success}
+          >
+            <!-- the email and the button share one row on wide screens; the label is visually hidden, the
+                 placeholder repeats it, and the hint shows while the field has focus -->
+            <div class="email-row">
+              <div class="field email-field">
+                <label for="wl-email" class="visually-hidden">{Wl.email.label}</label>
+                <input
+                  id="wl-email"
+                  name="email"
+                  type="email"
+                  required
+                  maxlength="254"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  placeholder={Wl.email.placeholder}
+                  aria-describedby="wl-email-hint"
+                />
+              </div>
+              <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
+            </div>
+            <p id="wl-email-hint" class="hint focus-hint">{Wl.email.hint}</p>
+            <!-- inline error slots, one next to each field (filled by src/client/join.ts); the status line below keeps
+                 the errors that belong to no field (spam check, rate limit, region, network) -->
+            <p id="wl-email-error" class="field-error" data-error="email" hidden></p>
+
+            <div class="more" data-more>
+              <button type="button" class="more-toggle" aria-expanded="false" aria-controls="wl-more" data-more-toggle>
+                <span class="more-sign" aria-hidden="true">+</span> {Wl.more}
+              </button>
+              <div id="wl-more" class="more-body" data-more-body hidden>
+                <!-- two optional fields, each with its network's icon; a signup may give either, both or none -->
+                <div class="handles">
+                  {(['telegram', 'x'] as const).map((k) => (
+                    <div class="field" data-field={k}>
+                      <label for={`wl-${k}`} class="visually-hidden">{Wl[k].label}</label>
+                      <div class="input-wrap has-icon">
+                        <svg class="in-icon" viewBox={ICON_VIEWBOX} aria-hidden="true" focusable="false"><path d={k === 'telegram' ? TELEGRAM_PATH : X_PATH} fill-rule="evenodd" /></svg>
+                        <input
+                          id={`wl-${k}`}
+                          name={k}
+                          type="text"
+                          maxlength="64"
+                          autocomplete="off"
+                          autocapitalize="none"
+                          spellcheck="false"
+                          placeholder={Wl[k].placeholder}
+                          aria-describedby="wl-handles-hint"
+                        />
+                        <span class="valid-dot" aria-hidden="true"></span>
+                      </div>
+                      <p id={`wl-${k}-error`} class="field-error" data-error={k} hidden></p>
+                    </div>
+                  ))}
+                </div>
+                <p id="wl-handles-hint" class="hint focus-hint">{Wl.handlesHint}</p>
+              </div>
+            </div>
+
+            <div class="check">
+              <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
+              <label for="wl-jurisdiction">{Wl.jurisdiction}</label>
+              <p id="wl-jurisdiction-error" class="field-error" data-error="jurisdiction" hidden></p>
+            </div>
+            <div class="check">
+              <input id="wl-consent" name="consent" type="checkbox" required />
+              <label for="wl-consent">
+                {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}<a href="/terms">{Wl.consent.termsLink}</a>{Wl.consent.end}
+              </label>
+              <p id="wl-consent-error" class="field-error" data-error="consent" hidden></p>
+            </div>
+            <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
+
+            <!-- Turnstile with appearance "interaction-only": the box is empty unless Cloudflare needs a click -->
+            <div class="cf-box" data-cf-box>
+              <div class="cf-turnstile" data-cf></div>
+            </div>
+            <noscript><p class="noscript">{Wl.noscript}</p></noscript>
+          </form>
+
+          <div class="issued" data-issued tabindex="-1" hidden>
+            <p class="i-stamp mono">{Wl.issued.stamp}</p>
+            <p class="i-line">{Wl.success}</p>
+            <dl class="i-rows mono">
+              <div><dt>{Wl.issued.email}</dt><dd data-i="email"></dd></div>
+              <div><dt>{Wl.issued.telegram}</dt><dd data-i="telegram"></dd></div>
+              <div><dt>{Wl.issued.x}</dt><dd data-i="x"></dd></div>
+            </dl>
+            <div class="i-next">
+              <p class="label i-next-h">{Nx.heading}</p>
+              <ol class="i-steps">
+                <li style="--i:0"><span class="i-k mono">{Nx.stored[0]}</span><span>{Nx.stored[1]}</span></li>
+                <li style="--i:1"><span class="i-k mono">{Nx.when[0]}</span><span>{Nx.when[1]}</span></li>
+                <li style="--i:2">
+                  <span class="i-k mono">{Nx.leave[0]}</span>
+                  <span>{Nx.leave[1]}<a href={F.telegram.href} rel="noopener" target="_blank">{F.telegram.handle}</a>{Nx.leave[2]}<a href={F.x.href} rel="noopener" target="_blank">{F.x.handle}</a>{Nx.leave[3]}</span>
+                </li>
+              </ol>
+            </div>
+            <button type="button" class="icon-btn again" data-again>{Wl.issued.again}</button>
+          </div>
+        </div>
+        <p class="status mono" data-status role="status" aria-live="polite" tabindex="-1"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* the left column runs the height of the form, so the mark behind the headline and intro has room */
+  /* The mark's box has a fixed height (--join-mark-h) and the column's width: it never depends on the form,
+     so opening the Telegram/X block (which grows the card) leaves the mark exactly as it was. The lead block is
+     at least as tall as the box, so the box never reaches the form on narrow screens. */
+  .join-lead {
+    --join-mark-h: 18rem;
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    align-content: start;
+    gap: 1.1rem;
+    min-height: var(--join-mark-h);
+  }
+  .join-mark {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--join-mark-h);
+    z-index: -1;
+    pointer-events: none;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    opacity: var(--join-mark-opacity);
+  }
+  .join-mark-flat {
+    width: auto;
+    height: 72%;
+    max-width: 90%;
+  }
+  .join-mark[data-mode='3d'] .join-mark-flat {
+    display: none;
+  }
+  .join-mark :global(.join-mark-3d) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(2rem, 6vw, 5.5rem);
+    align-items: start;
+  }
+  .ticket {
+    scroll-margin-top: calc(var(--nav-h) + 12px);
+    position: relative;
+    border: 1px solid var(--line-strong);
+    border-radius: 18px;
+    /* a darker backing than other cards, so the fields stay readable over the mark behind the section */
+    background: var(--surface-join);
+    overflow: hidden;
+  }
+  .ticket:global(.shake) {
+    animation: shake 300ms linear;
+  }
+  /* the whole ticket gives a 3 px thud when the ON THE LIST stamp lands */
+  .ticket[data-state='success'] {
+    animation: ticket-thud 260ms var(--ease-out) 760ms both;
+  }
+  @keyframes ticket-thud {
+    0% {
+      transform: none;
+    }
+    40% {
+      transform: translateY(3px);
+    }
+    100% {
+      transform: none;
+    }
+  }
+  .ticket-body {
+    display: grid;
+    gap: 0.75rem;
+    padding: clamp(1.1rem, 2.4vw, 1.5rem);
+  }
+  .t-title {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-accent);
+  }
+  .form-wrap {
+    position: relative;
+  }
+  .form {
+    display: grid;
+    gap: 0.7rem;
+  }
+  /* success: the issued ticket takes the form's place (the compact form is shorter than the ticket) */
+  .ticket[data-state='success'] .form {
+    display: none;
+  }
+  .issued {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: 0.75rem;
+    padding-top: 0.4rem;
+    outline: none;
+  }
+  .issued[hidden] {
+    display: none;
+  }
+  .issued:focus-visible {
+    outline: var(--focus);
+    outline-offset: 6px;
+    border-radius: 6px;
+  }
+  .i-stamp {
+    padding: 0.45rem 0.9rem;
+    border: 3px solid var(--green);
+    border-radius: 10px;
+    color: var(--text-accent);
+    font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.5rem);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+    transform: rotate(-3deg);
+  }
+  :global(html[data-motion='on']) .ticket[data-state='success'] .i-stamp {
+    animation: slam 340ms ease-in 640ms both;
+  }
+  @keyframes slam {
+    0% {
+      transform: rotate(-3deg) scale(1.8);
+      opacity: 0;
+    }
+    35% {
+      transform: rotate(-3deg) scale(1);
+      opacity: 1;
+    }
+    60% {
+      transform: rotate(-3deg) translateY(3px);
+    }
+    100% {
+      transform: rotate(-3deg);
+      opacity: 1;
+    }
+  }
+  .i-line {
+    color: var(--text-strong);
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .i-rows {
+    margin: 0;
+    display: grid;
+    gap: 0.3rem;
+    font-size: 0.86rem;
+  }
+  .i-rows div {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .i-rows dt {
+    color: var(--text-label);
+  }
+  .i-rows dd {
+    color: var(--text-strong);
+    overflow-wrap: anywhere;
+  }
+  /* what happens next: three short steps under a hairline, in the height the folded form keeps */
+  .i-next {
+    justify-self: stretch;
+    display: grid;
+    gap: 0.55rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed var(--line-strong);
+  }
+  .i-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+    counter-reset: nx;
+  }
+  .i-steps li {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: baseline;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .i-k {
+    position: relative;
+    padding-left: 1rem;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-accent);
+  }
+  /* a filled dot for what is done (stored), rings for what is still to come */
+  .i-k::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.32em;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--green);
+  }
+  .i-steps li:first-child .i-k::before {
+    background: var(--green);
+  }
+  .i-steps a {
+    color: var(--text-strong);
+  }
+  :global(html[data-motion='on']) .ticket[data-state='success'] .i-steps li {
+    animation: next-in 520ms var(--ease-out) both;
+    animation-delay: calc(1180ms + var(--i) * 90ms);
+  }
+  @keyframes next-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  .email-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+    align-items: stretch;
+  }
+  /* helper texts only while their field has focus (errors go to the status line and the field outline) */
+  .focus-hint {
+    display: none;
+  }
+  .email-row:focus-within + .focus-hint,
+  .more-body:focus-within .focus-hint {
+    display: block;
+  }
+  .more-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 44px;
+    padding: 0 0.2rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .more-toggle:focus-visible {
+    outline: var(--focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .more-sign {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    line-height: 1;
+    transition: transform var(--t-ui) var(--ease-out);
+  }
+  .more-toggle[aria-expanded='true'] .more-sign {
+    transform: rotate(45deg);
+  }
+  .more-body {
+    display: grid;
+    gap: 0.4rem;
+    padding-top: 0.2rem;
+  }
+  .more-body[hidden] {
+    display: none;
+  }
+  /* while the disclosure animates its height (src/client/join.ts) */
+  .more-body.sizing {
+    overflow: hidden;
+  }
+  .handles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+  .in-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin-top: -9px;
+    fill: var(--text-label);
+    pointer-events: none;
+  }
+  .has-icon input {
+    padding-left: 2.6rem;
+  }
+  .has-icon:focus-within .in-icon {
+    fill: var(--text-strong);
+  }
+  .field {
+    display: grid;
+    gap: 0.4rem;
+  }
+  .input-wrap {
+    position: relative;
+  }
+  input:is([type='text'], [type='email']) {
+    width: 100%;
+    min-height: 48px;
+    padding: 0.7rem 2.6rem 0.7rem 0.95rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text-strong);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+  }
+  input:is([type='text'], [type='email']):focus-visible {
+    outline: var(--focus);
+    outline-offset: 2px;
+    border-color: var(--green);
+  }
+  input::placeholder {
+    color: var(--text-label);
+  }
+  input:is([type='text'], [type='email']):read-only {
+    border-style: dashed;
+  }
+  input[aria-invalid='true'] {
+    border: 2px dashed var(--paper);
+  }
+  .valid-dot {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin-top: -5px;
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0.4);
+    transition: opacity var(--t-ui) var(--ease-out), transform var(--t-ui) var(--spring);
+  }
+  .field[data-valid='y'] .valid-dot {
+    opacity: 1;
+    transform: none;
+    background: var(--green);
+  }
+  .field[data-valid='n'] .valid-dot {
+    opacity: 1;
+    transform: none;
+    border: 2px solid var(--paper);
+  }
+  .hint {
+    font-size: 0.8rem;
+    color: var(--text-label);
+  }
+  /* the message next to its field: same voice as the status line, dashed marker, no colour-only signal */
+  .field-error {
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: var(--text-strong);
+  }
+  .field-error[hidden] {
+    display: none;
+  }
+  .field-error::before {
+    content: '○ ';
+  }
+  .check .field-error {
+    grid-column: 2;
+  }
+  .check {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+  .check input {
+    width: 22px;
+    height: 22px;
+    margin: 0.15rem 0 0;
+    accent-color: var(--green);
+    cursor: pointer;
+  }
+  .check input[aria-invalid='true'] {
+    outline: 2px dashed var(--paper);
+    outline-offset: 3px;
+  }
+  .check label {
+    font-size: 0.88rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  /* interaction-only Turnstile: nothing visible unless Cloudflare asks for a click, so no space is reserved */
+  .submit {
+    min-width: 11rem;
+    min-height: 48px;
+  }
+  .submit[aria-disabled='true'] {
+    cursor: progress;
+  }
+  /* the message slot: empty until there is something to say */
+  .status {
+    line-height: 1.5;
+    font-size: 0.86rem;
+    color: var(--text-strong);
+    outline: none;
+  }
+  .status:focus-visible {
+    outline: var(--focus);
+    outline-offset: 3px;
+  }
+  .status[data-state='error']::before {
+    content: '○ ';
+  }
+  .status[data-state='ok'] {
+    color: var(--text-accent);
+    font-weight: 600;
+  }
+  .status[data-state='ok']::before {
+    content: '● ';
+  }
+  /* success: the issued ticket shows the sentence; the status line keeps its box and still announces it */
+  .ticket[data-state='success'] .status {
+    clip-path: inset(50%);
+  }
+  .noscript {
+    font-size: 0.9rem;
+    color: var(--text-strong);
+    padding: 0.6rem 0.8rem;
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 8px;
+  }
+  @media (scripting: none) {
+    .form > :not(noscript) {
+      display: none;
+    }
+  }
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /* narrow screens: the email and the button stack, and the two handle fields stack */
+  @media (max-width: 560px) {
+    .join-lead {
+      --join-mark-h: 15rem;
+    }
+    .email-row,
+    .handles {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .submit {
+      width: 100%;
+    }
+  }
+</style>

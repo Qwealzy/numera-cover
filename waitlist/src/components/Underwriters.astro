@@ -1,0 +1,505 @@
+---
+// S5, underwriters: true content, the reservation toy (SIM), the live ledger of the MOCK v2 pool (LIVE) and
+// the queued exit track. No dollar amounts in the toy, no rates, no yield figures anywhere.
+import { underwriters as U, stats } from '../copy/en.ts';
+import { MOCK_POOL, TESTNET_CHAIN_ID } from '../config.ts';
+const T = U.toy;
+const Lg = U.ledger;
+---
+
+<section id="underwriters" class="section uw" aria-labelledby="uw-title">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">{U.kicker}</p>
+      <h2 id="uw-title">{U.heading}</h2>
+    </div>
+
+    <div class="grid">
+      <ul class="points" data-reveal>
+        {U.points.map((p) => <li>{p}</li>)}
+      </ul>
+
+      <div class="toy" data-toy data-reveal data-reveal-delay="1">
+        <div class="toy-head">
+          <h3>{T.heading}</h3>
+          <span class="tag tag-sim">{T.tag} · {T.label}</span>
+        </div>
+        <div class="toy-body">
+          <div class="pool" aria-hidden="true">
+            <div class="slots" data-slots>
+              {Array.from({ length: 10 }, (_, i) => <span class="slot" data-i={i}></span>)}
+            </div>
+            <div class="cap" data-cap><span class="cap-label mono">{T.capLine}</span></div>
+            <div class="tray" data-tray></div>
+            <span class="tray-label mono">{T.premiums}</span>
+          </div>
+          <div class="toy-ctl">
+            <button type="button" class="btn btn-primary btn-small js-only" data-toy-act="sell">{T.sell}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="none">{T.settleNone}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="touch">{T.settleTouch}</button>
+            <button type="button" class="icon-btn js-only" data-toy-act="reset">{T.reset}</button>
+            <p class="toy-meter mono" data-toy-meter>{T.status(0)}</p>
+            <p class="toy-say" data-toy-say role="status" aria-live="polite">{T.empty}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ledger" data-ledger-root data-pool={MOCK_POOL} data-chain={TESTNET_CHAIN_ID} data-reveal>
+      <div class="ledger-head">
+        <h3>{Lg.heading}</h3>
+        <span class="tag tag-live js-only" data-ledger-tag data-state="waiting">{Lg.live} · {Lg.pool} · {Lg.waiting}</span>
+        <span class="badge mono">{Lg.badge}</span>
+      </div>
+      <dl class="tiles">
+        <div class="tile wide"><dt>{Lg.total}</dt><dd class="mono" data-ledger="total">{stats.loading}</dd><span class="unit">{Lg.unit}</span></div>
+        <div class="tile"><dt>{Lg.free}</dt><dd class="mono" data-ledger="free">{stats.loading}</dd><span class="unit">{Lg.unit}</span></div>
+        <div class="tile"><dt>{Lg.locked}</dt><dd class="mono" data-ledger="locked">{stats.loading}</dd><span class="unit">{Lg.unit}</span></div>
+        <div class="tile"><dt>{Lg.covers}</dt><dd class="mono" data-ledger="covers">{stats.loading}</dd><span class="unit">{Lg.coversUnit}</span></div>
+        <div class="tile"><dt>{Lg.paused}</dt><dd class="mono" data-ledger="paused">{stats.loading}</dd><span class="unit">pause flag</span></div>
+      </dl>
+      <p class="addr mono">{Lg.pool} <span>{MOCK_POOL}</span></p>
+      <p class="demo">{stats.demoNote}</p>
+      <p class="note">{stats.note}</p>
+      <noscript><p class="note">{Lg.noscript}</p></noscript>
+    </div>
+
+    <div class="exit" data-exit data-reveal>
+      <h3>{U.exit.heading}</h3>
+      <ol class="track">
+        {
+          U.exit.stops.map((s, i) => (
+            <li style={`--i:${i}`}>
+              <span class="dot" aria-hidden="true" />
+              <span class="stop-t">{s.t}</span>
+              <span class="stop-d mono">{s.d}</span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </div>
+</section>
+
+<style>
+  .grid {
+    margin-top: clamp(2.5rem, 5vw, 3.5rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    gap: clamp(2rem, 5vw, 5rem);
+    align-items: start;
+  }
+  .points {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+  .points li {
+    position: relative;
+    padding-left: 1.4rem;
+    color: var(--text);
+  }
+  .points li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.62em;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--green);
+  }
+  .points li:nth-child(5) {
+    color: var(--text-strong);
+    font-weight: 500;
+  }
+  .points li:nth-child(5)::before {
+    background: transparent;
+    border: 1.5px solid var(--paper);
+  }
+
+  /* reservation toy */
+  .toy {
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 1.2rem;
+    background: var(--surface);
+    display: grid;
+    gap: 1rem;
+  }
+  .toy-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .toy-body {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+  .pool {
+    position: relative;
+    height: 300px;
+    border: 1.5px solid var(--line-strong);
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+    padding: 6px;
+  }
+  .slots {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 32px;
+    height: 230px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 3px;
+  }
+  .slot {
+    flex: 1;
+    border-radius: 4px;
+    border: 1px dashed rgb(248 242 239 / 0.12);
+    transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out),
+      transform var(--t-travel) var(--spring), opacity var(--t-ui) var(--ease-out);
+  }
+  .slot.on {
+    background: var(--navy);
+    border: 1px solid var(--green);
+  }
+  .slot.drop {
+    animation: block-drop 520ms var(--spring) both;
+  }
+  .slot.out {
+    background: var(--navy);
+    border: 1px solid var(--green);
+    animation: block-out 520ms var(--ease-out) both;
+  }
+  @keyframes block-drop {
+    from {
+      transform: translateY(-120px);
+      opacity: 0;
+    }
+  }
+  @keyframes block-out {
+    to {
+      transform: translateX(80px);
+      opacity: 0;
+    }
+  }
+  .cap {
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    bottom: calc(32px + 230px * 0.8 + 1px);
+    height: 0;
+    border-top: 2px solid var(--green);
+  }
+  .cap-label {
+    position: absolute;
+    left: 14px;
+    top: -1.6em;
+    font-size: 0.64rem;
+    color: var(--text-accent);
+  }
+  .cap::before,
+  .cap::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    width: 2px;
+    height: 8px;
+    background: var(--green);
+    transition: transform var(--t-micro) ease-in;
+  }
+  .cap::before {
+    left: 0;
+  }
+  .cap::after {
+    right: 0;
+  }
+  .cap.shut {
+    border-top-width: 4px;
+  }
+  .cap.shut::before,
+  .cap.shut::after {
+    height: 16px;
+    top: -16px;
+  }
+  .tray {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    height: 16px;
+    display: flex;
+    flex-wrap: wrap-reverse;
+    gap: 3px;
+    overflow: hidden;
+  }
+  .tray :global(.chip) {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: chip-in 420ms var(--spring) both;
+  }
+  @keyframes chip-in {
+    from {
+      transform: translateY(-160px) scale(0.6);
+      opacity: 0;
+    }
+  }
+  .tray-label {
+    position: absolute;
+    bottom: -1.7em;
+    left: 0;
+    font-size: 0.64rem;
+    color: var(--text-label);
+  }
+  .toy-ctl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-content: start;
+  }
+  .toy-ctl .btn,
+  .toy-ctl .icon-btn {
+    flex: 1 1 10rem;
+    justify-content: center;
+  }
+  .toy-ctl .shake {
+    animation: shake 300ms linear;
+  }
+  .toy-meter {
+    flex-basis: 100%;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-strong);
+  }
+  .toy-say {
+    flex-basis: 100%;
+    min-height: 4.8em;
+    font-size: 0.92rem;
+    color: var(--text);
+  }
+  .toy-say[data-tone='refused'] {
+    color: var(--text-strong);
+    font-weight: 600;
+    padding-left: 0.7rem;
+    border-left: 2px dashed var(--paper);
+  }
+
+  /* ledger */
+  .ledger {
+    margin-top: clamp(3rem, 6vw, 4.5rem);
+    display: grid;
+    gap: 1rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--line);
+  }
+  .ledger-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .ledger-head h3 {
+    margin-right: auto;
+  }
+  .badge {
+    padding: 0.28rem 0.6rem;
+    border: 1.5px solid var(--paper);
+    border-radius: 6px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--text-strong);
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--line);
+  }
+  .tile {
+    display: grid;
+    gap: 0.25rem;
+    padding: 1.1rem 1.2rem;
+    background: var(--bg);
+  }
+  .tile dt {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-label);
+  }
+  .tile dd {
+    font-size: clamp(1.3rem, 1rem + 1vw, 1.9rem);
+    font-weight: 700;
+    color: var(--text-strong);
+    min-height: 1.3em;
+    line-height: 1.3;
+  }
+  .tile :global(dd.changed) {
+    animation: pulse-value 1.4s var(--ease-out);
+  }
+  .unit {
+    font-size: 0.78rem;
+    color: var(--text-label);
+  }
+  .addr {
+    font-size: 0.78rem;
+    color: var(--text-label);
+    overflow-wrap: anywhere;
+  }
+  .addr span {
+    color: var(--text);
+  }
+  .demo {
+    color: var(--text-strong);
+    max-width: 60rem;
+  }
+  .note {
+    font-size: 0.9rem;
+    color: var(--text-label);
+  }
+
+  /* exit track */
+  .exit {
+    margin-top: clamp(3rem, 6vw, 4rem);
+    display: grid;
+    gap: 1.5rem;
+  }
+  .track {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .track::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    right: 33%;
+    top: 7px;
+    height: 2px;
+    background: var(--green);
+    transform-origin: left center;
+  }
+  :global(html.js[data-motion='on']) .exit .track::before {
+    transform: scaleX(0);
+    transition: transform 1.4s var(--ease-out) 200ms;
+  }
+  :global(html.js[data-motion='on']) .exit.in .track::before {
+    transform: scaleX(1);
+  }
+  .track li {
+    position: relative;
+    display: grid;
+    gap: 0.3rem;
+    padding-top: 1.6rem;
+  }
+  .dot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid var(--green);
+    background: var(--bg);
+  }
+  :global(html.js[data-motion='on']) .exit .dot {
+    transform: scale(0);
+    transition: transform 480ms var(--spring);
+    transition-delay: calc(200ms + var(--i) * 450ms);
+  }
+  :global(html.js[data-motion='on']) .exit.in .dot {
+    transform: none;
+  }
+  .stop-t {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .stop-d {
+    font-size: 0.78rem;
+    color: var(--text-label);
+  }
+  @media (max-width: 960px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .tile.wide {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (max-width: 520px) {
+    .toy-body {
+      grid-template-columns: 110px minmax(0, 1fr);
+      gap: 0.9rem;
+    }
+    .toy-ctl .btn,
+    .toy-ctl .icon-btn {
+      flex-basis: 100%;
+    }
+    .track {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.2rem;
+      padding-left: 1.8rem;
+    }
+    .track::before {
+      left: 7px;
+      right: auto;
+      top: 7px;
+      bottom: 2.5rem;
+      width: 2px;
+      height: auto;
+      transform-origin: center top;
+    }
+    :global(html.js[data-motion='on']) .exit .track::before {
+      transform: scaleY(0);
+    }
+    :global(html.js[data-motion='on']) .exit.in .track::before {
+      transform: scaleY(1);
+    }
+    .dot {
+      left: -1.8rem;
+      top: 0.15rem;
+    }
+    .track li {
+      padding-top: 0;
+    }
+  }
+  /* very narrow (small phones, 400 % zoom): the toy pool sits above its buttons */
+  @media (max-width: 380px) {
+    .toy-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .pool {
+      width: 140px;
+      justify-self: center;
+      margin-bottom: 1.8rem;
+    }
+    .toy-ctl .btn,
+    .toy-ctl .icon-btn {
+      white-space: normal;
+    }
+  }
+</style>
