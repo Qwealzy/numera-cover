@@ -19,8 +19,9 @@ import {
 } from '../lib/pricing.ts';
 import { layout, historyU, liqTicks, distAt, labelTops, pathD, MARK_GREEN, MARK_NAVY, PATH_STEP, SVG_HEAD_FRAC, type Layout } from '../lib/geometry.ts';
 import { instrument as I } from '../copy/en.ts';
-import { loop, motionOn, onMotion, setMotion, clamp, lerp, expoOut, easeIn, smooth, spring } from './motion.ts';
+import { loop, motionOn, onMotion, setMotion, clamp, lerp, expoOut, smooth, spring } from './motion.ts';
 import { state, on } from './store.ts';
+import { INTRO, INTRO_MORPH_S, INTRO_PATH_S, wickU } from '../lib/timing.ts';
 
 const C = {
   paper: '248,242,239',
@@ -30,7 +31,6 @@ const C = {
 const rgba = (c: string, a: number) => `rgba(${c},${a})`;
 const SEED = 20261002;
 const SCROLL_PX_S = 52; // history scroll speed
-const INTRO_S = 4.4;
 
 type Mode = 'wait' | 'intro' | 'idle' | 'pull' | 'release';
 type Hl = 'liq' | 'level' | 'prem' | 'cap' | null;
@@ -181,13 +181,9 @@ export function mountInstrument(root: HTMLElement): void {
     const t = performance.now() / 1000;
     return 0.035 * Math.sin(t * 1.9) + 0.02 * Math.sin(t * 0.61 + 1) + 0.015 * Math.sin(t * 2.7 + 2);
   }
-  // intro wick: dive 2.10-2.72 s to the level (u = 1), hold 80 ms, recover with a critically damped return
+  // intro wick: dive to the level (u = 1), hold 80 ms, recover with a critically damped return
   function introHeadU(t: number): number {
-    if (t < 2.1) return baseU;
-    if (t < 2.72) return lerp(baseU, 1, easeIn((t - 2.1) / 0.62));
-    if (t < 2.8) return 1;
-    const tau = t - 2.8;
-    return baseU + (1 - baseU) * Math.exp(-5.5 * tau) * (1 + 5.5 * tau);
+    return wickU(t - INTRO.dive0, baseU);
   }
 
   // ---- layout / sizing ----------------------------------------------------------------------------------
@@ -432,8 +428,8 @@ export function mountInstrument(root: HTMLElement): void {
     const qY = fr.q * h;
     const dir = L.dir;
     const inIntro = mode === 'intro' || mode === 'wait';
-    const morph = inIntro ? clamp(introT / 1.4, 0, 1) : 1;
-    const linesA = inIntro ? clamp((introT - 0.85) / 0.55, 0, 1) : 1;
+    const morph = inIntro ? clamp((introT - INTRO.morph0) / INTRO_MORPH_S, 0, 1) : 1;
+    const linesA = inIntro ? clamp((introT - INTRO.lines0) / (INTRO.morph1 - INTRO.lines0), 0, 1) : 1;
     // the line labels fade in with their lines
     const la = linesA.toFixed(2);
     setLa(la);
@@ -525,7 +521,7 @@ export function mountInstrument(root: HTMLElement): void {
     c.globalAlpha = 1;
 
     // price path (+ the string bend toward the head)
-    const reveal = inIntro ? expoOut(clamp((introT - 1.15) / 0.85, 0, 1)) : 1;
+    const reveal = inIntro ? expoOut(clamp((introT - INTRO.path0) / INTRO_PATH_S, 0, 1)) : 1;
     if (reveal > 0) {
       const hp = headPos();
       const n = hist.length;
@@ -694,7 +690,7 @@ export function mountInstrument(root: HTMLElement): void {
       const prev = introT;
       introT = (now - introStart) / 1000;
       introEvents(prev, introT);
-      if (introT >= INTRO_S) {
+      if (introT >= INTRO.end) {
         mode = 'idle';
         setLa('1');
         showHint();
@@ -712,7 +708,7 @@ export function mountInstrument(root: HTMLElement): void {
 
   function introEvents(a: number, b: number) {
     const at = (t: number) => a < t && b >= t;
-    if (at(2.72)) {
+    if (at(INTRO.touch)) {
       levelThickTarget = 5;
       const hp = { x: L.headX, y: yAt(1) };
       pulseAt = hp;
@@ -724,7 +720,7 @@ export function mountInstrument(root: HTMLElement): void {
         rippleT = 0;
       }
     }
-    if (at(2.95)) {
+    if (at(INTRO.paid)) {
       levelThickTarget = 3;
       if (refused()) say('refused');
       else {
@@ -736,7 +732,7 @@ export function mountInstrument(root: HTMLElement): void {
         say('intro');
       }
     }
-    if (at(3.08) && !refused()) launchChip({ x: L.headX, y: yAt(1) });
+    if (at(INTRO.chip) && !refused()) launchChip({ x: L.headX, y: yAt(1) });
   }
 
   function launchChip(from: { x: number; y: number }) {
@@ -893,8 +889,8 @@ export function mountInstrument(root: HTMLElement): void {
   }
   /** The visitor took over mid-intro: keep the path; the cover has paid only if the scripted touch happened. */
   function endIntroNow() {
-    const reached = introT >= 2.95;
-    introT = INTRO_S;
+    const reached = introT >= INTRO.paid;
+    introT = INTRO.end;
     mode = 'idle';
     setLa('1');
     if (!reached) {

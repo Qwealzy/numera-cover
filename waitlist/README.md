@@ -133,6 +133,9 @@ three of:
 - The verdict line describes what has happened, when it happens ("Watching…" until the scripted touch).
 - "I underwrite" turns the wallet tile into the pool tile: premium in, $100 reserved, $100 paid out on a touch.
 - Hovering a readout row lights its line or tile on the stage, and a pointer near a line lights its row.
+- The intro holds the Numera mark still for `INTRO_HOLD_S` (0.9 s), then folds it into the liquidation line and the
+  level over `INTRO_MORPH_S` (1.8 s); the path and the scripted wick follow. Every intro time is a named constant in
+  `src/lib/timing.ts`.
 - The intro starts only when what it carries is on screen: the level line (with the touch and the `trigger()`
   stamp) and the whole wallet tile. On phones that means scrolling the stage into view; until then it reads
   "Watching…".
