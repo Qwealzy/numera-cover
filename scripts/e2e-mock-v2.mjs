@@ -451,8 +451,8 @@ async function main() {
 
     const left = q.deadline - Math.floor(Date.now() / 1000);
     if (left < 10) die(`the quote expires in ${left} s, too soon to approve and buy; nothing was bought, re-run`);
-    await send(`approve ${fmtUsdc(q.premium)} mUSDC (exact premium)`, usdc, calldata('approve', [pool, BigInt(q.premium)]));
-    const buyR = await send(`buyCover payout ${fmtUsdc(q.payout)} premium ${fmtUsdc(q.premium)}`, pool, buyCoverCalldata(q, quote.signature));
+    await send(`approve ${fmtUsdc(q.premium)} mUSDC (exact cover price)`, usdc, calldata('approve', [pool, BigInt(q.premium)]));
+    const buyR = await send(`buyCover payout ${fmtUsdc(q.payout)} cover price ${fmtUsdc(q.premium)}`, pool, buyCoverCalldata(q, quote.signature));
     const coverId = coverIdFromReceipt(buyR, pool);
     if (coverId === null) die('buyCover receipt has no CoverPurchased log');
     const cover0 = decodeCover(await ethCall(rpc, pool, calldata('getCover', [coverId])));

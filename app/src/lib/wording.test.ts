@@ -65,6 +65,20 @@ describe('wording (no insurance vocabulary in visible text)', () => {
     });
   }
 
+  // generated/ is skipped by the file walk above; its prose fields (deployments `purpose`, `note`, `proof`, `kind`,
+  // `contract`) are scanned here, and the UI must never render them as-is (only the typed fields it names).
+  it('generated deployments prose fields carry no insurance vocabulary', () => {
+    const gen = readFileSync(path.join(SRC, 'generated', 'deployments.ts'), 'utf8');
+    const prose = [...gen.matchAll(/"(?:purpose|note|proof|kind|contract|label|name)":\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+    expect(prose.length).toBeGreaterThan(10);
+    expect(prose.map(strip).filter((t) => BANNED.test(t))).toEqual([]);
+  });
+
+  it('no app source outside generated/ reads a deployments prose field to render it', () => {
+    const readers = files.filter((f) => /\.(purpose|note|proof)\b/.test(readFileSync(f, 'utf8')));
+    expect(readers.map((f) => path.relative(SRC, f))).toEqual([]);
+  });
+
   it('index.html (title, meta description, body text)', () => {
     expect(BANNED.test(strip(readFileSync(path.join(APP, 'index.html'), 'utf8')))).toBe(false);
   });

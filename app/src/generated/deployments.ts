@@ -320,14 +320,14 @@ export const testnetV2: unknown = {
             "status": 1
           },
           {
-            "purpose": "requestRedeem 2000 shares (claimableAt 1790941831, deadline 1790945431, reported)",
+            "purpose": "requestRedeem 2000 shares (ready at 1790941831, deadline 1790945431, reported)",
             "hash": "0x9ea37c8c58ae2756e0269810422faca9308ddc7e30ddf30c4ea45ea9efee1bfb",
             "block": 65825616,
             "gasUsed": 119380,
             "status": 1
           },
           {
-            "purpose": "claim: Withdraw 2000 assets for 2000 shares after the delay; pool totalAssets back to 0",
+            "purpose": "withdraw: 2000 assets for 2000 shares after the delay; pool totalAssets back to 0",
             "hash": "0x4d7000d7f53316997ed53648e2414e9817a3b4e2d6bcefb9514935c8d86c0099",
             "block": 65827849,
             "gasUsed": 67270,
@@ -381,14 +381,14 @@ export const testnetV2: unknown = {
             "gasUsed": 30326
           },
           {
-            "purpose": "approve 0.332772 mUSDC (exact premium)",
+            "purpose": "approve 0.332772 mUSDC (exact cover price)",
             "hash": "0x873ebe12af03ca9c0f45439d2b4791e578498f285494c304cd6c7488f7accbdb",
             "block": 65834121,
             "status": 1,
             "gasUsed": 45921
           },
           {
-            "purpose": "buyCover payout 10.000000 premium 0.332772",
+            "purpose": "buyCover payout 10.000000 cover price 0.332772",
             "hash": "0x18a764fe09d6977896416482ded7090ec449f14f72267e25976127392a132da4",
             "block": 65834124,
             "status": 1,
@@ -457,14 +457,14 @@ export const testnetV2: unknown = {
             "gasUsed": 30314
           },
           {
-            "purpose": "approve 0.475606 mUSDC (exact premium)",
+            "purpose": "approve 0.475606 mUSDC (exact cover price)",
             "hash": "0x763607869d2149a5b27d5239124ba8ce856f1ff6097881bcdce7ace0f3764066",
             "block": 65835067,
             "status": 1,
             "gasUsed": 45921
           },
           {
-            "purpose": "buyCover payout 10.000000 premium 0.475606",
+            "purpose": "buyCover payout 10.000000 cover price 0.475606",
             "hash": "0xb980543db25486f65f42bb587e4f03b2c8b2be290243e169eb7498f2c041774c",
             "block": 65835070,
             "status": 1,
@@ -533,14 +533,14 @@ export const testnetV2: unknown = {
             "gasUsed": 30326
           },
           {
-            "purpose": "approve 0.434298 mUSDC (exact premium)",
+            "purpose": "approve 0.434298 mUSDC (exact cover price)",
             "hash": "0x717fa65ed1782ca80ea1a885dafb20093a60f4b107b550774d486a854703a6df",
             "block": 65840481,
             "status": 1,
             "gasUsed": 45921
           },
           {
-            "purpose": "buyCover payout 10.000000 premium 0.434298",
+            "purpose": "buyCover payout 10.000000 cover price 0.434298",
             "hash": "0x622f124ec9967fbdb638a466558811833d12a05a17a876e8106a9ccdb87557a5",
             "block": 65840484,
             "status": 1,
