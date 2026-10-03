@@ -323,7 +323,7 @@ test('turnstileVerifier: posts secret/response/remoteip to siteverify; only succ
 });
 
 test('consent: the current version and all earlier versions are accepted; anything else is refused', () => {
-  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03-v2', 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
+  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03-v3', 'privacy-2026-10-03-v2', 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
   for (const v of CONSENT_VERSIONS) assert.ok(!('error' in validateSignup(goodBody({ consentVersion: v }))), v);
   assert.deepEqual(validateSignup(goodBody({ consentVersion: 'privacy-2026-10-04' })), { error: 'consent' });
 });

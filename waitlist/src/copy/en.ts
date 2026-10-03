@@ -8,12 +8,14 @@
  *  the server accepts only versions listed in CONSENT_VERSIONS. 2026-10-03 (`date`): the waitlist now takes an
  *  email address (required) and the consent names the launch email explicitly (Law No. 6563 on
  *  commercial electronic messages needs explicit consent). privacy-2026-10-02-v2 changed one Recipients sentence. */
-export const CONSENT_VERSION = 'privacy-2026-10-03-v3';
+export const CONSENT_VERSION = 'privacy-2026-10-03-v4';
 /** Earlier versions stay accepted server-side (founder instruction 2026-10-03). Same day (`date` 2026-10-03):
  *  -v2 shortened the form's consent and jurisdiction statements (same meaning); -v3: a signup may give both a
- *  Telegram username and an X handle (notice and consent wording). */
+ *  Telegram username and an X handle (notice and consent wording); -v4: the jurisdiction statement's
+ *  wording (same meaning). */
 export const CONSENT_VERSIONS: readonly string[] = [
   CONSENT_VERSION,
+  'privacy-2026-10-03-v3',
   'privacy-2026-10-03-v2',
   'privacy-2026-10-03',
   'privacy-2026-10-02-v2',
@@ -500,8 +502,8 @@ export const waitlist = {
     link: 'privacy notice',
     after: ' describes. I can unsubscribe any time.',
   },
-  // shortened from site/'s wording; same three tests (residence, location, citizenship), same three places
-  jurisdiction: 'I am not a US, Ontario (Canada) or sanctioned-jurisdiction resident, citizen, or person located there.',
+  // founder wording 2026-10-03: residence, citizenship and location; the US, Ontario and sanctioned jurisdictions
+  jurisdiction: 'I am not a resident or citizen of, or located in, the US, Ontario (Canada) or a sanctioned jurisdiction.',
   submit: 'Join the waitlist',
   sending: 'Sending…',
   success: 'You are on the list. We will email you when the next testnet round opens.',

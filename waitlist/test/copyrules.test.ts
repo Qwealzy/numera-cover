@@ -76,12 +76,13 @@ for (const [name, get] of [
 }
 
 test('privacy notice: version bumped for the email; the older versions still accepted', () => {
-  assert.equal(en.CONSENT_VERSION, 'privacy-2026-10-03-v3');
+  assert.equal(en.CONSENT_VERSION, 'privacy-2026-10-03-v4');
+  assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-03-v3'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-03-v2'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-03'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-02-v2'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-02'));
-  assert.equal(en.privacy.updated, 'Version privacy-2026-10-03-v3');
+  assert.equal(en.privacy.updated, 'Version privacy-2026-10-03-v4');
   const rec = en.privacy.sections.find((s) => s.h === 'Recipients')!;
   // the site reads the pool statistics and the BTC oracle price, nothing else (no perp metadata)
   assert.match(rec.p[1], /^The pool statistics and the BTC oracle price on the home page are read by your browser directly/);
@@ -93,7 +94,7 @@ test('privacy notice: version bumped for the email; the older versions still acc
     jurisdiction: true,
     turnstileToken: 'tok',
   });
-  for (const v of ['privacy-2026-10-02', 'privacy-2026-10-02-v2', 'privacy-2026-10-03', 'privacy-2026-10-03-v2', 'privacy-2026-10-03-v3']) assert.ok(!('error' in validateSignup(body(v))), v);
+  for (const v of ['privacy-2026-10-02', 'privacy-2026-10-02-v2', 'privacy-2026-10-03', 'privacy-2026-10-03-v2', 'privacy-2026-10-03-v3', 'privacy-2026-10-03-v4']) assert.ok(!('error' in validateSignup(body(v))), v);
   assert.deepEqual(validateSignup(body('privacy-2026-09-30')), { error: 'consent' });
 });
 
@@ -113,8 +114,8 @@ test('the waitlist wording: email first, honest intro, explicit email consent; o
   for (const re of [/Your email address/, /Launch and testnet notices only/, /including your email address, are deleted by \{\{DELETE_BY\}\}/, /To unsubscribe/, /Law No\. 6563/])
     assert.match(notice, re);
   assert.equal(en.waitlist.noscript, 'The waitlist form needs JavaScript for its spam check. You can also message @godsonits on Telegram.');
-  // shortened, same meaning: residence, citizenship and location; the US, Ontario and sanctioned jurisdictions
-  assert.equal(en.waitlist.jurisdiction, 'I am not a US, Ontario (Canada) or sanctioned-jurisdiction resident, citizen, or person located there.');
+  // exactly the founder's wording (2026-10-03)
+  assert.equal(en.waitlist.jurisdiction, 'I am not a resident or citizen of, or located in, the US, Ontario (Canada) or a sanctioned jurisdiction.');
   assert.deepEqual(Object.keys(en.waitlist.errors).sort(), ['captcha', 'consent', 'email', 'generic', 'jurisdiction', 'rate', 'telegram', 'x']);
   assert.equal(en.stats.note.endsWith('A dash means the read failed; no number is ever filled in.'), true);
 });
