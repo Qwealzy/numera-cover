@@ -33,7 +33,6 @@ const Nx = Wl.issued.next;
     <div class="ticket" data-ticket data-state="idle" data-reveal data-reveal-delay="1">
       <div class="ticket-body">
         <p class="t-title">{Wl.ticketTitle}</p>
-        <p class="t-line">{Wl.ticketLine}</p>
 
         <div class="form-wrap">
           <form
@@ -48,11 +47,12 @@ const Nx = Wl.issued.next;
             data-errors={JSON.stringify(Wl.errors)}
             data-sending={Wl.sending}
             data-success={Wl.success}
-            data-valid={JSON.stringify(Wl.valid)}
           >
-            <div class="field email-field">
-              <label for="wl-email" class="label">{Wl.email.label}</label>
-              <div class="input-wrap">
+            <!-- the email and the button share one row on wide screens; the label is visually hidden, the
+                 placeholder repeats it, and the hint shows while the field has focus -->
+            <div class="email-row">
+              <div class="field email-field">
+                <label for="wl-email" class="visually-hidden">{Wl.email.label}</label>
                 <input
                   id="wl-email"
                   name="email"
@@ -62,41 +62,49 @@ const Nx = Wl.issued.next;
                   autocomplete="email"
                   autocapitalize="none"
                   spellcheck="false"
+                  placeholder={Wl.email.placeholder}
                   aria-describedby="wl-email-hint"
                 />
               </div>
-              <p id="wl-email-hint" class="hint">{Wl.email.hint}</p>
+              <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
             </div>
+            <p id="wl-email-hint" class="hint focus-hint">{Wl.email.hint}</p>
 
-            <div class="id-row">
-              <fieldset class="channel">
-                <legend class="label">{Wl.channel.label}</legend>
-                <div class="seg">
-                  {Wl.channel.options.map((o, i) => (
-                    <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
-                  ))}
+            <div class="more" data-more>
+              <button type="button" class="more-toggle" aria-expanded="false" aria-controls="wl-more" data-more-toggle>
+                <span class="more-sign" aria-hidden="true">+</span> {Wl.more}
+              </button>
+              <div id="wl-more" class="more-body" data-more-body hidden>
+                <div class="id-row">
+                  <fieldset class="channel">
+                    <legend class="visually-hidden">{Wl.channel.label}</legend>
+                    <div class="seg">
+                      {Wl.channel.options.map((o, i) => (
+                        <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div class="field">
+                    <label for="wl-handle" class="visually-hidden">{Wl.handle.label}</label>
+                    <div class="input-wrap">
+                      <input
+                        id="wl-handle"
+                        name="handle"
+                        type="text"
+                        maxlength="64"
+                        autocomplete="off"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        placeholder={Wl.handle.placeholder}
+                        aria-describedby="wl-handle-hint"
+                      />
+                      <span class="valid-dot" aria-hidden="true"></span>
+                    </div>
+                  </div>
                 </div>
-              </fieldset>
-
-              <div class="field">
-                <label for="wl-handle" class="label">{Wl.handle.label}</label>
-                <div class="input-wrap">
-                  <input
-                    id="wl-handle"
-                    name="handle"
-                    type="text"
-                    maxlength="64"
-                    autocomplete="off"
-                    autocapitalize="none"
-                    spellcheck="false"
-                    aria-describedby="wl-handle-hint wl-terms"
-                  />
-                  <span class="valid-dot" aria-hidden="true"></span>
-                </div>
-                <p id="wl-handle-hint" class="hint">{Wl.handle.hint}</p>
+                <p id="wl-handle-hint" class="hint focus-hint">{Wl.handle.hint}</p>
               </div>
             </div>
-            <p id="wl-terms" class="terms mono" aria-live="off"><span data-terms>{Wl.terms.empty}</span> <span class="valid-text" data-valid-text></span></p>
 
             <div class="check">
               <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
@@ -110,12 +118,9 @@ const Nx = Wl.issued.next;
             </div>
             <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
 
+            <!-- Turnstile with appearance "interaction-only": the box is empty unless Cloudflare needs a click -->
             <div class="cf-box" data-cf-box>
               <div class="cf-turnstile" data-cf></div>
-            </div>
-
-            <div class="submit-row">
-              <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
             </div>
             <noscript><p class="noscript">{Wl.noscript}</p></noscript>
           </form>
@@ -211,8 +216,8 @@ const Nx = Wl.issued.next;
   }
   .ticket-body {
     display: grid;
-    gap: 0.4rem;
-    padding: clamp(1.2rem, 3vw, 1.8rem);
+    gap: 0.75rem;
+    padding: clamp(1.1rem, 2.4vw, 1.5rem);
   }
   .t-title {
     font-family: var(--font-mono);
@@ -221,24 +226,18 @@ const Nx = Wl.issued.next;
     text-transform: uppercase;
     color: var(--text-accent);
   }
-  .t-line {
-    color: var(--text-strong);
-    margin-bottom: 0.4rem;
-  }
   .form-wrap {
     position: relative;
   }
   .form {
     display: grid;
-    gap: 0.95rem;
+    gap: 0.7rem;
   }
-  /* success: the fields keep their space (nothing below moves) and the issued ticket is drawn over them */
+  /* success: the issued ticket takes the form's place (the compact form is shorter than the ticket) */
   .ticket[data-state='success'] .form {
-    visibility: hidden;
+    display: none;
   }
   .issued {
-    position: absolute;
-    inset: 0;
     display: grid;
     align-content: start;
     justify-items: start;
@@ -368,11 +367,65 @@ const Nx = Wl.issued.next;
       transform: translateY(8px);
     }
   }
+  .email-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+    align-items: stretch;
+  }
+  /* helper texts only while their field has focus (errors go to the status line and the field outline) */
+  .focus-hint {
+    display: none;
+  }
+  .email-row:focus-within + .focus-hint,
+  .more-body:focus-within .focus-hint {
+    display: block;
+  }
+  .more-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 44px;
+    padding: 0 0.2rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .more-toggle:focus-visible {
+    outline: var(--focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .more-sign {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    line-height: 1;
+    transition: transform var(--t-ui) var(--ease-out);
+  }
+  .more-toggle[aria-expanded='true'] .more-sign {
+    transform: rotate(45deg);
+  }
+  .more-body {
+    display: grid;
+    gap: 0.4rem;
+    padding-top: 0.2rem;
+  }
+  .more-body[hidden] {
+    display: none;
+  }
   .id-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.9rem;
-    align-items: start;
+    gap: 0.6rem;
+    align-items: center;
   }
 
   .channel {
@@ -394,7 +447,7 @@ const Nx = Wl.issued.next;
   }
   input:is([type='text'], [type='email']) {
     width: 100%;
-    min-height: 52px;
+    min-height: 48px;
     padding: 0.7rem 2.6rem 0.7rem 0.95rem;
     border: 1px solid var(--line-strong);
     border-radius: 10px;
@@ -407,6 +460,9 @@ const Nx = Wl.issued.next;
     outline: var(--focus);
     outline-offset: 2px;
     border-color: var(--green);
+  }
+  input::placeholder {
+    color: var(--text-label);
   }
   input:is([type='text'], [type='email']):read-only {
     border-style: dashed;
@@ -440,15 +496,6 @@ const Nx = Wl.issued.next;
     font-size: 0.8rem;
     color: var(--text-label);
   }
-  .terms {
-    font-size: 0.8rem;
-    color: var(--text-strong);
-    min-height: 1.6em;
-  }
-  .valid-text {
-    color: var(--text-accent);
-    margin-left: 0.5rem;
-  }
   .check {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -467,29 +514,20 @@ const Nx = Wl.issued.next;
     outline-offset: 3px;
   }
   .check label {
-    font-size: 0.93rem;
+    font-size: 0.88rem;
     color: var(--text);
     cursor: pointer;
   }
-  /* Turnstile "flexible" renders 73 px tall in this layout; the box is reserved at that height */
-  .cf-box {
-    min-height: 73px;
-  }
-  .submit-row {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
+  /* interaction-only Turnstile: nothing visible unless Cloudflare asks for a click, so no space is reserved */
   .submit {
-    min-width: 12rem;
+    min-width: 11rem;
+    min-height: 48px;
   }
   .submit[aria-disabled='true'] {
     cursor: progress;
   }
-  /* the message slot: two lines reserved with the line box they are drawn in (1.5), so the longest message
-     (generic, 64 characters) or the success sentence never moves the FAQ below; three lines on small phones */
+  /* the message slot: empty until there is something to say */
   .status {
-    min-height: 3em;
     line-height: 1.5;
     font-size: 0.86rem;
     color: var(--text-strong);
@@ -530,20 +568,14 @@ const Nx = Wl.issued.next;
       grid-template-columns: minmax(0, 1fr);
     }
   }
+  /* narrow screens: the email and the button stack, the channel toggle sits above the handle */
   @media (max-width: 560px) {
+    .email-row,
     .id-row {
       grid-template-columns: minmax(0, 1fr);
     }
-  }
-  /* phones: "Looks valid for Telegram" can wrap under the terms line; two lines are reserved */
-  @media (max-width: 480px) {
-    .terms {
-      min-height: 3.2em;
-    }
-  }
-  @media (max-width: 389px) {
-    .status {
-      min-height: 4.5em;
+    .submit {
+      width: 100%;
     }
   }
 </style>

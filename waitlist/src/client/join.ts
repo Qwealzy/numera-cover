@@ -28,8 +28,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   const email = form.querySelector<HTMLInputElement>('#wl-email')!;
   const handle = form.querySelector<HTMLInputElement>('#wl-handle')!;
   const field = handle.closest<HTMLElement>('.field')!;
-  const terms = form.querySelector<HTMLElement>('[data-terms]')!;
-  const validText = form.querySelector<HTMLElement>('[data-valid-text]')!;
+  const moreToggle = form.querySelector<HTMLButtonElement>('[data-more-toggle]')!;
+  const moreBody = form.querySelector<HTMLElement>('[data-more-body]')!;
   const consent = form.querySelector<HTMLInputElement>('#wl-consent')!;
   const juris = form.querySelector<HTMLInputElement>('#wl-jurisdiction')!;
   const statusEl = section.querySelector<HTMLElement>('[data-status]')!;
@@ -38,7 +38,6 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   const issued = section.querySelector<HTMLElement>('[data-issued]')!;
   const again = section.querySelector<HTMLButtonElement>('[data-again]')!;
   const errors = JSON.parse(form.dataset.errors ?? '{}') as Record<string, string>;
-  const valid = JSON.parse(form.dataset.valid ?? '{}') as Record<Channel, string>;
   let widgetId: string | undefined;
   let captchaRequested = false;
   let blurred = false;
@@ -53,6 +52,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
           sitekey: form.dataset.sitekey,
           theme: 'dark',
           size: 'flexible',
+          // the managed widget stays invisible unless Cloudflare needs the visitor to click (server check unchanged)
+          appearance: 'interaction-only',
           language: 'en',
         });
       } catch {
@@ -82,16 +83,22 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   function feedback() {
     const raw = handle.value;
     const norm = raw.trim() ? normalizeHandle(raw, channel()) : null;
-    terms.textContent = norm ? `${Wl.terms.prefix} ${norm}` : Wl.terms.empty;
     if (norm) {
       field.dataset.valid = 'y';
-      validText.textContent = valid[channel()];
       handle.removeAttribute('aria-invalid');
-    } else {
-      validText.textContent = '';
-      field.dataset.valid = blurred && raw.trim() ? 'n' : '';
-    }
+    } else field.dataset.valid = blurred && raw.trim() ? 'n' : '';
   }
+
+  // ---- the optional Telegram/X block, collapsed behind a disclosure button ----
+  function setMore(open: boolean) {
+    moreToggle.setAttribute('aria-expanded', String(open));
+    moreBody.hidden = !open;
+  }
+  moreToggle.addEventListener('click', () => {
+    const open = moreToggle.getAttribute('aria-expanded') !== 'true';
+    setMore(open);
+    if (open) handle.focus();
+  });
   handle.addEventListener('input', feedback);
   email.addEventListener('input', () => email.removeAttribute('aria-invalid'));
   handle.addEventListener('blur', () => {
@@ -122,6 +129,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     say(errors[key] ?? errors.generic, 'error');
     shake();
     if (focusEl) {
+      if (focusEl === handle) setMore(true);
       focusEl.setAttribute('aria-invalid', 'true');
       if (focusEl === handle) field.dataset.valid = 'n';
       focusEl.focus();
@@ -165,6 +173,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     say('', '');
     email.value = '';
     handle.value = '';
+    setMore(false);
     blurred = false;
     feedback();
     resetCaptcha();

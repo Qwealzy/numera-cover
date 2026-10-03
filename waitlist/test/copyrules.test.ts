@@ -76,10 +76,11 @@ for (const [name, get] of [
 }
 
 test('privacy notice: version bumped for the email; the older versions still accepted', () => {
-  assert.equal(en.CONSENT_VERSION, 'privacy-2026-10-03');
+  assert.equal(en.CONSENT_VERSION, 'privacy-2026-10-03-v2');
+  assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-03'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-02-v2'));
   assert.ok(en.CONSENT_VERSIONS.includes('privacy-2026-10-02'));
-  assert.equal(en.privacy.updated, 'Version privacy-2026-10-03');
+  assert.equal(en.privacy.updated, 'Version privacy-2026-10-03-v2');
   const rec = en.privacy.sections.find((s) => s.h === 'Recipients')!;
   // the site reads the pool statistics and the BTC oracle price, nothing else (no perp metadata)
   assert.match(rec.p[1], /^The pool statistics and the BTC oracle price on the home page are read by your browser directly/);
@@ -93,7 +94,7 @@ test('privacy notice: version bumped for the email; the older versions still acc
     jurisdiction: true,
     turnstileToken: 'tok',
   });
-  for (const v of ['privacy-2026-10-02', 'privacy-2026-10-02-v2', 'privacy-2026-10-03']) assert.ok(!('error' in validateSignup(body(v))), v);
+  for (const v of ['privacy-2026-10-02', 'privacy-2026-10-02-v2', 'privacy-2026-10-03', 'privacy-2026-10-03-v2']) assert.ok(!('error' in validateSignup(body(v))), v);
   assert.deepEqual(validateSignup(body('privacy-2026-09-30')), { error: 'consent' });
 });
 
@@ -103,14 +104,18 @@ test('the waitlist wording: email first, honest intro, explicit email consent; o
   assert.match(en.waitlist.intro, /No wallet, no keys\./);
   // the consent statement names the email and the way out (Law No. 6563: explicit consent to e-messages)
   const consent = en.waitlist.consent.before + en.waitlist.consent.link + en.waitlist.consent.after;
-  assert.match(consent, /^Email me when the next Numera testnet round opens\./);
-  assert.match(consent, /I can unsubscribe at any time\.$/);
+  assert.match(consent, /^Email me when the next testnet round opens, and store my email/);
+  assert.match(consent, /privacy notice describes\. I can unsubscribe any time\.$/);
+  // the "I would" toggle and its wording are gone
+  assert.equal('doors' in en.waitlist, false);
+  assert.equal('terms' in en.waitlist, false);
   // the privacy notice: email as a data category, its purpose, its retention and how to unsubscribe
   const notice = JSON.stringify(en.privacy.sections);
   for (const re of [/Your email address/, /Launch and testnet notices only/, /including your email address, are deleted by \{\{DELETE_BY\}\}/, /To unsubscribe/, /Law No\. 6563/])
     assert.match(notice, re);
   assert.equal(en.waitlist.noscript, 'The waitlist form needs JavaScript for its spam check. You can also message @godsonits on Telegram.');
-  assert.equal(en.waitlist.jurisdiction, 'I am not a resident of, located in, or a citizen of the US, Ontario (Canada) or a sanctioned jurisdiction.');
+  // shortened, same meaning: residence, citizenship and location; the US, Ontario and sanctioned jurisdictions
+  assert.equal(en.waitlist.jurisdiction, 'I am not a US, Ontario (Canada) or sanctioned-jurisdiction resident, citizen, or person located there.');
   assert.deepEqual(Object.keys(en.waitlist.errors).sort(), ['captcha', 'consent', 'email', 'generic', 'handle', 'jurisdiction', 'rate']);
   assert.equal(en.stats.note.endsWith('A dash means the read failed; no number is ever filled in.'), true);
 });

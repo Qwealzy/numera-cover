@@ -8,9 +8,10 @@
  *  the server accepts only versions listed in CONSENT_VERSIONS. 2026-10-03 (`date`): the waitlist now takes an
  *  email address (required) and the consent names the launch email explicitly (Law No. 6563 on
  *  commercial electronic messages needs explicit consent). privacy-2026-10-02-v2 changed one Recipients sentence. */
-export const CONSENT_VERSION = 'privacy-2026-10-03';
-/** Earlier versions stay accepted server-side (founder instruction 2026-10-03). */
-export const CONSENT_VERSIONS: readonly string[] = [CONSENT_VERSION, 'privacy-2026-10-02-v2', 'privacy-2026-10-02'];
+export const CONSENT_VERSION = 'privacy-2026-10-03-v2';
+/** Earlier versions stay accepted server-side (founder instruction 2026-10-03). -v2 (same day, `date`
+ *  2026-10-03): the form's consent and jurisdiction statements were shortened, same meaning. */
+export const CONSENT_VERSIONS: readonly string[] = [CONSENT_VERSION, 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02'];
 
 export const brand = {
   name: 'NUMERA',
@@ -481,20 +482,22 @@ export const waitlist = {
   intro:
     'Leave your email and we will write when the next testnet round opens. A Telegram or X handle is optional. No wallet, no keys.',
   ticketTitle: 'Waitlist · HyperEVM testnet',
-  ticketLine: 'For Hyperliquid perp traders who want to stay in a leveraged trade through a wick.',
-  email: { label: 'Your email', hint: 'Used only to tell you when the next testnet round opens.' },
-  handle: { label: 'Your handle (optional)', hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @' },
+  email: { label: 'Your email', placeholder: 'Your email', hint: 'Used only to tell you when the next testnet round opens.' },
+  more: 'Add Telegram or X (optional)',
+  handle: {
+    label: 'Your Telegram or X handle (optional)',
+    placeholder: 'Telegram or X handle',
+    hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @',
+  },
   channel: { label: 'Channel', options: [{ value: 'telegram', label: 'Telegram' }, { value: 'x', label: 'X' }] },
-  terms: { prefix: 'stored as', empty: 'stored as —' },
-  valid: { telegram: 'Looks valid for Telegram', x: 'Looks valid for X' },
   // explicit consent to a commercial electronic message (Law No. 6563), named as such
   consent: {
-    before:
-      'Email me when the next Numera testnet round opens. I agree that Numera stores my email (and my handle, if I give one) for this, as described in the ',
+    before: 'Email me when the next testnet round opens, and store my email (and handle, if given) as the ',
     link: 'privacy notice',
-    after: '. I can unsubscribe at any time.',
+    after: ' describes. I can unsubscribe any time.',
   },
-  jurisdiction: 'I am not a resident of, located in, or a citizen of the US, Ontario (Canada) or a sanctioned jurisdiction.',
+  // shortened from site/'s wording; same three tests (residence, location, citizenship), same three places
+  jurisdiction: 'I am not a US, Ontario (Canada) or sanctioned-jurisdiction resident, citizen, or person located there.',
   submit: 'Join the waitlist',
   sending: 'Sending…',
   success: 'You are on the list. We will email you when the next testnet round opens.',
