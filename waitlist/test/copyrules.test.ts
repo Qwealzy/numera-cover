@@ -18,6 +18,10 @@ const EXTRA = /\bprotect(ed|s|ion|ing)?\b|\brisk-free\b|\bsafe(ly|ty)?\b|\brevol
 // the exact phrase "not insurance". Data that engine/deployment records name "premium" keeps its internal
 // identifiers, but nothing a visitor sees or a screen reader announces may use these words.
 const NOT_INSURANCE = /\bnot insurance\b/gi;
+// Exact contract identifiers that may appear in code style (CoverPool v2 immutable `claimWindow`, deployments/testnet-v2.json).
+// An explicit list of exact names: the word "claim" in prose stays banned.
+const ALLOWED_IDENTIFIERS = ['claimWindow'];
+const stripIdentifiers = (t: string) => ALLOWED_IDENTIFIERS.reduce((a, id) => a.split(id).join(' '), t);
 export const INSURANCE_WORDS = /\bpremium(s)?\b|\bpolic(y|ies)\b|\bclaim(s|ed|ing)?\b|\binsur(ed|er|ers|ance|e|es)\b|\bprotect\w*|\bindemni\w*/i;
 
 /** Every string value of the copy module (functions are called with sample arguments), keys excluded. */
@@ -109,7 +113,7 @@ for (const [name, get] of [
   ['built pages (aria labels, titles, meta tags)', distAttrText],
 ] as const)
   test(`${name}: no premium, policy, claim, insured, insurance (except "not insurance"), protect*, indemnify`, () => {
-    const t = get().replace(NOT_INSURANCE, ' ');
+    const t = stripIdentifiers(get()).replace(NOT_INSURANCE, ' ');
     const m = t.match(INSURANCE_WORDS);
     assert.equal(m, null, m ? `found "${m[0]}" near: ${t.slice(Math.max(0, (m.index ?? 0) - 60), (m.index ?? 0) + 60)}` : '');
   });
@@ -119,6 +123,12 @@ test('the insurance-word rule catches each banned word and spares "not insurance
     assert.match(`pay a ${w} now`, INSURANCE_WORDS, w);
   assert.equal('Mock funds. Not insurance. Not an offer.'.replace(NOT_INSURANCE, ' ').match(INSURANCE_WORDS), null);
   assert.match('this is insurance'.replace(NOT_INSURANCE, ' '), INSURANCE_WORDS);
+});
+
+test('the identifier allowlist spares exactly claimWindow, not prose', () => {
+  assert.equal(stripIdentifiers('withdrawDelay then claimWindow').match(INSURANCE_WORDS), null);
+  assert.match(stripIdentifiers('the claim window'), INSURANCE_WORDS);
+  assert.match(stripIdentifiers('claimWindows or claim'), INSURANCE_WORDS);
 });
 
 test('privacy notice: version bumped for the email; the older versions still accepted', () => {

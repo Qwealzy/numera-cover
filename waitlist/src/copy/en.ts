@@ -454,7 +454,7 @@ export const underwriters = {
     stops: [
       { t: 'Request', d: 'requestRedeem' },
       { t: 'Wait 10 min', d: 'withdrawDelay' },
-      { t: 'Withdraw within 1 h', d: 'redeem window' },
+      { t: 'Withdraw within 1 h', d: 'claimWindow' },
     ],
   },
 };
