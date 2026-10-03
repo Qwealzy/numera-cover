@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { DISCLAIMER, argLabel } from '../lib/copy';
 import { createPortal } from 'react-dom';
 import type { Hex } from 'viem';
 import { addrUrl, txUrl } from '../config';
@@ -182,7 +183,7 @@ export function ReceiptDialog({ hash, onClose }: { hash: Hex; onClose: () => voi
                   <dl className="receipt__args">
                     {ev.args.map((a) => (
                       <Fragment key={a.name}>
-                        <dt>{a.name}</dt>
+                        <dt>{argLabel(a.name)}</dt>
                         <dd className="mono">
                           {a.pretty ? (
                             <>
@@ -203,6 +204,14 @@ export function ReceiptDialog({ hash, onClose }: { hash: Hex; onClose: () => voi
       </div>
     </div>,
     document.body,
+  );
+}
+
+export function Disclaimer() {
+  return (
+    <p className="disclaimer" role="note">
+      {DISCLAIMER}
+    </p>
   );
 }
 

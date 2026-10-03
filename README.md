@@ -22,16 +22,16 @@ bottom of the wick and can slip in a gap. Neither keeps the trader in the trade.
 
 ## How it works
 
-1. **Protect.** Pick an open perp position. The level defaults to just above the liquidation price; the
+1. **Choose.** Pick an open perp position. The level defaults to just above the liquidation price; the
    payout is capped at the margin you would lose.
-2. **Pay a premium.** The pricing engine computes the probability that the oracle touches the level before
+2. **Pay the price.** The pricing engine computes the probability that the oracle touches the level before
    expiry, applies a tail floor fitted on Hyperliquid history, and signs an EIP-712 quote. The contract
    checks the signature, the price, your position and the pool's capacity, then locks the full payout.
 3. **Get paid.** If the oracle price is at or past the level, anyone (the keeper, you, a bot) can call
-   `trigger(coverId)` and the pool pays in the same transaction. Otherwise the cover expires and the premium
+   `trigger(coverId)` and the pool pays in the same transaction. Otherwise the cover expires and the cover price
    stays with the underwriters.
 
-Underwriters deposit USDC into the pool (an ERC-4626 vault) and earn premiums minus payouts. Every payout is
+Underwriters deposit USDC into the pool (an ERC-4626 vault) and earn cover prices minus payouts. Every payout is
 reserved when the cover is sold, so the pool can always pay what it owes.
 
 Technical design: [`docs/how-it-works.md`](docs/how-it-works.md).
@@ -77,7 +77,7 @@ daily candles since 2023):
   expected 0.45 touches in 258,079 windows; there were 206. Numera's price is floored by the observed
   frequency (Wilson 95 % upper bound) instead of the model's ~0.
 - Out of sample (tables fitted on the first half of the data, tested on the second): 15 of 256 buckets
-  priced below the realized touch frequency; loss ratio (claims / premiums) 1h 0.43, 4h 0.41, 1d 0.66,
+  priced below the realized touch frequency; payout ratio (payouts / cover prices) 1h 0.43, 4h 0.41, 1d 0.66,
   7d 0.65.
 - Example: a 1-day BTC cover 6 % below spot costs 3.24 % of the payout; BTC's daily low reached 6 % below
   the open on 2.46 % of days (Oct 2024 – Sep 2026).
@@ -91,8 +91,8 @@ lists (My covers, Pool) open an in-app receipt view read from the RPC when you c
 
 | Step | Transaction |
 |---|---|
-| Approve premium | `0x581d08d4b84bd30584bb1405346f1222958cb8ebd6df6d6dd42916ecc734accf` |
-| `buyCover` (cover 1: BTC long, payout 20 mUSDC, premium 6.845262 mUSDC, 1 day) | `0xe94df21d42af54d1f25913a7692b860a5e9df26c7133046adfd53d608fcddf60` |
+| Approve cover price | `0x581d08d4b84bd30584bb1405346f1222958cb8ebd6df6d6dd42916ecc734accf` |
+| `buyCover` (cover 1: BTC long, payout 20 mUSDC, cover price 6.845262 mUSDC, 1 day) | `0xe94df21d42af54d1f25913a7692b860a5e9df26c7133046adfd53d608fcddf60` |
 | MOCK price set below the level (staged) | `0xbb2dd023c05bcd2930b6b004d8382021df8a4424c1f3018243c05643f8e6bc88` |
 | `trigger` by the keeper, 20 mUSDC paid to the buyer | `0x0791fb7d627b5218e6e786ba81a9484b2018fad48ddd9b38e57c8148f6bf8465` |
 
@@ -179,7 +179,7 @@ node scripts/dev.mjs --keeper-only  # only the keeper; add --keeper-dry-run for 
   uncertainty is wider. Touches are measured on trade-price candles, not on the oracle.
 - **Quotes are signed off-chain.** Reserves, caps and position checks are enforced by the contract, so
   every sold cover is fully reserved and a buyer whose cover triggers is always paid. The contract does not
-  enforce a minimum premium or level distance: a wrong quote misprices a premium, and a compromised quote
+  enforce a minimum cover price or level distance: a wrong quote misprices a cover, and a compromised quote
   signer (or owner) can sell money-losing covers whose losses the underwriters absorb.
 - **Not independently audited.** The code had an internal security review (2026-10-02), not an independent
   audit. Trust model, known risks and mainnet blockers: [`SECURITY.md`](SECURITY.md).

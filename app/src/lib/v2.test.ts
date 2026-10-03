@@ -208,6 +208,6 @@ describe('v2 error mapping', () => {
     expect(contractErrorMessage(r!.name, r!.args)).toMatch(/still waiting for its delay/);
     expect(contractErrorMessage('RequestNotClaimable', [3])).toMatch(/lapsed; re-queue/);
     expect(contractErrorMessage('SaleWindowCapExceeded', [2_600_000_000n, 2_500_000_000n])).toMatch(/2,600\.00 mUSDC.*2,500\.00 mUSDC/);
-    expect(contractErrorMessage('InsufficientFreeAssets', [5_000_000n, 1_000_000n])).toMatch(/claim part now/);
+    expect(contractErrorMessage('InsufficientFreeAssets', [5_000_000n, 1_000_000n])).toMatch(/withdraw part now/);
   });
 });

@@ -76,7 +76,7 @@ export function contractErrorMessage(name: string, args?: Args): string {
     case 'PerpNotAllowed':
       return `This pool does not sell cover on perp ${big(a[0])} (not on its on-chain allowlist).`;
     case 'PremiumBelowFloor':
-      return `The premium ${usdc(a[0])} is below the pool’s minimum premium ${usdc(a[1])}. Get a new quote.`;
+      return `The price ${usdc(a[0])} is below the pool’s minimum price ${usdc(a[1])}. Get a new quote.`;
     case 'LevelTooClose':
       return `The level ${px(a[1])} is too close to the oracle ${px(a[0])}: the pool requires a minimum distance. Move the level further away.`;
     case 'SaleWindowCapExceeded':
@@ -85,29 +85,29 @@ export function contractErrorMessage(name: string, args?: Args): string {
       return `Your share of this window’s sale limit is used up (${usdc(a[1])} after this cover, your limit ${usdc(a[2])}). Wait for the window to reset.`;
     // v2 payouts
     case 'NothingOwed':
-      return 'Nothing is owed to this address: every payout was already transferred or claimed.';
+      return 'Nothing is owed to this address: every payout was already transferred or collected.';
     // v2 LP exits (queued redeem, §5.4)
     case 'NotShareOwner':
       return 'Only the share owner can request a redeem of their own shares.';
     case 'ControllerMustBeOwner':
       return 'A redeem request must be made for your own address (controller = owner).';
     case 'NotController':
-      return 'Only the address that made the redeem request can claim it.';
+      return 'Only the address that made the redeem request can withdraw against it.';
     case 'RequestClaimable':
-      return 'Your earlier request is claimable now: claim it or cancel it before requesting again.';
+      return 'Your earlier request is ready to withdraw: withdraw it or cancel it before requesting again.';
     case 'RequestNotClaimable': {
       const st = Number(big(a[0]));
-      const why = st === 0 ? 'there is no redeem request' : st === 1 ? 'the request is still waiting for its delay' : st === 3 ? 'the claim window has lapsed; re-queue the request' : `state ${st}`;
-      return `Nothing to claim yet: ${why}. Exits are queued: request, wait, then claim inside the claim window.`;
+      const why = st === 0 ? 'there is no redeem request' : st === 1 ? 'the request is still waiting for its delay' : st === 3 ? 'the withdraw window has lapsed; re-queue the request' : `state ${st}`;
+      return `Nothing to withdraw yet: ${why}. Exits are queued: request, wait, then withdraw inside the withdraw window.`;
     }
     case 'ZeroShares':
       return 'Zero shares: enter an amount, or there is no request to cancel.';
     case 'ExceedsClaimable':
       return `More than the requested shares (${fmtFixed(big(a[0]), 12, 4)} asked, ${fmtFixed(big(a[1]), 12, 4)} in the request).`;
     case 'InsufficientFreeAssets':
-      return `The pool’s free assets (${usdc(a[1])}) do not cover ${usdc(a[0])} now: claim part now, the rest stays claimable until covers settle.`;
+      return `The pool’s free assets (${usdc(a[1])}) do not cover ${usdc(a[0])} now: withdraw part now, the rest stays ready until covers settle.`;
     case 'AsyncRedeemOnly':
-      return 'Exits are queued on this pool (request, wait, claim); there is no instant preview.';
+      return 'Exits are queued on this pool (request, wait, withdraw); there is no instant preview.';
     case 'SharesToPool':
       return 'Pool shares cannot be sent to the pool itself; use the redeem request.';
     // v2 owner / timelock / guardian
@@ -150,7 +150,7 @@ export function contractErrorMessage(name: string, args?: Args): string {
       return `Perp index ${big(a[0])} is not valid on this network.`;
     // OpenZeppelin
     case 'EnforcedPause':
-      return 'The pool is paused: new covers and deposits are off. Trigger, expire, payout claims and LP exits still work.';
+      return 'The pool is paused: new covers and deposits are off. Trigger, expire, payout collection and LP exits still work.';
     case 'ERC20InsufficientAllowance':
       return `mUSDC allowance too low (${usdc(a[1])} approved, ${usdc(a[2])} needed). Approve again.`;
     case 'ERC20InsufficientBalance':
