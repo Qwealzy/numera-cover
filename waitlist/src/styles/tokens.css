@@ -14,9 +14,10 @@
   --bg: #0c1520;
   --surface: rgb(34 55 78 / 0.34); /* navy-deep, translucent: cards */
   --surface-strong: rgb(34 55 78 / 0.62); /* the most opaque card surface */
-  --surface-join: rgb(34 55 78 / 0.92); /* the waitlist ticket: a dark backing over the mark behind the join section */
-  /* the Numera mark behind the join section (flat SVG or 3D); test/contrast.test.mjs checks text over it */
-  --join-mark-opacity: 0.15; /* 0.2 fails the green kicker over a white-lit pixel (3.8:1) */
+  --surface-join: rgb(34 55 78 / 0.92); /* the waitlist ticket: a darker card so the fields stand out */
+  /* the Numera mark behind the join headline and intro (flat SVG or 3D); test/contrast.test.mjs checks the
+     headline (3:1, large) and the intro (4.5:1) over its brightest possible pixel, taken as white */
+  --join-mark-opacity: 0.3; /* white-pixel worst case: headline 6.17:1, intro 4.50:1 */
   --navy-fill: rgb(67 92 122 / 0.32); /* the liquidation zone */
   --line: rgb(248 242 239 / 0.1);
   --line-strong: rgb(248 242 239 / 0.26);

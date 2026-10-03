@@ -1,7 +1,7 @@
 // Lazy chunk: the Numera mark extruded from its own two polygons (the same points as the flat SVG, from
 // src/lib/geometry.ts) and turning slowly, behind the join section. Ported from the 3D hub on the site-phase2
 // branch (site/src/scene/hub.ts buildMark): only the mark geometry and a slow rotation, no rings, nodes or
-// environment map. It renders through the page's one rAF scheduler, so it stops while the section is off
+// environment map. It sits behind the join section's headline and intro. It renders through the page's one rAF scheduler, so it stops while the section is off
 // screen, the tab is hidden or motion is off. Its opacity is the CSS token --join-mark-opacity.
 import {
   Color,
@@ -24,6 +24,8 @@ import { loop, onMotion } from './motion.ts';
 export const MARK_SPIN_RAD_S = 0.125;
 /** The mark also rocks gently around the horizontal axis by this much (radians). */
 export const MARK_TILT_RAD = 0.12;
+/** The mark is 2 units across; this much must fit in the box both ways while it turns (margin included). */
+const MARK_FIT = 2.5;
 /** Device pixel ratio cap: sharp on retina screens without rendering 3x buffers. */
 export const MARK_MAX_DPR = 2;
 
@@ -76,11 +78,14 @@ export function mountMark3d(box: HTMLElement): void {
     mark.rotation.x = Math.sin(t * 0.3) * MARK_TILT_RAD;
     renderer.render(scene, camera);
   };
+  // the whole mark stays in the box at any aspect: the camera backs off until MARK_FIT units fit both ways
   const resize = () => {
     const w = Math.max(1, box.clientWidth);
     const h = Math.max(1, box.clientHeight);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
+    const t = Math.tan((camera.fov * Math.PI) / 360);
+    camera.position.z = Math.max(MARK_FIT / (2 * t), MARK_FIT / (2 * t * camera.aspect));
     camera.updateProjectionMatrix();
     render();
   };

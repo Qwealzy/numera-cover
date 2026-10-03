@@ -15,19 +15,22 @@ const Nx = Wl.issued.next;
 ---
 
 <section id="join" class="section join" aria-labelledby="join-title">
-  <!-- the Numera mark behind the section: flat SVG first; src/client/joinmark.ts swaps in a turning 3D mark when
-       the section comes near, motion is on and WebGL works. Its opacity is the token --join-mark-opacity. -->
-  <div class="join-mark" data-join-mark aria-hidden="true">
-    <svg class="join-mark-flat" viewBox="0 0 512 512" focusable="false">
-      <polygon fill="#435c7a" points={poly(MARK_NAVY)}></polygon>
-      <polygon fill="#23b779" points={poly(MARK_GREEN)}></polygon>
-    </svg>
-  </div>
   <div class="wrap grid">
-    <div class="section-head" data-reveal>
+    <div class="section-head join-head" data-reveal>
       <p class="kicker">{Wl.kicker}</p>
-      <h2 id="join-title">{Wl.heading}</h2>
-      <p class="intro">{Wl.intro}</p>
+      <!-- the Numera mark sits behind the headline and the intro only (not the kicker, not the form): flat SVG
+           first; src/client/joinmark.ts swaps in a turning 3D mark when the section comes near, motion is on and
+           WebGL works. Its opacity is the token --join-mark-opacity (test/contrast.test.mjs). -->
+      <div class="join-lead" data-join-lead>
+        <div class="join-mark" data-join-mark aria-hidden="true">
+          <svg class="join-mark-flat" viewBox="0 0 512 512" focusable="false">
+            <polygon fill="#435c7a" points={poly(MARK_NAVY)}></polygon>
+            <polygon fill="#23b779" points={poly(MARK_GREEN)}></polygon>
+          </svg>
+        </div>
+        <h2 id="join-title">{Wl.heading}</h2>
+        <p class="intro">{Wl.intro}</p>
+      </div>
     </div>
 
     <div class="ticket" data-ticket data-state="idle" data-reveal data-reveal-delay="1">
@@ -154,8 +157,18 @@ const Nx = Wl.issued.next;
 </section>
 
 <style>
-  .join {
+  /* the left column runs the height of the form, so the mark behind the headline and intro has room */
+  .join-head {
+    align-self: stretch;
+    grid-template-rows: auto 1fr;
+  }
+  .join-lead {
+    position: relative;
     isolation: isolate;
+    display: grid;
+    align-content: start;
+    gap: 1.1rem;
+    min-height: 15rem;
   }
   .join-mark {
     position: absolute;
