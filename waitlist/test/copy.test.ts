@@ -53,7 +53,7 @@ test('hero states the limits and the status pill names every exclusion', () => {
   assert.match(en.hero.lead, /does not cover your full loss/);
   assert.equal(
     en.hero.status,
-    'Testnet only · Not an offer · Not available to US or Ontario persons or sanctioned jurisdictions',
+    'Testnet only · Mock funds, no real payout · Not insurance · Not an offer · Not available to US, UK or Ontario persons or sanctioned jurisdictions',
   );
   assert.ok(en.CONSENT_VERSIONS.includes(en.CONSENT_VERSION));
 });

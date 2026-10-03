@@ -397,7 +397,8 @@ canvas {
   align-items: center;
   gap: 0.6rem;
   padding: 0.45rem 0.9rem;
-  border-radius: var(--radius-pill);
+  border-radius: 16px; /* the disclaimer pill wraps to several lines on phones */
+  line-height: 1.45;
   border: 1px solid var(--line-strong);
   font-family: var(--font-mono);
   font-size: 0.74rem;

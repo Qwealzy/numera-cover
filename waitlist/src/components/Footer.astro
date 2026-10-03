@@ -34,6 +34,7 @@ const socials = [
       <li>{F.built}</li>
     </ul>
     <p class="pill foot-pill">{hero.status}</p>
+    <p class="foot-note">{F.affiliation}</p>
   </div>
 </footer>
 
@@ -116,6 +117,11 @@ const socials = [
     grid-column: 1 / -1;
     justify-self: start;
     font-size: 0.68rem;
+  }
+  .foot-note {
+    grid-column: 1 / -1;
+    font-size: 0.8rem;
+    color: var(--text-label);
   }
   @media (max-width: 760px) {
     .foot-in {

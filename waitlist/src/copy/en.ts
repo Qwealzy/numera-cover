@@ -53,7 +53,9 @@ export const hero = {
     'and does not cover your full loss.',
   primary: 'Join the waitlist',
   secondary: 'How it works ↓',
-  status: 'Testnet only · Not an offer · Not available to US or Ontario persons or sanctioned jurisdictions',
+  // the disclaimer on every page: this pill (hero, footer) is the one text; test/disclaimer.test.mjs
+  status:
+    'Testnet only · Mock funds, no real payout · Not insurance · Not an offer · Not available to US, UK or Ontario persons or sanctioned jurisdictions',
 };
 
 /** The instrument in the hero (build spec 2.3). */
@@ -596,12 +598,13 @@ export const footer = {
   built: 'Built for Colosseum',
   privacy: 'Privacy notice',
   agri: 'Numera agri product under construction',
+  affiliation: 'Not affiliated with or endorsed by Hyperliquid.',
 };
 
 export const meta = {
   title: 'Numera · Liquidation Cover for Hyperliquid',
   description:
-    'A fixed USDC payout if the Hyperliquid oracle touches your level; the position stays open. Testnet only; not an offer.',
+    'A fixed USDC payout if the Hyperliquid oracle touches your level; the position stays open. Testnet only, mock funds; not insurance, not an offer.',
 };
 
 export const privacy = {
