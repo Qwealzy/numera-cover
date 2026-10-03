@@ -11,14 +11,14 @@ change it here first, then in code.
 A trader with a long BTC perp at 20× fears a wick to their liquidation price. In one click they buy
 cover: "if the BTC oracle price trades at or below $L before time T, pay me $P". $L defaults to just
 above their liquidation price, $P is capped by the margin they would lose. If the level is hit, anyone
-(our keeper, the trader, a bot) calls `trigger()` and the pool pays instantly — no claim, no assessor,
-no trade to execute in a gap. Underwriters deposit USDC into the pool and earn the premiums. Every
+(our keeper, the trader, a bot) calls `trigger()` and the pool pays instantly — no paperwork, no assessor,
+no trade to execute in a gap. Underwriters deposit USDC into the pool and earn the cover prices. Every
 payout is fully reserved at sale, so the pool cannot become insolvent.
 
 **Why not just a stop-loss?** A stop closes the position (often at the bottom of a wick) and slips in a gap.
 Cover keeps the position open and pays cash. **Why not HIP-4 / prediction markets?** Those are
 speculator CLOB markets settling at expiry; ours is a path-dependent touch, sized and positioned from the
-trader's actual HyperCore position (insurable interest), priced on demand from a formula, with an
+trader's actual HyperCore position (a real position behind every cover), priced on demand from a formula, with an
 underwriter yield product on the other side.
 
 ## 2. Components
@@ -52,6 +52,7 @@ together: doc first, then all sides.
 - **Perp index**: `uint32`, network-specific, never hardcoded (see the perp index table in `docs/research/hyperliquid.md`).
 - **Basis points**: `uint16`, `10_000` = 100 % (all `*Bps` limits).
 - **Direction**: `isLong = true` → cover triggers when `oraclePx ≤ level`; `false` → when `oraclePx ≥ level`.
+- **Wording (D28)**: user-visible and prose text says "cover price" for the amount the buyer pays, "withdraw" for an LP exit and "collect" for owed payouts, and never uses insurance vocabulary (legal wording rule); the identifiers below (ABI field `premium`, `minPremiumBps`, `claimWindow`, `claimPayout`, ...) are unchanged. The app shows `premium` as "cover price".
 - **Environment names** (logs, UI, deploy files): `local` (anvil, chain 31337), `testnet` (998). `mainnet` (999) is out of scope and mechanically blocked.
 
 ## 4. Quote (EIP-712) — engine signs, contract verifies
@@ -182,7 +183,7 @@ function capacityBase() public view returns (uint256); // B
 
 **Accounting (v2).**
 - `totalAssets() = USDC balance − owedAssets − unearnedPremium`. Owed payouts are not pool money, and a
-  premium becomes pool money (raises the share price) only when its cover settles (expire or trigger).
+  cover price becomes pool money (raises the share price) only when its cover settles (expire or trigger).
   `totalAssets` saturates at 0; that floor is unreachable while invariant 1 (§5.8) holds.
 - `freeAssets() = totalAssets − lockedAssets` (saturating at 0), i.e. `balance − locked − owed − unearned`.
   LP exits are bounded by `freeAssets`, so they never touch locked, owed or unearned USDC.
@@ -205,14 +206,14 @@ price check:
    `block.timestamp ≤ q.deadline` (`QuoteDeadlinePassed`); nonce unused (`NonceAlreadyUsed`).
 2. NEW `perpAllowed[q.perpIndex]` (`PerpNotAllowed(perpIndex)`); `block.timestamp < q.expiry`
    (`ExpiryNotInFuture`); `q.expiry ≤ block.timestamp + maxDuration` (`DurationTooLong`);
-   `payout ≥ minPayout` (`PayoutTooSmall`); NEW premium floor `premium × 10000 ≥ payout × minPremiumBps`
+   `payout ≥ minPayout` (`PayoutTooSmall`); NEW cover price floor `premium × 10000 ≥ payout × minPremiumBps`
    (`PremiumBelowFloor(premium, minPremium)`, `minPremium = ceilDiv(payout × minPremiumBps, 10000)`).
 3. Price: `px = priceSource.oraclePx6(perpIndex)`; `|px − spotRef| × 10000 ≤ spotRef × maxSpotDeviationBps`
    (`SpotDeviationTooHigh`); not already breached (`LevelAlreadyBreached`); NEW level-distance floor
    `|px − level| × 10000 ≥ px × minLevelDistanceBps` (`LevelTooClose(px, level)`).
-4. Insurable interest (unchanged): position on `perpIndex` exists (`NoPosition`), sign matches `isLong`
+4. Position check (unchanged): position on `perpIndex` exists (`NoPosition`), sign matches `isLong`
    (`PositionSideMismatch`), `payout ≤ entryNtl / leverage` (`PayoutExceedsMarginCap`).
-5. Capacity, against `B` before the premium arrives (v1 used `totalAssets`):
+5. Capacity, against `B` before the cover price arrives (v1 used `totalAssets`):
    `lockedAssets + payout ≤ B × maxUtilizationBps / 10000` (`UtilizationExceeded`);
    `lockedByPerp[i] + payout ≤ B × perPerpCapBps / 10000` (`PerPerpCapExceeded`).
 6. NEW sale throttle. `reset = block.timestamp ≥ windowStart + saleWindow`;
@@ -227,12 +228,12 @@ price check:
 
 **Throttle bound (strict mode only).** Each window sells at most `maxSoldPerWindowBps × windowAssets`, and
 the snapshot cannot be raised mid-window by a deposit. Any interval of length `saleWindow` overlaps at most two windows. With the
-premium floor, the net loss per window is at most a fraction `c = maxSoldPerWindowBps/1e4 × (1 −
+cover price floor, the net loss per window is at most a fraction `c = maxSoldPerWindowBps/1e4 × (1 −
 minPremiumBps/1e4)` of the pool, so a compromised quote signer that sells and triggers through `N` windows
 takes at most `1 − (1 − c)^N` of the pool (at the testnet caps c ≈ 0.2495; 1 window ≈ 25 %, 2 ≈ 44 %, 4 ≈
 68 %). This N-window bound holds **only in strict mode** (`withdrawDelay > maxDuration`, §5.6, audit L-1).
 With non-strict delays an attacker who also supplies capital defeats it (audit M-1, proven): deposit, sell
-to the cap, request, claim at par once the request matures, then trigger, so the attacker's capital has left
+to the cap, request, withdraw at par once the request matures, then trigger, so the attacker's capital has left
 before the covers it backed pay out. On testnet (non-strict) the throttle and the queue therefore only narrow
 that race; they do not bound it.
 The covers also need a real oracle move of at least `minLevelDistanceBps` to trigger. The payout breaker
@@ -279,7 +280,7 @@ emit `CoverExpired`.
 ### 5.4 LP exits: queued redeem (ERC-7540 style, redeem side only)
 
 Deposits and mints stay synchronous ERC-4626 (blocked while paused). Exits are asynchronous: request, wait
-`withdrawDelay`, claim inside `claimWindow`. Requests are **aggregated per controller** (`requestId = 0`, as
+`withdrawDelay`, withdraw inside `claimWindow`. Requests are **aggregated per controller** (`requestId = 0`, as
 ERC-7540 allows): each address has one slot.
 
 ```solidity
@@ -311,14 +312,14 @@ State of a slot with `shares > 0` (`claimDeadline = claimableAt + claimWindow`):
 
 Share escrow: the pool's own share balance is exactly the escrow. The `_update` override reverts
 `SharesToPool()` for any transfer or mint to `address(this)`; `requestRedeem` moves shares with
-`super._update(owner, address(this), shares)`, which bypasses that check, and claims and cancels move
+`super._update(owner, address(this), shares)`, which bypasses that check, and withdrawals and cancels move
 shares out of the pool the same way.
 
 `requestRedeem(shares, controller, owner)`, checks in order:
 1. `msg.sender == owner` and `controller == owner` (`NotShareOwner(sender, owner)` /
    `ControllerMustBeOwner(controller, owner)`). Third-party and operator requests are not supported: letting
    someone else add shares to a controller's slot would let them restart that controller's clock.
-2. Slot state is not `Claimable` (`RequestClaimable()`): claim or cancel first, so matured shares are never
+2. Slot state is not `Claimable` (`RequestClaimable()`): withdraw or cancel first, so matured shares are never
    re-locked by accident.
 3. `slot.shares + shares > 0` (`ZeroShares()`); `shares ≤ balanceOf(owner)` (ERC-20 balance error).
 4. Effects: move `shares` from `owner` into the escrow; `slot.shares += shares; totalEscrowedShares +=
@@ -326,8 +327,8 @@ shares out of the pool the same way.
    shares, which is how lapsed shares are re-queued: `requestRedeem(0, me, me)`); emit
    `RedeemRequest(controller, owner, 0, msg.sender, shares)`.
 
-Escrowed shares **stay in `totalSupply`**: they bear every payout until claimed, and they earn a premium
-only as its cover settles (premiums are unearned until expire or trigger, §5.3). They no longer count in
+Escrowed shares **stay in `totalSupply`**: they bear every payout until withdrawn, and they earn a cover price
+only as its cover settles (cover prices are unearned until expire or trigger, §5.3). They no longer count in
 the capacity base `B`, so no new cover is sized on them.
 
 `redeem(shares, receiver, controller)` and `withdraw(assets, receiver, controller)`, checks in order:
@@ -340,12 +341,12 @@ the capacity base `B`, so no new cover is sized on them.
    the escrow (no allowance path); emit `Withdraw(msg.sender, receiver, controller, assets, shares)`;
    transfer `assets` to `receiver`.
 
-Price: **the share price at claim time**. Rounding (floor on assets out, ceil on shares burned) favours the
-pool, so no claim lowers the share price for the LPs who stay.
-Short free assets: a claim larger than `freeAssets` reverts; the LP may claim part now (`maxRedeem` shows
+Price: **the share price at withdraw time**. Rounding (floor on assets out, ceil on shares burned) favours the
+pool, so no withdrawal lowers the share price for the LPs who stay.
+Short free assets: a withdrawal larger than `freeAssets` reverts; the LP may withdraw part now (`maxRedeem` shows
 how much) and the rest stays Claimable (still bearing P&L) until locks release through expiry or trigger
-and free assets grow. If the window ends first, the rest lapses and must be re-queued. Claims are
-first come, first served against free assets; every claimant has already waited `withdrawDelay`.
+and free assets grow. If the window ends first, the rest lapses and must be re-queued. Withdrawals are
+first come, first served against free assets; every exiting LP has already waited `withdrawDelay`.
 
 `maxRedeem(controller) = Claimable ? min(slot.shares, _convertToShares(freeAssets, Floor)) : 0`;
 `maxWithdraw(controller) = Claimable ? min(_convertToAssets(slot.shares, Floor), freeAssets) : 0`. There is
@@ -354,7 +355,7 @@ between holders stay allowed (they move exposure, not USDC).
 
 `cancelRedeemRequest()`: any non-empty slot of `msg.sender` (any state) → shares go back from the escrow to
 `msg.sender`, slot deleted, `totalEscrowedShares −= shares`, emit `RedeemRequestCancelled`; `ZeroShares()` if
-empty. Requests, claims and cancels all work while paused.
+empty. Requests, withdrawals and cancels all work while paused.
 
 ERC-7540 views: `pendingRedeemRequest(0, c)` = slot shares if Pending, `claimableRedeemRequest(0, c)` = slot
 shares if Claimable, both 0 for any other `requestId` or state (never revert). Lapsed shares appear in
@@ -367,26 +368,26 @@ neither; `redeemRequestOf` shows them.
 approved spender or for another controller, async deposits (`requestDeposit` etc.), ERC-7575 `share()`,
 ERC-165 `supportsInterface` (the pool therefore does **not** advertise the 7540 interface ids
 0xe3bc4e65 / 0x620ee8e4 / 0x2f0a18c5; it is "ERC-7540 style", not compliant), ERC-7887 cancellation
-(own `cancelRedeemRequest` instead). Additions not in ERC-7540: the claim window and lapse. Standard
+(own `cancelRedeemRequest` instead). Additions not in ERC-7540: the withdraw window and lapse. Standard
 ERC-4626 integrations that call `withdraw(assets, receiver, owner)` expecting an instant exit will revert.
 
-**Why the claim window, and what remains.** Without a window, an LP could request once, wait, and then
-hold a matured claim indefinitely, able to exit instantly ahead of a known loss: the race the queue exists
+**Why the withdraw window, and what remains.** Without a window, an LP could request once, wait, and then
+hold a matured withdrawal right indefinitely, able to exit instantly ahead of a known loss: the race the queue exists
 to stop. With the window, a given LP's instant-exit option is open only a fraction `W/(D+W)` of the time
 (`D = withdrawDelay`, `W = claimWindow`):
 - strict mode (`W ≤ D/7`, `W ≤ 1 day`): at most 1/8 = 12.5 % (e.g. `D` = 7 days, `W` = 1 day);
 - testnet (`D` = 600 s, `W` = 3 600 s): 6/7 ≈ 86 %. The testnet values keep the LP demo short (request,
-  wait 10 minutes, claim within the hour); on testnet the exit race is therefore only slightly narrowed.
+  wait 10 minutes, withdraw within the hour); on testnet the exit race is therefore only slightly narrowed.
 
 In strict mode (`withdrawDelay > maxDuration`) every cover that was alive when a request was made has
 expired or triggered before the request matures, so the race is closed for those covers. Equality is not
 enough: with `withdrawDelay == maxDuration` a cover sold in the request's second is still open for one second
 after maturity (audit L-1, proven), so the strict check is strict. With non-strict delays (testnet) a request
 made right after a sale matures before that cover settles: an LP, or an attacker who supplied the capital,
-can claim at par ahead of the payout (audit M-1); there the queue only narrows the race. The residual is
-the covers sold after the request, and only during the claim window. Because premiums are unearned until
-their cover settles, the residual is not premium capture: a matured LP who waits does not collect the
-premiums of covers still open.
+can withdraw at par ahead of the payout (audit M-1); there the queue only narrows the race. The residual is
+the covers sold after the request, and only during the withdraw window. Because cover prices are unearned until
+their cover settles, the residual is not cover price capture: a matured LP who waits does not collect the
+cover prices of covers still open.
 
 ### 5.5 Owner: Ownable2Step, timelock, guardian, pause
 
@@ -394,7 +395,7 @@ premiums of covers still open.
   `acceptOwnership()`. Ownership transfer itself is not timelocked (the new owner still faces the
   timelock for config). Queued operations survive an ownership transfer; the new owner can execute or
   cancel them. `renounceOwnership()` is **disabled** (reverts `RenounceDisabled()`): a renounced pool could
-  never be paused again, and pause is the protective control.
+  never be paused again, and pause is the emergency control.
 - Mainnet owner is a **Safe** multisig (Safe is canonical on HyperEVM 999: safe-deployments v1.4.1, singleton
   `0x41675C099F32341bf84BFc5382aF534df5C7461a`). Safe is not deployed on testnet 998, so the testnet owner
   stays the deployer EOA with Ownable2Step + timelock. On mainnet a full owner compromise means loss of the
@@ -522,19 +523,19 @@ Sales and payouts
    limits in force), and `perpAllowed[perpIndex]` held at sale.
 
 Exits
-10. No exit bypasses the queue: every decrease of `totalSupply` equals shares burned by a claim from a slot
-    that was Claimable (ghost: request time + `withdrawDelay` ≤ claim time < request time + `withdrawDelay`
+10. No exit bypasses the queue: every decrease of `totalSupply` equals shares burned by a withdraw from a slot
+    that was Claimable (ghost: request time + `withdrawDelay` ≤ withdraw time < request time + `withdrawDelay`
     + `claimWindow`); handler calls of `withdraw`/`redeem` without a Claimable slot always revert.
 11. Liveness: after `pause`, and a warp of `maxDuration + withdrawDelay` with every cover expired or
-    triggered, every requested slot (re-queued if lapsed) can claim in full.
-12. Rounding: no LP action (deposit, mint, request, cancel, claim) lowers `convertToAssets(1e12)` (one
+    triggered, every requested slot (re-queued if lapsed) can withdraw in full.
+12. Rounding: no LP action (deposit, mint, request, cancel, withdraw) lowers `convertToAssets(1e12)` (one
     share) for the other holders.
 
 Owner
 13. Timelock: limits, signer, guardian and allowlist change only through an execute whose `eta ≤ now`
     (ghost), and every queued entry has `eta − queuedAt == configDelay`.
 
-Claimable redeem requests are not reserved in USDC (they are priced at claim time and bounded by free
+Claimable redeem requests are not reserved in USDC (they are priced at withdraw time and bounded by free
 assets), so there is no "escrow-claimable assets" term in invariant 1. Reserving them would need an
 on-chain fulfilment step at maturity; v2 does not have one.
 
@@ -554,7 +555,7 @@ Facts (research 2026-10-02, primary sources):
   runtime under 24,576 bytes anyway.
 
 Size budget: a review estimated the v2 runtime at 19–21.5 KB before the breaker, guardian, per-buyer cap and
-unearned-premium additions. `forge build --sizes` is part of the code phase. If the pool exceeds **23 KB**:
+unearned-cover price additions. `forge build --sizes` is part of the code phase. If the pool exceeds **23 KB**:
 first drop the individual limit getters (keep `limits()`; the app switches to it); if still over, replace
 the custom timelock with an OZ `TimelockController` as owner (Safe holding the proposer and execution roles on mainnet, the
 guardian keeps an immediate pause role on the pool). A further split (the redeem queue in its own contract)
@@ -600,10 +601,10 @@ needs `bigBlockGasPrice` instead of `eth_gasPrice`, and timestamp behaviour acro
 
 - **Engine** (§6): read `limits()`, `perpAllowed(perp)`, `capacityBase()` and the window state
   (`windowStart`, `windowAssets`, `soldInWindow`, `buyerWindow(buyer)`) from the pool over `eth_call`.
-  Raise a model premium below `ceil(payout × minPremiumBps / 10000)` to that floor (`floorApplied`); refuse
+  Raise a model cover price below `ceil(payout × minPremiumBps / 10000)` to that floor (`floorApplied`); refuse
   what the contract would reject otherwise; use the on-chain allowlist instead of (or intersected with)
   `deployments.perps`.
-- **App**: LP screen gets request / cancel / claim (state from `redeemRequestOf`, countdown to
+- **App**: LP screen gets request / cancel / withdraw (state from `redeemRequestOf`, countdown to
   `claimableAt` and `claimDeadline`, `maxRedeem` for the claimable part) instead of instant withdraw;
   an "owed payout" banner with `claimPayout()` when `owed(account) > 0`; show the new limits and the
   paused-by-breaker state; regenerate the ABI; map the new custom errors in `lib/errors.ts`.
@@ -633,7 +634,7 @@ uint64 maxDuration, uint16 maxSpotDevBps, uint256 minPayout)`, event with five f
   implementations do a gas-capped `staticcall` to the precompile and revert with a named error.
   `HyperCorePriceSource.cachePerp(idx)` should be called once per perp after deploy.
 - Pool shares have **12 decimals** (USDC 6 + offset 6, inflation-attack defence).
-- Capacity is checked against `totalAssets` before the premium arrives (conservative).
+- Capacity is checked against `totalAssets` before the cover price arrives (conservative).
 - Compiled with `via_ir`, `evm_version = shanghai`.
 - Verified on testnet [RUN]: `perpAssetInfo(3)` decodes as one tuple → `("BTC", 54, 5, 40, false)`;
   position `entryNtl` = USD × 1e6 (research doc).
@@ -680,8 +681,8 @@ v2 contract follow-up (specified 2026-10-02, §5.10; applies once a v2 pool is i
 - The engine reads, per pool, `limits()`, `perpAllowed(perp)`, `capacityBase()` and the sale window state
   (`windowStart`, `windowAssets`, `soldInWindow`, `buyerWindow(buyer)`) and never signs a quote the contract
   would reject on them:
-  - the premium is **raised** to the on-chain floor `ceil(payout × minPremiumBps / 10000)` when the model
-    premium is below it; additive breakdown field `floorApplied: bool` (no new error code);
+  - the cover price is **raised** to the on-chain floor `ceil(payout × minPremiumBps / 10000)` when the model
+    cover price is below it; additive breakdown field `floorApplied: bool` (no new error code);
   - `perp_not_allowed` (400) also when `perpAllowed(perp)` is false on the target pool;
   - `level_too_close` (422) also when `|S − level| × 10000 < S × M`, with the margin
     `M = m + d + ceil(m·d / 10000)` (m = `minLevelDistanceBps`, d = `maxSpotDeviationBps`; 56 bps on
@@ -730,7 +731,7 @@ Perp `i`, direction `isLong`, level `H` (px6), payout `P`, duration `D`, `T = D 
    interpolated, so the price never rises as the level moves away.
 5. **Priced probability** `= min(max(p·k_z, q_z), pMax)`; refuse `prob_too_high` if `max(p·k, q) > pMax`
    (0.5), `level_already_breached` if S is already past H.
-6. **Premium** `= ceil(P × priced × (1 + θ)) + fee`, θ = 0.20, fee = 0 (configurable).
+6. **Cover price** `= ceil(P × priced × (1 + θ)) + fee`, θ = 0.20, fee = 0 (configurable).
 
 Out of sample (fit first half, test second): 15 % buckets fail (15/224 counted as in the earlier model, 15/256
 including HYPE 1d/7d); loss ratio 1h 0.43 / 4h 0.41 / 1d 0.66 / 7d 0.65. In sample: 10/256 fail, each
@@ -760,12 +761,12 @@ engine still takes σ from 1 h candles; the 1d table under that σ tests OOS 2/6
   predicted p vs realized touch frequency (candle lows/highs as proxy; 1 h data ≈ 7 months, 1 d since
   2023-02). Output table + reliability plot. Pass: out-of-sample failing buckets ≤ 10 % and loss ratio per
   horizon 0.4–0.8; in-sample failures listed in the report. A strict per-bucket rule is an open item.
-- **Pool P&L simulation**: sell covers at model premium through history → LP return, worst drawdown.
+- **Pool P&L simulation**: sell covers at model cover price through history → LP return, worst drawdown.
 - **Contracts**: unit + fuzz tests (accounting invariant: `USDC balance ≥ lockedAssets` always; v2 adds
   owed payouts, the sale throttle, the floors and the redeem queue, §5.8),
   precompile mocks, testnet E2E with tx hashes logged.
 
 ## 10. Out of scope (v1)
 
-Mainnet; CoreWriter hedging of the pool on HIP-4/perps (pitch as roadmap: "reinsurance"); partial
+Mainnet; CoreWriter hedging of the pool on HIP-4/perps (pitch as roadmap: "hedging"); partial
 payouts; secondary market for covers; governance/token; cross-chain.
