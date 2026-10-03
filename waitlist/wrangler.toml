@@ -9,7 +9,7 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "numera-waitlist"
-# Placeholder until the founder creates the database and pastes the id; local dev works with it. The database
-# must be created in the eu jurisdiction (node scripts/deploy-site.mjs --create-db --yes): the privacy notice says so.
-database_id = "00000000-0000-0000-0000-000000000000"
+# The database lives in the eu jurisdiction (created with wrangler d1 create --jurisdiction eu): the privacy notice says
+# so, and scripts/deploy-site.mjs re-checks it against wrangler d1 list before every deploy. The id is not a secret.
+database_id = "ef945e90-81ab-4725-8e30-be97e7bb1f93"
 migrations_dir = "migrations"
