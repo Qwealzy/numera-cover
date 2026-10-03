@@ -70,6 +70,21 @@ export type Signup = {
 };
 export type Invalid = { error: 'email' | 'telegram' | 'x' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
 
+/** Country codes (ISO 3166-1 alpha-2) the join endpoint refuses: the US (Hyperliquid Terms 1.6, docs/research/hyperliquid.md),
+ *  the UK (FCA financial-promotion rules reach overseas websites), and the comprehensively sanctioned countries
+ *  Cuba, Iran, North Korea and Syria. Ontario cannot be told apart by country: the jurisdiction checkbox covers it.
+ *  A missing or unknown country (local dev, "XX", "T1" = Tor) is not refused here; the checkbox decides. */
+export const BLOCKED_REGIONS: readonly string[] = ['US', 'GB', 'CU', 'IR', 'KP', 'SY'];
+
+/** The visitor's country: Cloudflare's cf-ipcountry header (set on every proxied request), else request.cf.country.
+ *  -> upper-case code, or '' when unknown. */
+export function requestCountry(request: Request): string {
+  const h = request.headers.get('cf-ipcountry');
+  const c = (h || (request as Request & { cf?: { country?: string } }).cf?.country || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(c) ? c : '';
+}
+export const regionBlocked = (request: Request): boolean => BLOCKED_REGIONS.includes(requestCountry(request));
+
 /** Validates a parsed JSON body. -> Signup, or { error } naming the first failing field. The email is required;
  *  `telegram` and `x` are each optional and validated with the same rules as before when present. */
 export function validateSignup(body: unknown): Signup | Invalid {
@@ -136,10 +151,10 @@ const json = (status: number, body: Record<string, unknown>) =>
   });
 
 /**
- * POST /api/join. Order: config -> content type -> size -> rate limit (every attempt counts) -> validation
+ * POST /api/join. Order: config -> content type -> size -> country (region) -> rate limit (every attempt counts) -> validation
  * -> Turnstile -> insert. A duplicate email returns the same success as a new one (no enumeration) and changes
  * nothing stored.
- * Responses: 200 {ok:true} | 400 {ok:false,error} | 403 captcha | 413 | 415 | 429 rate | 500 config/db.
+ * Responses: 200 {ok:true} | 400 {ok:false,error} | 403 captcha or region | 413 | 415 | 429 rate | 500 config/db.
  */
 export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps): Promise<Response> {
   const db = env.DB;
@@ -152,6 +167,9 @@ export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps)
     return json(415, { ok: false, error: 'body' });
   const text = await request.text();
   if (new TextEncoder().encode(text).length > LIMITS.bodyBytes) return json(413, { ok: false, error: 'body' });
+
+  // soft block by country before anything is stored (not even the rate-limit row); the checkbox covers the rest
+  if (regionBlocked(request)) return json(403, { ok: false, error: 'region' });
 
   const now = Math.floor(deps.now() / 1000);
   const ip = request.headers.get('cf-connecting-ip') ?? '';

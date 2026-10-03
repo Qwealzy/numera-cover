@@ -9,13 +9,15 @@
  *  the server accepts only versions listed in CONSENT_VERSIONS. 2026-10-03 (`date`): the waitlist now takes an
  *  email address (required) and the consent names the launch email explicitly (Law No. 6563 on
  *  commercial electronic messages needs explicit consent). privacy-2026-10-02-v2 changed one Recipients sentence. */
-export const CONSENT_VERSION = 'privacy-2026-10-03-v4';
+export const CONSENT_VERSION = 'privacy-2026-10-03-v5';
 /** Earlier versions stay accepted server-side (founder instruction 2026-10-03). Same day (`date` 2026-10-03):
  *  -v2 shortened the form's consent and jurisdiction statements (same meaning); -v3: a signup may give both a
  *  Telegram username and an X handle (notice and consent wording); -v4: the jurisdiction statement's
- *  wording (same meaning). */
+ *  wording (same meaning); -v5: the checkbox adds 18+ and the UK, the notice gains its KVKK section,
+ *  GDPR Art. 13 items, cookies and the country check. */
 export const CONSENT_VERSIONS: readonly string[] = [
   CONSENT_VERSION,
+  'privacy-2026-10-03-v4',
   'privacy-2026-10-03-v3',
   'privacy-2026-10-03-v2',
   'privacy-2026-10-03',
@@ -505,8 +507,9 @@ export const waitlist = {
     link: 'privacy notice',
     after: ' describes. I can unsubscribe any time.',
   },
-  // founder wording 2026-10-03: residence, citizenship and location; the US, Ontario and sanctioned jurisdictions
-  jurisdiction: 'I am not a resident or citizen of, or located in, the US, Ontario (Canada) or a sanctioned jurisdiction.',
+  // founder wording 2026-10-03: age, residence, citizenship and location; the US, the UK, Ontario and sanctioned jurisdictions (one checkbox)
+  jurisdiction:
+    'I am 18 or older, and I am not a resident or citizen of, or located in, the US, the UK, Ontario (Canada) or a sanctioned jurisdiction.',
   submit: 'Join the waitlist',
   sending: 'Sending…',
   success: 'You are on the list. We will email you when the next testnet round opens.',
@@ -538,7 +541,8 @@ export const waitlist = {
     telegram: 'That does not look like a Telegram username (5-32 characters, starting with a letter). Leave it empty if you prefer.',
     x: 'That does not look like an X handle (1-15 characters). Leave it empty if you prefer.',
     consent: 'Please agree to the privacy notice.',
-    jurisdiction: 'Please confirm the jurisdiction statement.',
+    jurisdiction: 'Please confirm that you are 18 or older and not in a restricted jurisdiction.',
+    region: 'This early-access list is not open to visitors from your region, so we cannot take your details.',
     captcha: 'The spam check did not pass. Please try again.',
     rate: 'Too many attempts from this network. Please try again in an hour.',
     generic: 'Something went wrong; nothing was saved. Please try again later.',
@@ -579,7 +583,7 @@ export const faq = {
     {
       // Hyperliquid Terms §1.6 Restricted Persons (docs/research/hyperliquid.md)
       q: 'Who can join?',
-      a: 'Anyone who is not a resident of, located in, or a citizen of the US, Ontario (Canada) or a sanctioned jurisdiction. The form asks you to confirm this.',
+      a: 'Anyone aged 18 or older who is not a resident of, located in, or a citizen of the US, the UK, Ontario (Canada) or a sanctioned jurisdiction. The form asks you to confirm this, and requests that arrive from the US, the UK or a comprehensively sanctioned country are refused.',
     },
     {
       // privacy notice "What we store and why"

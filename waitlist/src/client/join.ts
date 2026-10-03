@@ -258,7 +258,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
       } else {
         const err = j.error ?? 'generic';
         const targets: Record<string, HTMLElement> = { email, telegram: tg, x: xh, consent, jurisdiction: juris };
-        fail(['email', 'telegram', 'x', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(err) ? err : 'generic', targets[err]);
+        fail(['email', 'telegram', 'x', 'consent', 'jurisdiction', 'captcha', 'rate', 'region'].includes(err) ? err : 'generic', targets[err]);
       }
     } catch {
       // network error or the 15 s timeout: nothing was confirmed, so the generic message

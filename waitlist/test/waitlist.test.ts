@@ -11,6 +11,9 @@ import {
   handleJoin,
   ipHash,
   turnstileVerifier,
+  requestCountry,
+  regionBlocked,
+  BLOCKED_REGIONS,
   SITEVERIFY_URL,
   LIMITS,
   type D1Like,
@@ -323,7 +326,61 @@ test('turnstileVerifier: posts secret/response/remoteip to siteverify; only succ
 });
 
 test('consent: the current version and all earlier versions are accepted; anything else is refused', () => {
-  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03-v3', 'privacy-2026-10-03-v2', 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
+  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03-v4', 'privacy-2026-10-03-v3', 'privacy-2026-10-03-v2', 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
   for (const v of CONSENT_VERSIONS) assert.ok(!('error' in validateSignup(goodBody({ consentVersion: v }))), v);
   assert.deepEqual(validateSignup(goodBody({ consentVersion: 'privacy-2026-10-04' })), { error: 'consent' });
+});
+
+// ---- region soft block (Cloudflare's cf-ipcountry) ----
+const reqFrom = (country: string | null, body: unknown = goodBody(), ip = '203.0.113.7') => {
+  const r = req(body, ip);
+  if (country !== null) r.headers.set('cf-ipcountry', country);
+  return r;
+};
+
+test('region: the blocked list is the US, the UK and the comprehensively sanctioned countries', () => {
+  assert.deepEqual([...BLOCKED_REGIONS].sort(), ['CU', 'GB', 'IR', 'KP', 'SY', 'US']);
+});
+
+test('region: each blocked country is 403 {error:"region"}, stores nothing and does not even count as an attempt', async () => {
+  for (const c of BLOCKED_REGIONS) {
+    const f = fakeD1();
+    let verified = 0;
+    const r = await handleJoin(reqFrom(c), env(f.db), { verify: async () => (verified++, true), now: () => T0 });
+    assert.equal(r.status, 403, c);
+    assert.deepEqual(await r.json(), { ok: false, error: 'region' }, c);
+    assert.equal(f.waitlist.length, 0, c);
+    assert.equal(f.attempts().length, 0, c);
+    assert.equal(verified, 0, c);
+  }
+});
+
+test('region: lower-case codes are read too; an invalid body from a blocked country is still region', async () => {
+  const f = fakeD1();
+  assert.deepEqual(await (await handleJoin(reqFrom('gb'), env(f.db), pass)).json(), { ok: false, error: 'region' });
+  assert.deepEqual(await (await handleJoin(reqFrom('US', '{not json'), env(f.db), pass)).json(), { ok: false, error: 'region' });
+});
+
+test('region: an allowed country (TR, DE, CA), Tor (T1), unknown (XX) and no header at all go through to the checkbox rules', async () => {
+  for (const c of ['TR', 'DE', 'CA', 'T1', 'XX', 'xx', '', 'garbage', null]) {
+    const f = fakeD1();
+    const r = await handleJoin(reqFrom(c), env(f.db), pass);
+    assert.equal(r.status, 200, String(c));
+    assert.equal(f.waitlist.length, 1, String(c));
+  }
+  // not a blanket pass: the jurisdiction checkbox still decides
+  const f = fakeD1();
+  const r = await handleJoin(reqFrom('T1', goodBody({ jurisdiction: false })), env(f.db), pass);
+  assert.equal(r.status, 400);
+  assert.deepEqual(await r.json(), { ok: false, error: 'jurisdiction' });
+});
+
+test('region: requestCountry prefers the header, falls back to request.cf.country, ignores anything but two letters', () => {
+  assert.equal(requestCountry(reqFrom('tr')), 'TR');
+  assert.equal(requestCountry(reqFrom(null)), '');
+  const withCf = (country: string) => Object.assign(reqFrom(null), { cf: { country } });
+  assert.equal(requestCountry(withCf('GB')), 'GB');
+  assert.equal(regionBlocked(withCf('GB')), true);
+  assert.equal(requestCountry(Object.assign(reqFrom('TR'), { cf: { country: 'GB' } })), 'TR');
+  assert.equal(requestCountry(reqFrom('T1x')), '');
 });
