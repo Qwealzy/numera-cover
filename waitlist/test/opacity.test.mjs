@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
-// decorative only: ambient light, film grain, the strip's pulse and the seal halves before they lock
-const DECORATIVE = [/^\.halo$/, /^body::after$/, /^\.s-pulse$/, /^\.seal-(navy|green)$/, /^@keyframes/];
+// decorative only: ambient light and film grain
+const DECORATIVE = [/^\.halo$/, /^body::after$/, /^@keyframes/];
 
 function cssOf(file) {
   const t = readFileSync(file, 'utf8');

@@ -169,7 +169,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     v('door').textContent = doors[door_].title;
     issued.hidden = false;
     ticket.dataset.state = 'success';
-    // the ticket's top (strip, seal, stamp) comes into view on narrow screens
+    // the ticket's top (the stamp) comes into view on narrow screens
     const r = ticket.getBoundingClientRect();
     if (r.top < 0 || r.top > window.innerHeight * 0.5)
       ticket.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
