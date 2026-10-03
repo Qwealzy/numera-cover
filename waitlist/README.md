@@ -18,6 +18,9 @@ Migration `0002` removes the unique constraint on `handle_norm`, so a handler th
 `ON CONFLICT(handle_norm) DO NOTHING` fails on this schema, and a form that sends no email is refused with 400 `email`.
 Deploy this folder only against a D1 database that uses these migrations.
 
+The site's canonical address is https://cover.numeralabs.xyz (custom domain on the Cloudflare Pages project `numera-cover`; `SITE_URL` in
+`src/config.ts`, used for the canonical link and `og:url`).
+
 Testnet only. Not an offer. Nothing on the page is a quote.
 
 ## Run, build, test
