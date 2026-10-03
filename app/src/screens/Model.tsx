@@ -22,7 +22,7 @@ export function Model() {
         <div>
           <h1>Pricing model and evidence</h1>
           <p>
-            The premium is a probability times the payout. This page shows the formula, and the backtest that checks the probability against what
+            The cover price is a probability times the payout. This page shows the formula, and the backtest that checks the probability against what
             Hyperliquid prices actually did.
           </p>
         </div>
@@ -55,7 +55,7 @@ export function Model() {
           {m.perBucketHtml && <p className="small soft" style={{ marginTop: 10 }} dangerouslySetInnerHTML={{ __html: m.perBucketHtml }} />}
           {m.lookupHtml && <p className="small soft" style={{ marginTop: 10 }} dangerouslySetInnerHTML={{ __html: m.lookupHtml }} />}
           <p className="small soft" style={{ marginTop: 10 }}>
-            Every quote shows its own S, σ, z, p, k and q, and the app recomputes the premium from them.
+            Every quote shows its own S, σ, z, p, k and q, and the app recomputes the price from them.
           </p>
         </section>
       </div>

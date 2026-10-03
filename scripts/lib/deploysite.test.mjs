@@ -1,4 +1,4 @@
-// Tests for the site deploy plan: node --test scripts/lib/deploysite.test.mjs (run by scripts/check.mjs).
+// Tests for the site deploy plan: node --test scripts/lib/deploysite.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -19,10 +19,11 @@ test('deploys waitlist/ with its migrations 0001 + 0002; the committed files are
   assert.match(deployPlan(parseArgs([]), ENV, TOML('abc-123').replace(/migrations_dir.*\n/, '')).problems.join('\n'), /no migrations_dir/);
 });
 
-test('committed wrangler.toml still carries the placeholder id (deploy refuses until the founder sets it)', () => {
+test('committed wrangler.toml carries the real database id (eu jurisdiction); the placeholder id is still refused', () => {
   const toml = readFileSync(new URL('../../waitlist/wrangler.toml', import.meta.url), 'utf8');
-  assert.equal(d1DatabaseId(toml), PLACEHOLDER_DB_ID);
-  assert.match(deployPlan(parseArgs([]), ENV, toml).problems.join('\n'), /database_id is the placeholder/);
+  assert.equal(d1DatabaseId(toml), 'ef945e90-81ab-4725-8e30-be97e7bb1f93');
+  assert.deepEqual(deployPlan(parseArgs([]), ENV, toml).problems, []);
+  assert.match(deployPlan(parseArgs([]), ENV, TOML(PLACEHOLDER_DB_ID)).problems.join('\n'), /database_id is the placeholder/);
 });
 
 test('ready env: preview by default, --prod deploys branch main; order secrets -> D1 jurisdiction -> build -> migrate -> deploy', () => {
@@ -36,9 +37,9 @@ test('ready env: preview by default, --prod deploys branch main; order secrets -
   assert.equal(ok.steps[2].env.SITE_ENV, 'production');
   assert.equal(ok.steps[2].env.SITE_GOVERNING_LAW, 'Example Land'); // fills {{GOVERNING_LAW}} on /terms
   assert.equal(ok.steps[2].env.SITE_SOURCE_URL, 'https://github.com/example/numera-public'); // the footer Source link
-  const prod = deployPlan(parseArgs(['--prod', '--create-project']), ENV, TOML('abc-123'));
+  const prod = deployPlan(parseArgs(['--prod']), ENV, TOML('abc-123'));
   assert.equal(prod.branch, 'main');
-  assert.equal(prod.steps[0].name, 'create Pages project');
+  assert.equal(prod.steps[0].name, 'check Pages secrets exist');
 });
 
 test('missing env values and unknown flags are problems; nothing is a mainnet or chain step', () => {
@@ -59,31 +60,48 @@ test('the footer Source link may not be the private origin repository, in any sp
   assert.match(deployPlan(parseArgs([]), { ...ENV, SITE_SOURCE_URL: 'git@github.com:a/b.git' }, TOML('abc-123')).problems.join(), /SITE_SOURCE_URL must be an https URL/);
 });
 
-test('D1 jurisdiction: the database must be in eu; the check runs before the build and the migrations', () => {
+const LIST = (entries) => JSON.stringify(entries, null, 2);
+const ENTRY = (uuid, jurisdiction, extra = {}) => ({ uuid, name: 'numera-waitlist', created_at: '2026-10-03T00:00:00.000Z', version: 'production', num_tables: 0, file_size: 12288, jurisdiction, ...extra });
+
+test('D1 jurisdiction: looked up in wrangler d1 list --json by the toml database_id; the check runs before the build and the migrations', () => {
   assert.equal(D1_JURISDICTION, 'eu');
   const plan = deployPlan(parseArgs([]), ENV, TOML('abc-123'));
   const names = plan.steps.map((x) => x.name);
   const at = names.findIndex((n) => /eu jurisdiction/.test(n));
   assert.ok(at > 0 && at < names.findIndex((n) => /^build/.test(n)) && at < names.findIndex((n) => /migrations/.test(n)));
-  assert.deepEqual(plan.steps[at].cmd, ['wrangler', 'd1', 'info', 'numera-waitlist', '--json']);
-  assert.deepEqual(plan.steps[at].jurisdiction, { acceptUnverified: false });
-  assert.deepEqual(deployPlan(parseArgs(['--accept-unverified-jurisdiction']), ENV, TOML('abc-123')).steps[at].jurisdiction, { acceptUnverified: true });
+  assert.deepEqual(plan.steps[at].cmd, ['wrangler', 'd1', 'list', '--json']);
+  assert.deepEqual(plan.steps[at].jurisdiction, { acceptUnverified: false, databaseId: 'abc-123' });
+  assert.deepEqual(deployPlan(parseArgs(['--accept-unverified-jurisdiction']), ENV, TOML('abc-123')).steps[at].jurisdiction, { acceptUnverified: true, databaseId: 'abc-123' });
 });
 
-test('judgeJurisdiction: eu passes, any other reported jurisdiction is refused, unreported or unreadable output is unknown', () => {
-  assert.equal(judgeJurisdiction('{"uuid":"x","name":"numera-waitlist","jurisdiction":"eu"}').verdict, 'ok');
-  assert.equal(judgeJurisdiction('banner line\n{"name":"n","jurisdiction":"EU"}\n').verdict, 'ok');
-  assert.equal(judgeJurisdiction('{"result":{"jurisdiction":"eu"}}').verdict, 'ok');
+test('judgeJurisdiction: matches the entry by uuid; eu passes, another jurisdiction or a missing entry is refused, unreadable output or a missing field is unknown', () => {
+  const ID = 'ef945e90-81ab-4725-8e30-be97e7bb1f93';
+  assert.equal(judgeJurisdiction(LIST([ENTRY(ID, 'eu')]), ID).verdict, 'ok');
+  assert.equal(judgeJurisdiction('banner line\n' + LIST([ENTRY(ID.toUpperCase(), 'EU')]) + '\n', ID).verdict, 'ok');
+  // only the entry whose uuid equals the id counts: an eu database with another uuid does not vouch for ours
+  assert.equal(judgeJurisdiction(LIST([ENTRY('other-id', 'eu'), ENTRY(ID, 'us')]), ID).verdict, 'refuse');
+  assert.equal(judgeJurisdiction(LIST([ENTRY('other-id', 'us'), ENTRY(ID, 'eu')]), ID).verdict, 'ok');
   for (const j of ['us', 'fedramp']) {
-    const r = judgeJurisdiction(JSON.stringify({ name: 'numera-waitlist', jurisdiction: j }));
+    const r = judgeJurisdiction(LIST([ENTRY(ID, j)]), ID);
     assert.equal(r.verdict, 'refuse', j);
     assert.match(r.message, /cannot be changed/);
     assert.match(r.message, /--jurisdiction eu/);
   }
-  for (const out of ['{"name":"numera-waitlist","num_tables":2}', '{"jurisdiction":null}', '{"jurisdiction":""}', 'not json', '', undefined]) {
-    const r = judgeJurisdiction(out);
+  // missing entry (wrong account, wrong id, empty list): refused with a clear message, never "unknown"
+  for (const out of [LIST([]), LIST([ENTRY('other-id', 'eu')])]) {
+    const r = judgeJurisdiction(out, ID);
+    assert.equal(r.verdict, 'refuse');
+    assert.match(r.message, new RegExp('no D1 database with uuid ' + ID));
+    assert.match(r.message, /wrangler d1 list --json/);
+  }
+  assert.equal(judgeJurisdiction(LIST([ENTRY(ID, 'eu')]), '').verdict, 'refuse'); // no id at all matches nothing
+  // entry found but no readable jurisdiction field, or output that is not a JSON array: unknown (needs the accept flag)
+  const noField = ENTRY(ID, undefined);
+  delete noField.jurisdiction;
+  for (const out of [LIST([noField]), LIST([ENTRY(ID, null)]), LIST([ENTRY(ID, '')]), '{"jurisdiction":"eu"}', 'not json', '', undefined]) {
+    const r = judgeJurisdiction(out, ID);
     assert.equal(r.verdict, 'unknown', String(out));
-    assert.match(r.message, /^WARNING: wrangler did not report the jurisdiction/);
+    assert.match(r.message, /^WARNING: wrangler d1 list --json did not give a readable jurisdiction/);
     assert.match(r.message, /--accept-unverified-jurisdiction/);
   }
 });
@@ -97,6 +115,24 @@ test('--create-db creates the database with --jurisdiction eu and nothing else; 
   assert.match(USAGE, /--create-db[\s\S]*--jurisdiction eu/);
   assert.match(USAGE, /--accept-unverified-jurisdiction/);
   assert.match(deployPlan(parseArgs(['--create-db', '--force']), {}, TOML('abc')).problems.join(), /unknown argument\(s\): --force/);
-  // no other step anywhere creates a database or touches it without the jurisdiction guard
-  for (const x of deployPlan(parseArgs(['--prod', '--create-project']), ENV, TOML('abc-123')).steps) assert.ok(!(x.cmd[1] === 'd1' && x.cmd[2] === 'create'));
+  // no deploy step anywhere creates a database or touches it without the jurisdiction guard
+  for (const x of deployPlan(parseArgs(['--prod']), ENV, TOML('abc-123')).steps) assert.ok(!(x.cmd[1] === 'd1' && x.cmd[2] === 'create'));
+});
+
+test('--create-project creates the Pages project and nothing else: no env, secret, database or build checks (they need the project first)', () => {
+  // an empty env and the placeholder id would be problems for a deploy; here they must not matter
+  const p = deployPlan(parseArgs(['--create-project', '--yes']), {}, TOML(PLACEHOLDER_DB_ID));
+  assert.deepEqual(p.problems, []);
+  assert.deepEqual(p.steps.map((x) => x.cmd), [['wrangler', 'pages', 'project', 'create', 'numera-cover', '--production-branch', 'main']]);
+  assert.equal(p.branch, null);
+  assert.equal(p.setupOnly, true);
+  assert.deepEqual(deployPlan(parseArgs(['--create-project']), {}, '').problems, []); // not even a readable wrangler.toml
+  assert.match(deployPlan(parseArgs(['--create-project', '--force']), {}, TOML('abc')).problems.join(), /unknown argument\(s\): --force/);
+  // both setup flags together: project first, then the database, still nothing else
+  const both = deployPlan(parseArgs(['--create-project', '--create-db']), {}, TOML(PLACEHOLDER_DB_ID));
+  assert.deepEqual(both.steps.map((x) => x.cmd.slice(0, 3).join(' ')), ['wrangler pages project', 'wrangler d1 create']);
+  assert.equal(deployPlan(parseArgs([]), {}, TOML('abc-123')).setupOnly, false);
+  // a normal deploy has no create-project step
+  assert.ok(!deployPlan(parseArgs(['--prod']), ENV, TOML('abc-123')).steps.some((x) => /create Pages project/.test(x.name)));
+  assert.match(USAGE, /--create-project[\s\S]*nothing else/);
 });

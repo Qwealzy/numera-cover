@@ -7,7 +7,7 @@ import { useNow, useRpcBusy } from '../hooks';
 
 const NAV: { tab: Tab; label: string }[] = [
   { tab: 'about', label: 'About' },
-  { tab: 'protect', label: 'Protect' },
+  { tab: 'buy', label: 'Buy cover' },
   { tab: 'covers', label: 'My covers' },
   { tab: 'pool', label: 'Pool' },
   { tab: 'model', label: 'Model' },

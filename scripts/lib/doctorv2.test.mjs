@@ -1,4 +1,4 @@
-// Unit tests for scripts/lib/doctorv2.mjs (node --test, run by scripts/check.mjs).
+// Unit tests for scripts/lib/doctorv2.mjs (node --test).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';

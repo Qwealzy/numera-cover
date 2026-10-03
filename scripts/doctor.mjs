@@ -175,7 +175,7 @@ if (wt.ok) {
     const self = path.resolve(w.path).toLowerCase() === here ? ' (this worktree)' : '';
     report('WARN', 'worktree', `${path.relative(main, w.path)} [${w.branch || 'detached'}] ${w.branch && merged.has(w.branch) ? 'merged into main' : 'NOT merged into main'}${self}`);
   }
-  if (!leftovers.length) report('OK', 'worktrees', 'none under .claude/worktrees/');
+  if (!leftovers.length) report('OK', 'worktrees', 'no leftover linked worktrees');
 }
 const branches = git(['branch', '--list', 'worktree-agent-*', '--format=%(refname:short)'], main).out.split(/\r?\n/).filter(Boolean);
 for (const b of branches) report('WARN', 'branch', `${b} ${merged.has(b) ? 'merged into main' : 'NOT merged into main'}`);

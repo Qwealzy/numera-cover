@@ -59,8 +59,8 @@ PAYOUT = 100_000_000  # $100 in USDC base units (6 decimals)
 SPOT6 = 100_000_000  # the grid is scale-free: premium depends only on level/spot, sigma and duration
 LEVEL_BUFFER = 0.01  # app/src/config.ts
 DURATIONS = [3600, 14400, 86400, 259200, 604800]  # app/src/config.ts DURATIONS (1h 4h 1d 3d 7d)
-SIGMAS = [0.32, 0.40, 0.50]  # docs/pitch/business-plan.md volatility range: calm / normal / wild presets
-MAX_LEVS = [40]  # P0: BTC only. 40x: docs/research/hyperliquid.md l.79 ("1.25% at 40x"), business-plan l.89
+SIGMAS = [0.32, 0.40, 0.50]  # volatility range 32-50 %: calm / normal / wild presets
+MAX_LEVS = [40]  # P0: BTC only. 40x: docs/research/hyperliquid.md l.79 ("1.25% at 40x")
 COIN = "BTC"
 FEE = 0  # fee = 0 today (docs/how-it-works.md §7 step 6)
 

@@ -1,6 +1,5 @@
 // Lazy chunk: the Numera mark extruded from its own two polygons (the same points as the flat SVG, from
-// src/lib/geometry.ts) and turning slowly, behind the join section. Ported from the 3D hub on the site-phase2
-// branch (site/src/scene/hub.ts buildMark): only the mark geometry and a slow swing, no rings, nodes or
+// src/lib/geometry.ts) and turning slowly, behind the join section. Only the mark geometry and a slow swing, no rings, nodes or
 // environment map. It sits behind the join section's headline and intro. It renders through the page's one rAF scheduler, so it stops while the section is off
 // screen, the tab is hidden or motion is off. Its opacity is the CSS token --join-mark-opacity.
 import {

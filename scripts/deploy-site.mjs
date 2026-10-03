@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Deploys the public early-access site (waitlist/) to Cloudflare Pages. FOUNDER-RUN: needs `npx wrangler login`.
-// site/ stays in the repo and in check.mjs but is not deployed (founder decision 2026-10-03, option b).
 //
 //   node scripts/deploy-site.mjs                  # preview: prints the plan, runs nothing
 //   node scripts/deploy-site.mjs --yes            # preview deploy (branch "preview")
 //   node scripts/deploy-site.mjs --prod --yes     # production deploy (branch "main" = numera-cover.pages.dev)
-//   node scripts/deploy-site.mjs --create-db --yes  # first run only: create the D1 database in the eu jurisdiction
+//   node scripts/deploy-site.mjs --create-project --yes  # first run only: create the Pages project (nothing else)
+//   node scripts/deploy-site.mjs --create-db --yes  # first run only: create the D1 database in the eu jurisdiction (nothing else)
 //   node scripts/deploy-site.mjs --help
 //
-// Steps: check the D1 database is in the eu jurisdiction (refuses otherwise); check the build env (the /privacy and /terms placeholders, the Source link, Turnstile site key) and the D1 id; check the Pages
+// Steps: check the D1 database is in the eu jurisdiction (wrangler d1 list --json, matched by wrangler.toml's database_id; refuses otherwise); check the build env (the /privacy and /terms placeholders, the Source link, Turnstile site key) and the D1 id; check the Pages
 // secrets exist (names only, values are never read); production build; D1 migrations 0001+0002 --remote; pages deploy.
 // Values come from the shell environment only; this script reads no .env file and prints no secret.
 // Every command runs with cwd waitlist/ through its pinned local wrangler/astro (waitlist/node_modules/.bin).
@@ -39,9 +39,9 @@ const plan = deployPlan(
   originUrl,
 );
 const shown = (s) => `${s.env ? 'SITE_ENV=production ' : ''}${s.cmd.join(' ')}`;
-console.log(`[plan] Cloudflare Pages deploy of ${SITE_DIR}/ (${args.prod ? 'PRODUCTION' : 'preview'}), cwd ${SITE_DIR}/:`);
+console.log(`[plan] Cloudflare Pages ${plan.setupOnly ? 'setup' : `deploy of ${SITE_DIR}/ (${args.prod ? 'PRODUCTION' : 'preview'})`}, cwd ${SITE_DIR}/:`);
 plan.steps.forEach((s, i) => console.log(`  ${i + 1}. ${s.name}: ${shown(s)}`));
-if (plan.branch === null) console.log('[plan] --create-db only creates the database; then paste its database_id into waitlist/wrangler.toml and run again without it');
+if (plan.setupOnly) console.log('[plan] setup flags only create the resource(s) named above (no env, secret or database checks); then run again without them');
 if (plan.problems.length) {
   console.log('[FAIL] not ready:');
   for (const p of plan.problems) console.log(`  - ${p}`);
@@ -69,7 +69,7 @@ for (const [i, s] of plan.steps.entries()) {
     process.exit(1);
   }
   if (s.jurisdiction) {
-    const j = judgeJurisdiction(r.stdout);
+    const j = judgeJurisdiction(r.stdout, s.jurisdiction.databaseId);
     if (j.verdict === 'ok') console.log(`[OK] ${j.message}`);
     else if (j.verdict === 'refuse' || !s.jurisdiction.acceptUnverified) {
       console.log(`[FAIL] ${j.message}`);
@@ -89,4 +89,4 @@ for (const [i, s] of plan.steps.entries()) {
   }
 }
 console.log('');
-console.log(plan.branch === null ? '[OK] wrangler printed the new database_id above: paste it into waitlist/wrangler.toml.' : `[OK] deployed branch ${plan.branch}; wrangler printed the URL above.`);
+console.log(plan.setupOnly ? '[OK] created. A new D1 database: paste the database_id wrangler printed into waitlist/wrangler.toml. A new Pages project: set its secrets, then run again without the setup flags.' : `[OK] deployed branch ${plan.branch}; wrangler printed the URL above.`);

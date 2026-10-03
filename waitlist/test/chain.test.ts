@@ -1,4 +1,4 @@
-// Copied unchanged from site/test/chain.test.ts (waitlist v2 build, 2026-10-02): the same contract must pass here.
+// The browser-side chain reads: the contract they must keep.
 // node --test: the browser RPC reads behind the stats strip (fake fetch; no network).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

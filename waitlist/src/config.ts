@@ -3,7 +3,7 @@
 // the client reads these values from data- attributes in the HTML.
 import testnetV2 from '../../deployments/testnet-v2.json';
 
-/** HyperEVM testnet: chain id and read-only RPC endpoints, tried in order (both send CORS *). Same as site/. */
+/** HyperEVM testnet: chain id and read-only RPC endpoints, tried in order (both send CORS *). */
 export const TESTNET_CHAIN_ID = 998;
 export const TESTNET_RPCS = ['https://rpcs.chain.link/hyperevm/testnet', 'https://rpc.hyperliquid-testnet.xyz/evm'];
 

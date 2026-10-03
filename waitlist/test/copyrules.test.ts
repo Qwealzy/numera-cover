@@ -14,7 +14,7 @@ const DIST = path.join(SITE, 'dist');
 
 // claims the brand never makes (protect*, risk-free, safe*, revolutionary, APY, "yield of")
 const EXTRA = /\bprotect(ed|s|ion|ing)?\b|\brisk-free\b|\bsafe(ly|ty)?\b|\brevolutionary\b|\bAPY\b|\byield of\b/i;
-// Insurance wording (legal-risk wording rule; decision 2026-10-03). The only allowed use of "insurance" is
+// Insurance wording (insurance-law risk, D28; founder decision 2026-10-03). The only allowed use of "insurance" is
 // the exact phrase "not insurance". Data that engine/deployment records name "premium" keeps its internal
 // identifiers, but nothing a visitor sees or a screen reader announces may use these words.
 const NOT_INSURANCE = /\bnot insurance\b/gi;
@@ -155,7 +155,7 @@ test('privacy notice: version bumped for the email; the older versions still acc
   assert.deepEqual(validateSignup(body('privacy-2026-09-30')), { error: 'consent' });
 });
 
-test('the waitlist wording: email first, honest intro, explicit email consent; other messages verbatim from site/', () => {
+test('the waitlist wording: email first, honest intro, explicit email consent; other messages unchanged', () => {
   assert.equal(en.waitlist.success, 'You are on the list. We will email you when the next testnet round opens.');
   assert.doesNotMatch(en.waitlist.intro, /no email/i);
   assert.match(en.waitlist.intro, /No wallet, no keys\./);

@@ -1,4 +1,4 @@
-// Every user-visible English string of the waitlist site (v2). Started from site/src/copy/en.ts: the strings
+// Every user-visible English string of the waitlist site (v2). The strings
 // that tests and legal meaning depend on are kept verbatim (status pill, hero limit, six steps, demo-pool
 // notes, waitlist messages, privacy notice). Word rules are enforced by test/copy.test.ts and
 // test/copyrules.test.ts: say "cover", "payout", "level", "price" (what the trader pays), "underwriter", "pool".
@@ -45,7 +45,6 @@ export const nav = {
 
 export const hero = {
   eyebrow: 'Hyperliquid perps · HyperEVM testnet',
-  // docs/pitch/submission-answers.md, consistency anchors
   titleLines: ['Keep the position.', 'Get paid if the', 'wick comes.'],
   title: 'Keep the position. Get paid if the wick comes.',
   // README one-liner + the test-enforced limit (content brief §1, §7)
@@ -126,7 +125,7 @@ export const controls = {
   duration: 'Duration',
   volatility: 'Volatility',
   volatilityNote: 'a preset, not live',
-  // docs/pitch/business-plan.md volatility range 32-50 %
+  // volatility range 32-50 %
   vols: [
     { id: 'calm', label: 'calm 32 %', sigma: 0.32 },
     { id: 'normal', label: 'normal 40 %', sigma: 0.4 },
@@ -211,7 +210,7 @@ export const wick = {
   ],
 };
 
-/** The six steps, verbatim from site/src/copy/en.ts (copy test: this order, one sentence each). */
+/** The six steps (copy test: this order, one sentence each). */
 export const steps = [
   {
     id: 'quote',
@@ -250,7 +249,7 @@ export const how = {
   heading: 'Six parts. One trigger rule.',
   intro: 'Select a part to watch it work. The stage runs on your setup from the instrument above.',
   tablist: 'The six parts',
-  // docs/how-it-works.md §6 (quote TTL), §8 + backlog F18 (keeper cadence), README, en.ts step 6
+  // docs/how-it-works.md §6 (quote TTL), §8 (keeper cadence), README, en.ts step 6
   station: {
     quote: { title: 'Quote valid for about 30 seconds', note: 'Signed with EIP-712 by the engine; the contract recovers the signer.' },
     buy: {
@@ -459,7 +458,7 @@ export const underwriters = {
   },
 };
 
-/** Live-data labels kept verbatim from site/src/copy/en.ts (test-enforced). */
+/** Live-data labels (test-enforced). */
 export const stats = {
   heading: 'Live from the testnet demo pool',
   demoBadge: 'TESTNET DEMO POOL',
@@ -472,7 +471,7 @@ export const stats = {
   loading: '…',
 };
 
-/** S6. Source: deployments/testnet-v2.json e2e_F9_2026-10-02_3 (receipts re-confirmed in backlog.md). */
+/** S6. Source: deployments/testnet-v2.json e2e_F9_2026-10-02_3. */
 export const proof = {
   kicker: '05 · Proof',
   heading: 'One staged run, on the record.',
@@ -575,7 +574,7 @@ export const faq = {
       a: 'Anyone. A cover pays only if a trigger() call before expiry sees the oracle at or past the level on-chain.',
     },
     {
-      // backlog.md checkpoint 2026-10-02; README; SECURITY.md
+      // README; SECURITY.md
       q: 'Is this live?',
       a: 'Testnet only, mock USDC, not audited, no public app yet.',
     },

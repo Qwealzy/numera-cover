@@ -63,7 +63,7 @@ export function Covers() {
                   <th className="r">Oracle now</th>
                   <th className="r" title="Oracle distance to the level (negative = breached for a long)">To level</th>
                   <th className="r">Payout</th>
-                  <th className="r">Premium</th>
+                  <th className="r">Price</th>
                   <th>Status</th>
                   <th className="r">Time left</th>
                   <th>Action</th>
@@ -95,7 +95,7 @@ export function Covers() {
 
 /**
  * v2 (§5.3 trigger step 4): when the token refuses a payout transfer, the payout stays owed to the buyer and
- * only the buyer can claim it (claimPayout, works while paused). Shown when owed(account) > 0.
+ * only the buyer can collect it (claimPayout, works while paused). Shown when owed(account) > 0.
  */
 function OwedBanner() {
   const { account, pool, stats, refreshAll } = useApp();
@@ -105,13 +105,13 @@ function OwedBanner() {
   return (
     <div className="notice notice--error" role="status" style={{ marginTop: 12 }}>
       <span className="mark mark--ring" aria-hidden />
-      {fmtUsdc(owed)} mUSDC of triggered payouts is owed to you by this pool (the payout transfer did not go through). Claim it to your wallet.{' '}
+      {fmtUsdc(owed)} mUSDC of triggered payouts is owed to you by this pool (the payout transfer did not go through). Collect it to your wallet.{' '}
       <button
         className="btn btn--small btn--primary"
         disabled={tx.busy}
-        onClick={async () => (await tx.run('Claim payout', (h) => claimPayout(account, pool.pool, h))) && refreshAll()}
+        onClick={async () => (await tx.run('Collect payout', (h) => claimPayout(account, pool.pool, h))) && refreshAll()}
       >
-        Claim payout
+        Collect payout
       </button>
       <div style={{ marginTop: 6 }}>
         <TxStatus st={tx.st} />

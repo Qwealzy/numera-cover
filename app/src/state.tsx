@@ -8,8 +8,8 @@ import { readSnapshot, type PoolStats, type PxResult } from './lib/pool';
 import { cached, invalidate } from './lib/rpc';
 import { usePoll, type Polled } from './hooks';
 
-export type Tab = 'about' | 'protect' | 'covers' | 'pool' | 'model';
-const TABS: Tab[] = ['about', 'protect', 'covers', 'pool', 'model'];
+export type Tab = 'about' | 'buy' | 'covers' | 'pool' | 'model';
+const TABS: Tab[] = ['about', 'buy', 'covers', 'pool', 'model'];
 
 interface AppState {
   tab: Tab;
@@ -125,7 +125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Poll only what the visible screen shows (usePoll also pauses while the browser tab is hidden).
   // One snapshot = one Multicall3 eth_call: pool stats + user balances + oracle price of every perp.
   const needsChain = tab !== 'model';
-  const needsMarket = tab === 'protect' || tab === 'covers' || tab === 'pool';
+  const needsMarket = tab === 'buy' || tab === 'covers' || tab === 'pool';
   const market = usePoll(() => cached('market', 10_000, () => fetchMarket()), [], POLL_MS, needsMarket);
   const perps = useMemo(() => PERPS.map((p) => p.index), []);
   const snap = usePoll(

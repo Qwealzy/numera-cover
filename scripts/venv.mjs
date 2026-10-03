@@ -24,7 +24,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const py = venvPython(root);
   if (!py) {
-    console.error('engine venv not found. Create it: python -m venv engine/.venv (see docs/PLAN.md)');
+    console.error('engine venv not found. Create it: python -m venv engine/.venv, then install the engine with its dev extra (pip install -e "engine[dev]")');
     process.exit(1);
   }
   const r = spawnSync(py, process.argv.slice(2), { stdio: 'inherit', cwd: process.cwd() });

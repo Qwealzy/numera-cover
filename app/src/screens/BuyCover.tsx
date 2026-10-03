@@ -29,7 +29,7 @@ import { SubjectBar } from '../components/SubjectBar';
 const fmtUsd = (x: number | undefined, dp = 2) =>
   x === undefined || !Number.isFinite(x) ? '—' : '$' + x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 
-export function Protect() {
+export function BuyCover() {
   const { pool, poolKind, subject, market, oracle } = useApp();
   // Aborted only when the user clicks "retry" (a fresh read replaces the pending one).
   const capCtrl = useRef(new AbortController());
@@ -55,7 +55,7 @@ export function Protect() {
     <>
       <div className="page-head">
         <div>
-          <h1>Protect a position {poolKind === 'mock' && <MockTag inline />}</h1>
+          <h1>Cover a position {poolKind === 'mock' && <MockTag inline />}</h1>
           <p>
             Pick a perp position and buy cover that pays a fixed amount if the oracle price touches your level before expiry. The
             position stays open; the payout is cash.
@@ -122,7 +122,7 @@ export function Protect() {
             )}
           </section>
           <div className="grid grid--2">
-            <div className="stack">{sel ? <ProtectPanel key={`${pool.pool}-${sel.coin}-${subject}`} row={sel} /> : <EmptyProtect />}</div>
+            <div className="stack">{sel ? <CoverPanel key={`${pool.pool}-${sel.coin}-${subject}`} row={sel} /> : <EmptyCover />}</div>
             <div className="stack">
               {sel && <PositionDetail row={sel} />}
               <Faucet />
@@ -133,7 +133,7 @@ export function Protect() {
   );
 }
 
-function EmptyProtect() {
+function EmptyCover() {
   return (
     <section className="panel">
       <div className="panel__head">
@@ -222,7 +222,7 @@ function PositionsTable({
                 </td>
                 <td className="r">
                   <button className={`btn btn--small${selected === r.coin ? ' btn--primary' : ''}`} disabled={!can} onClick={() => onSelect(r.coin)} title={can ? '' : 'This perp is not configured for Numera'}>
-                    {can ? 'Protect' : 'n/a'}
+                    {can ? 'Cover' : 'n/a'}
                   </button>
                 </td>
               </tr>
@@ -317,9 +317,9 @@ liq = ${row.liq.px?.toFixed(2) ?? 'none'}`}
   );
 }
 
-// ---------------------------------------------------------------- the protect panel
+// ---------------------------------------------------------------- the cover panel
 
-function ProtectPanel({ row }: { row: PositionRow }) {
+function CoverPanel({ row }: { row: PositionRow }) {
   const { pool, poolKind, account, subject, oracle, stats, refreshAll } = useApp();
   const now = useNow(1000);
   const o = oraclePxOf(row, oracle.data);
@@ -588,20 +588,20 @@ function ProtectPanel({ row }: { row: PositionRow }) {
             </div>
             {b.floorApplied !== undefined && (
               <div>
-                <dt>On-chain premium floor{minPremiumBps !== undefined ? ` (${fmtBps(minPremiumBps)} of payout)` : ''}</dt>
+                <dt>On-chain price floor{minPremiumBps !== undefined ? ` (${fmtBps(minPremiumBps)} of payout)` : ''}</dt>
                 <dd>
                   {b.floorApplied ? (
                     <>
-                      <span className="chip chip--alert">applied</span> model premium {fmtUsdc(BigInt(expectedPremium(quote.quote.payout, b)), 6)} raised to the floor
+                      <span className="chip chip--alert">applied</span> model price {fmtUsdc(BigInt(expectedPremium(quote.quote.payout, b)), 6)} raised to the floor
                     </>
                   ) : (
-                    'not needed (model premium is above it)'
+                    'not needed (model price is above it)'
                   )}
                 </dd>
               </div>
             )}
             <div className="total">
-              <dt>Premium</dt>
+              <dt>Cover price</dt>
               <dd>
                 {fmtUsdc(BigInt(quote.quote.premium), 6)} mUSDC
                 <div className="small soft">{fmtPct(quote.quote.premium / quote.quote.payout, 2)} of payout</div>
@@ -611,12 +611,12 @@ function ProtectPanel({ row }: { row: PositionRow }) {
           <details className="how" style={{ marginTop: 8 }}>
             <summary>Check the arithmetic and the signature</summary>
             <div className="formula">
-              {`premium = ceil(payout × max(p·k, q) × (1 + θ)) + fee
+              {`price = ceil(payout × max(p·k, q) × (1 + θ)) + fee
         = ceil(${quote.quote.payout} × ${(b.pricedProb ?? b.touchProb).toPrecision(6)} × ${1 + b.loading}) + ${b.fee ?? 0}
         = ${expectedPremium(quote.quote.payout, b)}  (engine: ${quote.quote.premium}) ${b.floorApplied ? '' : premOk ? '✓' : '✗ mismatch'}${
           b.floorApplied
             ? `
-floor   = ceil(payout × minPremiumBps / 10000) = ceil(${quote.quote.payout} × ${minPremiumBps ?? '…'} / 10000) = ${minPremiumBps !== undefined ? floorPremium(quote.quote.payout, minPremiumBps) : '…'}  (engine: ${quote.quote.premium}) ${premOk ? '✓' : '✗ mismatch'}`
+floor   = ceil(payout × minPriceBps / 10000) = ceil(${quote.quote.payout} × ${minPremiumBps ?? '…'} / 10000) = ${minPremiumBps !== undefined ? floorPremium(quote.quote.payout, minPremiumBps) : '…'}  (engine: ${quote.quote.premium}) ${premOk ? '✓' : '✗ mismatch'}`
             : ''
         }
 signer  = ${signerCheck ?? 'unrecoverable'}
@@ -671,7 +671,7 @@ nonce   = ${quote.quote.nonce}`}
               {blocked}
             </p>
           )}
-          {lowBalance && <Notice>Your mUSDC balance ({fmtUsdc(balance!)}) is below the premium. Use the faucet below.</Notice>}
+          {lowBalance && <Notice>Your mUSDC balance ({fmtUsdc(balance!)}) is below the cover price. Use the faucet below.</Notice>}
           {expired && !boughtId && <Notice>The quote expired (deadline {fmtTime(quote.quote.deadline)}). Re-quote to get a fresh price.</Notice>}
           <div style={{ marginTop: 10 }}>
             <TxStatus st={approveTx.st} />

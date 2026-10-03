@@ -1,4 +1,4 @@
--- Copied unchanged from site/migrations/0001_waitlist.sql (waitlist v2 build, 2026-10-02).
+-- First schema of the waitlist (later changed by 0002_email.sql).
 -- Waitlist (consented contact handles) and the short-lived rate-limit log.
 -- handle_norm is "tg:<name>" or "x:<name>" (lowercase, no @); a duplicate insert is ignored by the handler.
 CREATE TABLE IF NOT EXISTS waitlist (

@@ -136,7 +136,7 @@ describe('Buy gate (audit L3): only a verified quote can be bought', () => {
     expect(buyBlocker({ signerCheck: buyer, poolSigner: signer, premOk: true })).toMatch(/buyCover would revert/);
   });
   it('blocks a premium that does not match the breakdown', () => {
-    expect(buyBlocker({ signerCheck: signer.toLowerCase(), poolSigner: signer, premOk: false })).toMatch(/premium does not match/);
+    expect(buyBlocker({ signerCheck: signer.toLowerCase(), poolSigner: signer, premOk: false })).toMatch(/price does not match/);
   });
   it('allows a verified quote (signer match is case-insensitive)', () => {
     expect(buyBlocker({ signerCheck: signer.toLowerCase(), poolSigner: signer, premOk: true })).toBeUndefined();

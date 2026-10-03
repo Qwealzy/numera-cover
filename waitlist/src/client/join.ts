@@ -1,4 +1,4 @@
-// S7 waitlist ticket. The /api/join request is site/'s plus a required `email`; `telegram` and `x` are each optional (no role
+// S7 waitlist ticket. The /api/join request carries a required `email`; `telegram` and `x` are each optional (no role
 // on the wire). The browser uses the server's own normalizeEmail / normalizeHandle for instant feedback; the
 // server stays authoritative. Turnstile loads lazily (about 1.5
 // viewports before the form, or on Join / focus) and is reset after every failed submit (each token works

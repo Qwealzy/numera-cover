@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// F9 re-proof on the live CoverPool v2 MOCK pool: "keeper triggers a breached cover on testnet" (features.json F9).
+// F9 re-proof on the live CoverPool v2 MOCK pool: "keeper triggers a breached cover on testnet" (feature F9).
 // The founder runs it; works from PowerShell, cmd and Git Bash.
 //
 //   node scripts/e2e-mock-v2.mjs                    # testnet (998): preflight + plan, sends nothing
@@ -451,8 +451,8 @@ async function main() {
 
     const left = q.deadline - Math.floor(Date.now() / 1000);
     if (left < 10) die(`the quote expires in ${left} s, too soon to approve and buy; nothing was bought, re-run`);
-    await send(`approve ${fmtUsdc(q.premium)} mUSDC (exact premium)`, usdc, calldata('approve', [pool, BigInt(q.premium)]));
-    const buyR = await send(`buyCover payout ${fmtUsdc(q.payout)} premium ${fmtUsdc(q.premium)}`, pool, buyCoverCalldata(q, quote.signature));
+    await send(`approve ${fmtUsdc(q.premium)} mUSDC (exact cover price)`, usdc, calldata('approve', [pool, BigInt(q.premium)]));
+    const buyR = await send(`buyCover payout ${fmtUsdc(q.payout)} cover price ${fmtUsdc(q.premium)}`, pool, buyCoverCalldata(q, quote.signature));
     const coverId = coverIdFromReceipt(buyR, pool);
     if (coverId === null) die('buyCover receipt has no CoverPurchased log');
     const cover0 = decodeCover(await ethCall(rpc, pool, calldata('getCover', [coverId])));

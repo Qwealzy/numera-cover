@@ -1,5 +1,5 @@
-# Cloudflare Pages config for the waitlist site (static Astro output + one Pages Function). Same D1 binding
-# (DB) and database name as site/, but since migrations/0002 the schema is not site/-compatible. Which Pages project and D1 database it deploys
+# Cloudflare Pages config for the waitlist site (static Astro output + one Pages Function). D1 binding
+# (DB), database name numera-waitlist; the schema is migrations/0001 + 0002. Which Pages project and D1 database it deploys
 # to is a founder decision (README "Open decisions"); deploy is founder-run, agents never deploy.
 # Secrets are never in this file: TURNSTILE_SECRET and IP_HASH_SALT are Pages secrets.
 name = "numera-cover"
@@ -9,7 +9,7 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "numera-waitlist"
-# Placeholder until the founder creates the database and pastes the id; local dev works with it. The database
-# must be created in the eu jurisdiction (node scripts/deploy-site.mjs --create-db --yes): the privacy notice says so.
-database_id = "00000000-0000-0000-0000-000000000000"
+# The database lives in the eu jurisdiction (created with wrangler d1 create --jurisdiction eu): the privacy notice says
+# so, and scripts/deploy-site.mjs re-checks it against wrangler d1 list before every deploy. The id is not a secret.
+database_id = "ef945e90-81ab-4725-8e30-be97e7bb1f93"
 migrations_dir = "migrations"

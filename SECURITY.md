@@ -208,13 +208,15 @@ Residual risks that remain even with v2 as written:
 
 ## 7. Tests backing these claims
 
-Run everything with:
+Run each component with:
 
 ```sh
-node scripts/check.mjs
+(cd contracts && forge build && forge test)
+(cd engine && python -m ruff check . && python -m pytest -q tests)
+npm --prefix app run build && npm --prefix app test
 ```
 
-It runs `forge build` and `forge test` in `contracts/`, `ruff` and `pytest` in `engine/`, and the build
+That is `forge build` and `forge test` in `contracts/`, `ruff` and `pytest` in `engine/`, and the build
 and tests in `app/`. Results on 2026-10-02:
 
 - **Contracts:** 98 Foundry tests in 7 suites, all passing. They cover each `buyCover` check and its
