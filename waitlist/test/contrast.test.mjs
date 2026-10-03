@@ -46,6 +46,33 @@ test('text tokens reach WCAG AA (4.5:1) on every surface', () => {
   }
 });
 
+// The join section has the Numera mark behind it at --join-mark-opacity. Worst case for the text there: the
+// mark's brightest pixel, taken as pure white (a lit 3D face can be brighter than any palette colour), at that
+// opacity over the ground. The section text sits on that directly; the form sits on the ticket's --surface-join
+// backing over it.
+const markA = Number(tok['join-mark-opacity']);
+const markWorst = over([255, 255, 255, markA], bg);
+const joinSurfaces = {
+  'join mark (worst pixel)': markWorst,
+  'join ticket backing over the mark': over(parse(tok['surface-join']), markWorst),
+  'join ticket backing over the ground': over(parse(tok['surface-join']), bg),
+};
+
+test('join section: the mark opacity is a token in (0, 0.35]', () => {
+  assert.ok(markA > 0 && markA <= 0.35, `--join-mark-opacity ${tok['join-mark-opacity']}`);
+});
+
+test('join section: text tokens reach WCAG AA over the mark and over the ticket backing', () => {
+  for (const name of ['text-strong', 'text', 'text-label', 'text-accent']) {
+    for (const [sn, s] of Object.entries(joinSurfaces)) {
+      const r = ratio(over(parse(tok[name]), s), s);
+      assert.ok(r >= 4.5, `${name} on ${sn}: ${r.toFixed(2)}`);
+    }
+  }
+  // the button text on green and the green UI edge, inside the ticket
+  for (const [sn, s] of Object.entries(joinSurfaces)) assert.ok(ratio(parse(tok.green), s) >= 3, `green edge on ${sn}`);
+});
+
 test('button text on green is at least 4.5:1; green as a UI edge is at least 3:1 on every surface', () => {
   assert.ok(ratio(parse(tok['on-accent']), parse(tok.green)) >= 4.5);
   for (const [sn, s] of Object.entries(surfaces)) assert.ok(ratio(parse(tok.green), s) >= 3, `green edge on ${sn}`);

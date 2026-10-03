@@ -183,19 +183,31 @@ Direct dependencies (the license is the field npm reports):
 | `astro` | 5.18.2 | MIT | Build |
 | `@fontsource-variable/instrument-sans` | 5.3.0 | OFL-1.1 | Display and body font. Only the Latin width-axis file is used, and it is self-hosted. |
 | `@fontsource-variable/jetbrains-mono` | 5.3.0 | OFL-1.1 | Mono font for machine numbers. Only the Latin file is used, and it is self-hosted. |
+| `three` | 0.186.1 | MIT | The 3D Numera mark behind the join section. Self-bundled, loaded lazily (see below). |
+| `@types/three` (dev) | 0.186.0 | MIT | Types for the above |
 | `wrangler` (dev) | 4.147.0 | MIT OR Apache-2.0 | Local Pages and D1 server. Deploying stays founder-run. |
 
-The page ships no UI framework, animation library, 3D library or web3 library. There is no GSAP and no
-source-available package.
+The page ships no UI framework, animation library or web3 library, and no 3D library in its first load. There is
+no GSAP and no source-available package.
 
-Transitive summary (`npm run licenses`, 310 packages):
+**The join-section mark.** The section shows the flat SVG mark behind it at `--join-mark-opacity` (0.15, in
+`src/styles/tokens.css`). When the section comes within `JOIN_MARK_ROOT_MARGIN` (600 px) of the viewport, motion
+is on and WebGL works, `src/client/joinmark.ts` imports `src/client/mark3d.ts`, a separate chunk with three.js
+(about 140 KB gz, same origin, so the CSP is unchanged), which extrudes the same two polygons and turns them slowly
+(`MARK_SPIN_RAD_S` 0.125 rad/s, `MARK_TILT_RAD` 0.12, device pixel ratio capped at `MARK_MAX_DPR` 2). It renders
+through the page's rAF scheduler, so it stops off screen, in a hidden tab and with motion off. Reduced motion or no
+WebGL keeps the flat mark. The waitlist ticket has a darker backing (`--surface-join`), and
+`test/contrast.test.mjs` checks every text token over the mark's brightest possible pixel and over that backing.
+The loader adds 0.7 KB gz to the first load (`npm run size`: 34.9 KB before, 35.6 KB after).
+
+Transitive summary (`npm run licenses`, 318 packages):
 
 | Count | License |
 |---|---|
-| 264 | MIT |
+| 271 | MIT |
 | 11 | ISC |
 | 9 | BSD-2-Clause |
-| 8 | Apache-2.0 |
+| 9 | Apache-2.0 |
 | 3 | MIT OR Apache-2.0 |
 | 3 | CC0-1.0 |
 | 3 | BSD-3-Clause |

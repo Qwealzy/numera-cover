@@ -16,6 +16,14 @@ const Nx = Wl.issued.next;
 ---
 
 <section id="join" class="section join" aria-labelledby="join-title">
+  <!-- the Numera mark behind the section: flat SVG first; src/client/joinmark.ts swaps in a turning 3D mark when
+       the section comes near, motion is on and WebGL works. Its opacity is the token --join-mark-opacity. -->
+  <div class="join-mark" data-join-mark aria-hidden="true">
+    <svg class="join-mark-flat" viewBox="0 0 512 512" focusable="false">
+      <polygon fill="#435c7a" points={poly(MARK_NAVY)}></polygon>
+      <polygon fill="#23b779" points={poly(MARK_GREEN)}></polygon>
+    </svg>
+  </div>
   <div class="wrap grid">
     <div class="section-head" data-reveal>
       <p class="kicker">{Wl.kicker}</p>
@@ -150,6 +158,33 @@ const Nx = Wl.issued.next;
 </section>
 
 <style>
+  .join {
+    isolation: isolate;
+  }
+  .join-mark {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    opacity: var(--join-mark-opacity);
+  }
+  .join-mark-flat {
+    width: auto;
+    height: 72%;
+    max-width: 90%;
+  }
+  .join-mark[data-mode='3d'] .join-mark-flat {
+    display: none;
+  }
+  .join-mark :global(.join-mark-3d) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
   .grid {
     display: grid;
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -179,7 +214,8 @@ const Nx = Wl.issued.next;
     position: relative;
     border: 1px solid var(--line-strong);
     border-radius: 18px;
-    background: var(--surface-strong);
+    /* a darker backing than other cards, so the fields stay readable over the mark behind the section */
+    background: var(--surface-join);
     overflow: hidden;
   }
   .ticket:global(.shake) {

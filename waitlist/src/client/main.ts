@@ -9,6 +9,7 @@ import { mountSteps } from './steps.ts';
 import { mountToy } from './toy.ts';
 import { startLive, mountLedger } from './live.ts';
 import { mountJoin } from './join.ts';
+import { mountJoinMark } from './joinmark.ts';
 import { mountPriceYou } from './price.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel);
@@ -86,6 +87,7 @@ export function boot(): void {
   const joinSection = $('#join');
   let join: ReturnType<typeof mountJoin> | null = null;
   if (joinSection) guarded('join', () => (join = mountJoin(joinSection)));
+  if (joinSection) guarded('join-mark', () => mountJoinMark(joinSection));
 
   // every Join CTA goes to the one form: scroll, focus the handle, nudge the ticket. On narrow screens the
   // door toggle stays in view above the ticket, so the handle field lands well inside the first screen.

@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const ALLOWED = ['rpcs.chain.link', 'rpc.hyperliquid-testnet.xyz', 'challenges.cloudflare.com', 't.me/godsonits', 'x.com/ggodsonits'];
+// Strings in the self-hosted three.js chunk that look like URLs but are never fetched: the XHTML namespace passed
+// to createElementNS, and a paper reference in a comment inside a GLSL shader string. Only in .js files.
+const NOT_FETCHED = ['www.w3.org/1999/xhtml', 'jcgt.org/published/0007/04/01/'];
 const files = (d, out = []) => {
   for (const n of readdirSync(d)) {
     const p = path.join(d, n);
@@ -38,6 +41,7 @@ for (const f of files(DIST)) {
   if (/\.(html|css)$/.test(f) && /:global\(/.test(t)) add(f, 'uncompiled :global( selector (the browser drops that rule)');
   for (const m of t.matchAll(/\b(?:https?:)?\/\/([a-z0-9.-]+\.[a-z]{2,})(\/[^\s"'`)<>]*)?/gi)) {
     const url = m[1] + (m[2] ?? '');
+    if (f.endsWith('.js') && NOT_FETCHED.includes(url)) continue;
     if (!ALLOWED.some((a) => url === a || url.startsWith(`${a}/`) || (a.includes('/') && url.startsWith(a))))
       add(f, `absolute URL ${m[0]}`);
   }
