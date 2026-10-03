@@ -611,12 +611,22 @@ export const meta = {
     'A fixed USDC payout if the Hyperliquid oracle touches your level; the position stays open. Testnet only, mock funds; not insurance, not an offer.',
 };
 
+export type NoticeLink = { label: string; href: string };
+export type NoticeSection = { h: string; p: string[]; links?: NoticeLink[] };
+
+/** Cloudflare pages the notice links to (check-dist allows exactly these two Cloudflare URLs). */
+export const CF_TURNSTILE_NOTICE: NoticeLink = {
+  label: 'Cloudflare Turnstile privacy notice',
+  href: 'https://www.cloudflare.com/turnstile-privacy-policy/',
+};
+export const CF_DPA: NoticeLink = { label: 'Cloudflare customer data processing addendum', href: 'https://www.cloudflare.com/cloudflare-customer-dpa/' };
+
 export const privacy = {
   title: 'Privacy notice',
   pending: 'Pending legal review',
   updated: 'Version ' + CONSENT_VERSION,
   intro:
-    'This notice explains what happens to the details you give when you join the Numera waitlist (GDPR Art. 13).',
+    'This notice explains what happens to the details you give when you join the Numera waitlist (GDPR Art. 13 and KVKK Art. 10).',
   sections: [
     {
       h: 'Who is responsible',
@@ -631,26 +641,30 @@ export const privacy = {
         'Your email address (stored as typed, trimmed and in lower case), and, only if you gave them, your Telegram username and your X handle (either or both). Also the version of this notice you agreed to, your jurisdiction confirmation and the time you joined.',
         'Purpose: to email you when the next Numera testnet round opens and about its launch, and, if you gave a handle, to contact you there about the same. Launch and testnet notices only; no newsletter, no profiling, no advertising, no sale.',
         'To stop automated abuse, each request also stores a salted one-way hash of your IP address for 24 hours. The IP address itself is never stored.',
+        'Cloudflare tells our server the country your request comes from. We use it only to refuse requests from the US, the UK and comprehensively sanctioned countries, and we do not store it.',
       ],
     },
     {
       h: 'Legal basis',
       p: [
-        'Your consent (GDPR Art. 6(1)(a)) for the waitlist entry and the launch email. The short-lived IP hash rests on our legitimate interest in keeping the form free of spam (Art. 6(1)(f)).',
+        'Your consent (GDPR Art. 6(1)(a)) for the waitlist entry and the launch email. The short-lived IP hash and the country check rest on our legitimate interest in keeping the form free of spam and within the eligibility limits (Art. 6(1)(f)).',
         'Under Law No. 6563 on the Regulation of Electronic Commerce, we send these emails only with the explicit consent you give in the form.',
       ],
     },
     {
       h: 'Recipients',
       p: [
-        'Cloudflare, Inc. hosts this site and the waitlist database (Cloudflare Pages and D1) and runs the Turnstile spam check, which processes technical data from your browser when the form loads and is submitted.',
+        'Cloudflare, Inc. is our processor: it hosts this site (Cloudflare Pages), stores the waitlist in its D1 database and runs the Turnstile spam check, which processes technical data from your browser when the form loads and is submitted. Its customer data processing addendum governs this.',
         'The pool statistics and the BTC oracle price on the home page are read by your browser directly from public HyperEVM testnet RPC endpoints (Chainlink and Hyperliquid), which see your IP address like any website does. Nothing you type is sent to them.',
+        'For Turnstile, Cloudflare is also an independent controller: it uses the bot-detection signals it receives to improve its own bot detection, as its Turnstile notice describes.',
       ],
+      links: [CF_DPA, CF_TURNSTILE_NOTICE],
     },
     {
       h: 'Transfer outside your country',
       p: [
-        'Cloudflare may process data in the United States and other countries. Transfers rely on the EU-US Data Privacy Framework, to which Cloudflare is certified, and on the European Commission standard contractual clauses in its data processing terms.',
+        'The waitlist database is created in Cloudflare\'s EU jurisdiction, so your stored entry is kept in the European Union. Cloudflare may still process technical data, such as the request itself and the Turnstile signals, at its locations in other countries.',
+        'For visitors in the EEA, the UK and Switzerland, the Cloudflare addendum includes standard contractual clauses. For persons covered by KVKK, the transfer basis under KVKK Art. 9 is under legal review; see the KVKK section below.',
       ],
     },
     {
@@ -660,26 +674,39 @@ export const privacy = {
       ],
     },
     {
+      h: 'Cookies',
+      p: [
+        'This site sets no cookies of its own and runs no analytics or tracking. Cloudflare may set strictly necessary security cookies (__cf_bm, cf_clearance), and Turnstile processes bot-detection signals when you use the form. Nothing else is set or read on your device.',
+      ],
+    },
+    {
       h: 'Your rights',
       p: [
         'You may ask for access, correction, deletion, restriction or a copy of your data, and object to processing. You may withdraw your consent at any time with a message to the contact above; withdrawal does not affect processing before it.',
         'To unsubscribe from the launch email, or to have your entry deleted, reply to any email we send you, or message the contact above. We then delete your entry and send you nothing more.',
-        'You may complain to the supervisory authority where you live or work.',
+        'You may complain to a supervisory authority: the KVKK Board (Kişisel Verileri Koruma Kurulu), or the data authority where you live or work in the EU or the UK.',
       ],
     },
     {
       h: 'Voluntary',
       p: [
-        'Joining is voluntary and not needed to read this site or use the open-source code. Without an email address we simply cannot tell you when the testnet opens; the handles are optional.',
+        'Giving us your details is voluntary, but needed to join: without an email address we cannot add you to the list or tell you when the testnet opens. The handles are optional. Reading this site and using the open-source code need none of it.',
       ],
     },
     {
-      h: 'KVKK',
+      h: 'KVKK (Law No. 6698)',
       p: [
-        'For persons covered by Law No. 6698 (KVKK): the same controller, purposes, recipients and retention apply, and you may use the rights in its Article 11 through the contact above.',
+        'For persons covered by Law No. 6698 on personal data (KVKK), these are the items of its Article 10.',
+        'Controller: {{CONTROLLER_NAME}}; contact as above.',
+        'Purposes: to email you when the next testnet round opens and about its launch, to contact you on a handle you gave, and to keep the form free of spam and within its eligibility limits.',
+        'Recipients and purpose of transfer: Cloudflare, Inc., as our processor, for hosting, storing the waitlist in D1 and the Turnstile spam check; for Turnstile it is also an independent controller, to improve its bot detection. We pass your data to no one else.',
+        'Transfer abroad: Cloudflare stores the waitlist in its EU jurisdiction. The transfer basis under Art. 9 of the law is under legal review.',
+        'Method and legal basis: collected electronically, through the form on this site and your browser. Your explicit consent (Art. 5(1)) for the waitlist entry and the email; our legitimate interest (Art. 5(2)(f)) for the IP hash and the country check.',
+        'Your rights under Art. 11: to learn whether your data is processed and ask for information; to learn the purpose and whether it is used accordingly; to know the recipients in the country or abroad; to ask for correction; to ask for deletion or destruction (Art. 7) and for that to be notified to recipients; to object to a result against you from exclusively automated analysis (we do none); and to ask for compensation for damage from unlawful processing.',
+        'How to use them: write to the contact above, with the email address you gave. We reply within the 30 days the law allows.',
       ],
     },
-  ],
+  ] as NoticeSection[],
   back: 'Back to the home page',
 };
 

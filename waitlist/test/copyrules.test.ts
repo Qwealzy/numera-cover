@@ -29,7 +29,7 @@ function copyStrings(v: unknown, out: string[] = []): string[] {
     } catch {
       // not a template
     }
-  } else if (v && typeof v === 'object') for (const x of Object.values(v)) copyStrings(x, out);
+  } else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (k !== 'href') copyStrings(x, out); // a URL is an identifier, not copy
   return out;
 }
 /** Text-bearing attributes of the built pages (aria-label, title, alt, placeholder, meta content). */

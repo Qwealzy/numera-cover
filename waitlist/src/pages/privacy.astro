@@ -29,6 +29,15 @@ const fill = (t: string) => fillPlaceholders(t, env);
                 {s.p.map((t) => (
                   <p>{fill(t)}</p>
                 ))}
+                {s.links && (
+                  <ul class="links">
+                    {s.links.map((l) => (
+                      <li>
+                        <a href={l.href} target="_blank" rel="noopener noreferrer">{l.label}</a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </section>
           </li>
@@ -86,6 +95,19 @@ const fill = (t: string) => fillPlaceholders(t, env);
   section > div {
     display: grid;
     gap: 0.65rem;
+  }
+  .links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.25rem;
+  }
+  .links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text-accent);
   }
   .num {
     font-size: 0.8rem;

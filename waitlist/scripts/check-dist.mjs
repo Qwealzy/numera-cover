@@ -10,7 +10,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const ALLOWED = ['rpcs.chain.link', 'rpc.hyperliquid-testnet.xyz', 'challenges.cloudflare.com', 't.me/godsonits', 'x.com/ggodsonits'];
+const ALLOWED = ['rpcs.chain.link', 'rpc.hyperliquid-testnet.xyz', 'challenges.cloudflare.com', 't.me/godsonits', 'x.com/ggodsonits',
+  // the two Cloudflare pages the privacy notice links to
+  'www.cloudflare.com/turnstile-privacy-policy/', 'www.cloudflare.com/cloudflare-customer-dpa/'];
 // Strings in the self-hosted three.js chunk that look like URLs but are never fetched: the XHTML namespace passed
 // to createElementNS, and a paper reference in a comment inside a GLSL shader string. Only in .js files.
 const NOT_FETCHED = ['www.w3.org/1999/xhtml', 'jcgt.org/published/0007/04/01/'];
