@@ -133,7 +133,12 @@ three of:
 - The verdict line describes what has happened, when it happens ("Watching…" until the scripted touch).
 - "I underwrite" turns the wallet tile into the pool tile: premium in, $100 reserved, $100 paid out on a touch.
 - Hovering a readout row lights its line or tile on the stage, and a pointer near a line lights its row.
-- On phones the intro starts when the stage is in view.
+- The intro starts only when what it carries is on screen: the level line (with the touch and the `trigger()`
+  stamp) and the whole wallet tile. On phones that means scrolling the stage into view; until then it reads
+  "Watching…".
+- The price head keeps a column of its own left of the line labels at every leverage. A level label too close
+  to entry moves to the far side of its line, labels never cover the LIVE/SIM tags, the wallet tile or the
+  estimate strip, and each label has a flat ground-colour backing so no line runs through its text.
 
 ## Motion and accessibility
 

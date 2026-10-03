@@ -2,7 +2,7 @@
 // S7, the waitlist as a cover ticket. The /api/join contract is byte-identical to site/ (handle, channel,
 // consent, consentVersion, jurisdiction, turnstileToken). The door changes wording only; no role on the wire.
 // On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
-import { waitlist as Wl, CONSENT_VERSION } from '../copy/en.ts';
+import { waitlist as Wl, footer as F, CONSENT_VERSION } from '../copy/en.ts';
 import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
 import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
 
@@ -12,6 +12,7 @@ interface Props {
 const { sitekey } = Astro.props;
 const D = Wl.doors;
 const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
+const Nx = Wl.issued.next;
 ---
 
 <section id="join" class="section join" aria-labelledby="join-title">
@@ -128,6 +129,17 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
               <div><dt>{Wl.issued.channel}</dt><dd data-i="channel"></dd></div>
               <div><dt>{Wl.issued.door}</dt><dd data-i="door"></dd></div>
             </dl>
+            <div class="i-next">
+              <p class="label i-next-h">{Nx.heading}</p>
+              <ol class="i-steps">
+                <li style="--i:0"><span class="i-k mono">{Nx.stored[0]}</span><span>{Nx.stored[1]}</span></li>
+                <li style="--i:1"><span class="i-k mono">{Nx.when[0]}</span><span>{Nx.when[1]}</span></li>
+                <li style="--i:2">
+                  <span class="i-k mono">{Nx.leave[0]}</span>
+                  <span>{Nx.leave[1]}<a href={F.telegram.href} rel="noopener" target="_blank">{F.telegram.handle}</a>{Nx.leave[2]}<a href={F.x.href} rel="noopener" target="_blank">{F.x.handle}</a>{Nx.leave[3]}</span>
+                </li>
+              </ol>
+            </div>
             <button type="button" class="icon-btn again" data-again>{Wl.issued.again}</button>
           </div>
         </div>
@@ -348,7 +360,7 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
     display: grid;
     align-content: start;
     justify-items: start;
-    gap: 0.9rem;
+    gap: 0.75rem;
     padding-top: 0.4rem;
     outline: none;
   }
@@ -413,6 +425,66 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   .i-rows dd {
     color: var(--text-strong);
     overflow-wrap: anywhere;
+  }
+  /* what happens next: three short steps under a hairline, in the height the folded form keeps */
+  .i-next {
+    justify-self: stretch;
+    display: grid;
+    gap: 0.55rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed var(--line-strong);
+  }
+  .i-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+    counter-reset: nx;
+  }
+  .i-steps li {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: baseline;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .i-k {
+    position: relative;
+    padding-left: 1rem;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-accent);
+  }
+  /* a filled dot for what is done (stored), rings for what is still to come */
+  .i-k::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.32em;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--green);
+  }
+  .i-steps li:first-child .i-k::before {
+    background: var(--green);
+  }
+  .i-steps a {
+    color: var(--text-strong);
+  }
+  :global(html[data-motion='on']) .ticket[data-state='success'] .i-steps li {
+    animation: next-in 520ms var(--ease-out) both;
+    animation-delay: calc(1180ms + var(--i) * 90ms);
+  }
+  @keyframes next-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
   .id-row {
     display: grid;
@@ -532,8 +604,11 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   .submit[aria-disabled='true'] {
     cursor: progress;
   }
+  /* the message slot: two lines reserved with the line box they are drawn in (1.5), so the longest message
+     (generic, 64 characters) or the success sentence never moves the FAQ below; three lines on small phones */
   .status {
     min-height: 3em;
+    line-height: 1.5;
     font-size: 0.86rem;
     color: var(--text-strong);
     outline: none;
@@ -582,6 +657,11 @@ const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
   @media (max-width: 480px) {
     .terms {
       min-height: 3.2em;
+    }
+  }
+  @media (max-width: 389px) {
+    .status {
+      min-height: 4.5em;
     }
   }
 </style>

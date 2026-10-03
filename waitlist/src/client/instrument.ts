@@ -19,7 +19,7 @@ import {
 } from '../lib/pricing.ts';
 import { layout, historyU, liqTicks, distAt, labelTops, pathD, MARK_GREEN, MARK_NAVY, PATH_STEP, SVG_HEAD_FRAC, type Layout } from '../lib/geometry.ts';
 import { instrument as I } from '../copy/en.ts';
-import { loop, motionOn, onMotion, setMotion, onceVisible, clamp, lerp, expoOut, easeIn, smooth, spring } from './motion.ts';
+import { loop, motionOn, onMotion, setMotion, clamp, lerp, expoOut, easeIn, smooth, spring } from './motion.ts';
 import { state, on } from './store.ts';
 
 const C = {
@@ -79,10 +79,17 @@ export function mountInstrument(root: HTMLElement): void {
   let dpr = 1;
   let est: Estimate = estimate(state.setup);
   let labelW = 220; // widest line label (px), measured; the head sits left of the labels
-  const topFrac = () => (w > 0 && w < 640 ? 0.4 : 0.3); // narrow stages: room for the tags above the price
-  const headXFor = (ww: number, expiryX: number) => Math.round(clamp(expiryX - 12 - labelW - 30, ww * 0.42, ww * 0.64));
+  // Narrow stages (≤ 640 px): the LIVE and SIM tags span the top of the stage. A long keeps the price below
+  // them (entry at 40 %); a short, whose lines rise toward the top, ends its 2x liquidation at 26 % so the
+  // lines and the pulled head stay under the tags. Wide stages: the tags sit top-left beside the wallet.
+  const narrow = () => w > 0 && w <= 640;
+  const frame = (): [number, number] => (!narrow() ? [0.3, 0.84] : state.setup.side === 'long' ? [0.4, 0.84] : [0.3, 0.74]);
+  // The head's column ends HEAD_CLEAR px left of the widest label (ring 10 + lean 12 + air), so it never sits
+  // on a label at any leverage; it may move as far left as 34 % of the stage to make that room.
+  const HEAD_CLEAR = 32;
+  const headXFor = (ww: number, expiryX: number) => Math.round(clamp(expiryX - 10 - labelW - HEAD_CLEAR, ww * 0.34, ww * 0.64));
   function mk(ww: number, hh: number): Layout {
-    const T = layout(ww, hh, est.liqDist, est.lvlDist, state.setup.side, topFrac());
+    const T = layout(ww, hh, est.liqDist, est.lvlDist, state.setup.side, ...frame());
     T.headX = ctx && w > 0 ? headXFor(ww, T.expiryX) : Math.round(ww * SVG_HEAD_FRAC);
     return T;
   }
@@ -186,7 +193,7 @@ export function mountInstrument(root: HTMLElement): void {
   // ---- layout / sizing ----------------------------------------------------------------------------------
   function target() {
     est = estimate(state.setup);
-    const T = layout(1000, 1000, est.liqDist, est.lvlDist, state.setup.side, topFrac());
+    const T = layout(1000, 1000, est.liqDist, est.lvlDist, state.setup.side, ...frame());
     return { e: T.entryY / 1000, l: T.levelY / 1000, q: T.liqY / 1000 };
   }
   function measureLabels() {
@@ -194,9 +201,37 @@ export function mountInstrument(root: HTMLElement): void {
     const chars = (el.textContent ?? '').length || 20;
     const cw = el.offsetWidth / chars;
     if (!(cw > 0)) return;
+    // The widest label text any setup can show, so the head does not jump between setups:
+    // "Your level −0.28 % · not offered" (wide stages only; ≤ 640 px drop the suffix) or
+    // "Liquidation −49.37 % · $123,456" ($ values only above 720 px viewports; a 1024 px window has a
+    // narrow stage with $ values), else "Liquidation −49.37 %".
     const showPx = getComputedStyle(liqPx).display !== 'none';
-    // the widest label text: "Liquidation −49.37 % · $123,456" with $, "Liquidation −49.37 %" without
-    labelW = cw * (showPx ? 31 : 21) * 1.04;
+    labelW = cw * (!narrow() ? 33 : showPx ? 31 : 21) * 1.04;
+  }
+  /** The vertical band the line labels may use: the stage minus the tiles that share the labels' column
+   *  (LIVE/SIM tags, the wallet tile, the estimate strip on wide screens). As fractions of the stage height. */
+  let band = { min: 0, max: 1 };
+  const tiles = [stage.querySelector<HTMLElement>('.hud-tags'), wallet, position, root.querySelector<HTMLElement>('[data-strip]')];
+  function measureBand() {
+    const sr = stage.getBoundingClientRect();
+    if (!(sr.width > 0 && sr.height > 0)) return;
+    const right = (L.expiryX / L.w) * sr.width - 10;
+    const left = right - Math.max(...(['entry', 'level', 'liq'] as const).map((k) => lbl(k).offsetWidth));
+    let min = 0;
+    let max = sr.height;
+    for (const el of tiles) {
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (!(r.width > 0 && r.height > 0)) continue;
+      const x0 = r.left - sr.left;
+      const x1 = r.right - sr.left;
+      const y0 = r.top - sr.top;
+      const y1 = r.bottom - sr.top;
+      if (x1 <= left || x0 >= right || y1 <= 0 || y0 >= sr.height) continue;
+      if ((y0 + y1) / 2 < sr.height / 2) min = Math.max(min, y1 + 4);
+      else max = Math.min(max, y0 - 4);
+    }
+    band = { min: min / sr.height, max: max / sr.height };
   }
   function relayout(animate: boolean) {
     const to = target();
@@ -267,9 +302,13 @@ export function mountInstrument(root: HTMLElement): void {
     const dl = { 3600: '1h', 14400: '4h', 86400: '1d', 259200: '3d', 604800: '7d' } as Record<number, string>;
     expiryVal.textContent = dl[state.setup.dur] ?? '';
   }
-  function placeLabels() {
+  /** `measure`: re-read the free band first (setup, size, text or role changes; not on every glide frame). */
+  function placeLabels(measure = false) {
     const hh = h || 560;
-    const t = labelTops(fr.e * hh, fr.l * hh, fr.q * hh, L.dir, 16);
+    if (measure) measureBand();
+    // label height in stage units (the canvas-free SVG works in a 560-high frame)
+    const lh = h ? 16 : (16 * hh) / (stage.clientHeight || hh);
+    const t = labelTops(fr.e * hh, fr.l * hh, fr.q * hh, L.dir, lh, { min: band.min * hh, max: band.max * hh });
     const x = (L.expiryX / L.w) * 100;
     setXY(lbl('entry'), x, (t.entry / hh) * 100);
     setXY(lbl('level'), x, (t.level / hh) * 100);
@@ -708,7 +747,8 @@ export function mountInstrument(root: HTMLElement): void {
     }
     const sr = stage.getBoundingClientRect();
     const wr = wallet.getBoundingClientRect();
-    const tile = { x: wr.left - sr.left + 8, y: wr.top - sr.top + wr.height / 2 - 12 };
+    // the chip lands on the tile's left part and never past the stage's right edge (it would be clipped)
+    const tile = { x: Math.min(wr.left - sr.left + 8, sr.width - (chip.offsetWidth || 160) - 6), y: wr.top - sr.top + wr.height / 2 - 12 };
     const touch = { x: from.x - 40, y: from.y - 34 };
     // trader: the payout flies from the touch into the wallet; underwriter: it leaves the pool for the buyer
     chipFly.from = uw() ? tile : touch;
@@ -735,7 +775,7 @@ export function mountInstrument(root: HTMLElement): void {
 
   // ---- static paint (motion off, or a frame while the loop is not running) -----------------------------------
   function paintStatic() {
-    placeLabels();
+    placeLabels(true);
     if (!ctx) return;
     if (!run.active) draw();
   }
@@ -1006,7 +1046,8 @@ export function mountInstrument(root: HTMLElement): void {
     if (!pullHint || pulledOnce || !ctx) return;
     pullHint.dataset.off = '0';
     clearTimeout(hintTimer);
-    hintTimer = window.setTimeout(hideHint, 6000);
+    // motion off: nothing changes by itself, so the hint stays until the first pull
+    if (motionOn()) hintTimer = window.setTimeout(hideHint, 6000);
   }
   function hideHint() {
     clearTimeout(hintTimer);
@@ -1149,17 +1190,20 @@ export function mountInstrument(root: HTMLElement): void {
     posOpen = true;
     svgScene();
     hud();
-    placeLabels();
+    placeLabels(true);
     say(refused() ? 'refused' : 'intro', 0, false);
   }
   on('live', () => {
     liveTagText();
     labels();
+    // $ values widen the labels, and the LIVE tag's text changes: the free band is re-read
+    placeLabels(true);
   });
   // I trade / I underwrite: the same scene from the other side (wallet tile <-> pool tile, verdict wording)
   on('role', () => {
     hud();
     say(kind, 0, false);
+    placeLabels(true); // the pool tile's text can change its height
   });
   function pauseUi(m: boolean) {
     // the label says what a press will do; no aria-pressed (the name changes instead)
@@ -1190,6 +1234,34 @@ export function mountInstrument(root: HTMLElement): void {
   });
   pauseBtn.addEventListener('click', () => setMotion(!motionOn()));
   replayBtn.addEventListener('click', replay);
+
+  /**
+   * The intro plays only when what it carries is on screen: the level line with the touch and the trigger()
+   * stamp (±40 px), and the whole wallet tile, which sits at the stage's bottom edge on phones. A share of the
+   * stage is not enough: on a 430 px phone 60 % of it is in view on load while the level and the wallet are
+   * not. A stage taller than the window (zoom, landscape phones) starts once it fills 90 % of the window.
+   */
+  function whenMomentInView(f: () => void) {
+    const io = new IntersectionObserver(
+      (es) => {
+        for (const e of es) {
+          if (!e.isIntersecting) continue;
+          const vh = e.rootBounds?.height || window.innerHeight;
+          const sr = e.boundingClientRect;
+          const wr = wallet.getBoundingClientRect();
+          const ly = sr.top + fr.l * sr.height;
+          const seen = wr.top >= 0 && wr.bottom <= vh && Math.max(ly - 40, sr.top) >= 0 && Math.min(ly + 40, sr.bottom) <= vh;
+          if (seen || e.intersectionRect.height >= 0.9 * vh) {
+            io.disconnect();
+            f();
+            return;
+          }
+        }
+      },
+      { threshold: Array.from({ length: 41 }, (_, i) => i / 40) },
+    );
+    io.observe(stage);
+  }
 
   // ---- boot --------------------------------------------------------------------------------------------------
   pauseBtn.removeAttribute('aria-pressed');
@@ -1225,9 +1297,8 @@ export function mountInstrument(root: HTMLElement): void {
   ariaValue();
   if (motionOn()) {
     prepIntro();
-    // the intro plays when most of the stage is in view (on phones it starts below the headline)
-    onceVisible(stage, () => {
+    whenMomentInView(() => {
       if (mode === 'wait') startIntro();
-    }, 0.6);
+    });
   } else endFrame();
 }

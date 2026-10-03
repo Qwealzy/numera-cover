@@ -25,11 +25,13 @@ export type Layout = {
   span: number;
 };
 
-/** `top`: where entry sits, as a fraction of the height from the price side (more headroom on narrow screens). */
-export function layout(w: number, h: number, liqDist: number, lvlDist: number, side: Side, top = 0.3): Layout {
+/** `top`: where entry sits, as a fraction of the height from the price side (more headroom on narrow screens).
+ *  `far`: where the 2x liquidation sits, as a fraction of the height from the price side (less on narrow
+ *  short stages, where the LIVE and SIM tags take the top of the stage). */
+export function layout(w: number, h: number, liqDist: number, lvlDist: number, side: Side, top = 0.3, far = 0.84): Layout {
   const dir = side === 'long' ? 1 : -1;
   const entryY = side === 'long' ? h * top : h * (1 - top);
-  const span = h * (0.84 - top); // entry to the 2x liquidation
+  const span = h * (far - top); // entry to the 2x liquidation
   const k = span / F_MAX;
   return {
     w,
@@ -148,17 +150,41 @@ export function firstCross(level: number, steps = 600): number | null {
 /**
  * Tops (px) of the three line labels: entry, level and liquidation. Each sits on the side of its line that
  * faces away from the next line, and labels never overlap (at 40x the three lines are a few px apart).
+ * The level label normally sits between entry and the level; when that gap is too small for it (high
+ * leverage), it moves to the far side of its line, so neither line runs through its text.
+ * `lim` keeps the labels inside a band (the stage minus the tiles that share the label column): `min` is the
+ * highest allowed top, `max` the lowest allowed bottom. When both cannot hold, `min` wins.
  */
-export function labelTops(entryY: number, levelY: number, liqY: number, dir: 1 | -1, lh = 16): { entry: number; level: number; liq: number } {
+export function labelTops(
+  entryY: number,
+  levelY: number,
+  liqY: number,
+  dir: 1 | -1,
+  lh = 16,
+  lim: { min?: number; max?: number } = {},
+): { entry: number; level: number; liq: number } {
+  const flip = Math.abs(levelY - entryY) < lh + 8;
   const want =
     dir === 1
-      ? { entry: entryY - lh - 2, level: levelY - lh - 2, liq: liqY + 6 }
-      : { entry: entryY + 6, level: levelY + 6, liq: liqY - lh - 2 };
+      ? { entry: entryY - lh - 2, level: flip ? levelY + 3 : levelY - lh - 2, liq: liqY + 6 }
+      : { entry: entryY + 6, level: flip ? levelY - lh - 3 : levelY + 6, liq: liqY - lh - 2 };
   const order = (Object.keys(want) as (keyof typeof want)[]).sort((a, b) => want[a] - want[b]);
   const out = { ...want };
-  for (let i = 1; i < order.length; i++) {
-    const prev = out[order[i - 1]];
-    if (out[order[i]] < prev + lh) out[order[i]] = prev + lh;
+  const lo = lim.min ?? -Infinity;
+  const hi = lim.max ?? Infinity;
+  const down = () => {
+    for (let i = 0; i < order.length; i++) {
+      const floor = i === 0 ? lo : out[order[i - 1]] + lh;
+      if (out[order[i]] < floor) out[order[i]] = floor;
+    }
+  };
+  down();
+  if (hi < Infinity) {
+    for (let i = order.length - 1; i >= 0; i--) {
+      const ceil = i === order.length - 1 ? hi - lh : out[order[i + 1]] - lh;
+      if (out[order[i]] > ceil) out[order[i]] = ceil;
+    }
+    down();
   }
   return out;
 }

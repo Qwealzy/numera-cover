@@ -220,13 +220,16 @@ const cmd = (h: string) => `cast receipt ${h} --rpc-url ${VERIFY_RPC}`;
   .rc[data-reached='n'] :is(.rc-line, .rc-line b, .rc-what, code) {
     color: var(--text-label);
   }
+  /* the note keeps its box in both states (visibility, not display), so the playhead never moves the hashes or
+     anything below the receipts while the run types in (CLS 0) */
   .rc-pending {
-    display: none;
+    display: block;
     font-size: 0.74rem;
     color: var(--text-label);
+    visibility: hidden;
   }
   .rc[data-reached='n'] .rc-pending {
-    display: inline;
+    visibility: visible;
   }
   .rc[data-reached='y'] {
     border-color: var(--line-strong);

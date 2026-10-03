@@ -125,6 +125,31 @@ test('instrument labels never overlap, even at 40x where the lines are a few px 
     }
 });
 
+test('a crowded level label moves to the far side of its line, so no line runs through its text', () => {
+  // 40x long on a phone stage: entry 169, level 176, liquidation 197 (px); the level label is 16 px tall
+  for (const dir of [1, -1] as const) {
+    const [e, l, q] = dir === 1 ? [169, 176, 197] : [253, 246, 225];
+    const t = labelTops(e, l, q, dir, 16);
+    const crosses = (top: number, y: number) => y > top && y < top + 16;
+    for (const y of [e, l, q]) assert.ok(!crosses(t.level, y), `dir ${dir}: line ${y} crosses the level label at ${t.level}`);
+  }
+  // roomy setups keep the level label between entry and the level
+  assert.equal(labelTops(150, 290, 320, 1, 16).level, 290 - 18);
+});
+
+test('instrument labels stay inside the band left free by the tiles, without overlapping', () => {
+  // 2x long on a phone: lines low, the wallet tile at the bottom edge (top 358 px)
+  const a = labelTops(169, 350, 354, 1, 16, { min: 100, max: 354 });
+  for (const v of Object.values(a)) assert.ok(v >= 100 && v + 16 <= 354, JSON.stringify(a));
+  // 2x short on a phone: lines high, the LIVE and SIM tags above (bottom 100 px)
+  const b = labelTops(253, 72, 67, -1, 16, { min: 100, max: 412 });
+  for (const v of Object.values(b)) assert.ok(v >= 100 && v + 16 <= 412, JSON.stringify(b));
+  for (const t of [a, b]) {
+    const ys = [t.entry, t.level, t.liq].sort((x, y) => x - y);
+    assert.ok(ys[1] - ys[0] >= 16 && ys[2] - ys[1] >= 16, JSON.stringify(t));
+  }
+});
+
 test('soft distance map round-trips (pulling the price reads back the right %)', () => {
   const L = layout(800, 500, 0.0886, 0.0795, 'long');
   for (const y of [L.entryY, L.levelY, L.liqY]) assert.ok(Number.isFinite(distAt(L, y)));

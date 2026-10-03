@@ -570,7 +570,16 @@ const facts = Hw.facts as Record<string, readonly string[]>;
       grid-template-areas: 'tabs' 'panels';
     }
   }
+  /* narrow: one column, tabs above the stage above the selected part. The named areas must exist at every
+     width once the three items carry grid-area names, or they all land in one implicit cell (round-2 review). */
   @media (max-width: 899px) {
+    .parts:global(.tabs-on) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'tabs' 'stage' 'panels';
+    }
+    .parts:global(.tabs-on.no-stage) {
+      grid-template-areas: 'tabs' 'panels';
+    }
     .tabs {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }

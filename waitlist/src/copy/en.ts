@@ -522,6 +522,16 @@ export const waitlist = {
     channel: 'Channel',
     door: 'Ticket',
     again: 'Use a different handle',
+    // what happens next, in the space the folded form keeps (nothing below moves). Sources: this section's
+    // intro ("message you when the next testnet round opens"); the privacy notice "What we store and why"
+    // and "Your rights" (withdraw at any time with a message to the contact).
+    next: {
+      heading: 'What happens next',
+      when: ['Next', 'A message on the channel above when the next testnet round opens.'],
+      stored: ['Stored', 'Your handle, the channel, the notice version, your jurisdiction confirmation and the time you joined.'],
+      // the two handles go between these parts (footer.telegram, footer.x)
+      leave: ['Leave', 'Any time: message ', ' on Telegram or ', ' on X.'],
+    },
   },
   errors: {
     handle: 'That handle does not look valid for the chosen channel.',

@@ -24,10 +24,14 @@ export function mountToy(root: HTMLElement): void {
     void el.offsetWidth;
     el.classList.add(cls);
   };
-  function render(msg: string, tone = '') {
+  /** Draws the pool; `msg` goes to the polite live region, which is written only after a visitor's action
+   *  (the first sentence is in the HTML, so nothing is announced while the page loads). */
+  function render(msg?: string, tone = '') {
     slots.forEach((s, i) => s.classList.toggle('on', i < locked));
     cap.classList.toggle('shut', locked >= CAP_BLOCKS);
-    meter.textContent = T.status(locked);
+    const m = T.status(locked);
+    if (meter.textContent !== m) meter.textContent = m;
+    if (msg === undefined) return;
     say.textContent = msg;
     say.dataset.tone = tone;
   }
@@ -72,5 +76,5 @@ export function mountToy(root: HTMLElement): void {
     slots.forEach((s) => s.classList.remove('drop', 'out'));
     render(T.empty);
   });
-  render(T.empty);
+  render();
 }

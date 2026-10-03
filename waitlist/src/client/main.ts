@@ -105,6 +105,10 @@ export function boot(): void {
   on('joined', (s) => {
     if (!s.joined) return;
     for (const c of document.querySelectorAll<HTMLElement>('.join-cta:not([data-submit])')) {
+      // "On the list" is shorter: the button keeps its width, so a CTA row that wrapped stays as it was and
+      // nothing above the form moves (browsers without scroll anchoring would jump otherwise)
+      const w = c.getBoundingClientRect().width;
+      if (w > 0) c.style.minWidth = `${w}px`;
       c.classList.add('joined');
       for (const l of c.querySelectorAll('.cta-label, .cta-short')) l.textContent = N.joined;
     }

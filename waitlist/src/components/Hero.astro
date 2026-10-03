@@ -442,12 +442,15 @@ const pct = (x: number) => fmtProb(x);
   .lbl-expiry {
     opacity: var(--la, 1);
   }
+  /* a flat ground-colour backing: where lines sit a few px apart (40x) none of them runs through the text */
   .lbl-entry,
   .lbl-level,
   .lbl-liq {
     transform: translate(calc(var(--x) * 1cqw - 100% - 10px), calc(var(--y) * 1cqh));
     text-align: right;
     line-height: 16px;
+    padding: 0 4px;
+    background: rgb(12 21 32 / 0.86);
   }
   .lbl-level,
   .lbl-level b {
@@ -868,9 +871,11 @@ const pct = (x: number) => fmtProb(x);
     display: grid;
     justify-items: end;
   }
+  /* the $ line is empty until the live read: its line box is exactly the reserved height (no 3 px shift) */
   .usd {
     display: block;
     min-height: 1.35em;
+    line-height: 1.35;
     font-size: 0.78rem;
     color: var(--text-label);
   }
@@ -1102,6 +1107,11 @@ const pct = (x: number) => fmtProb(x);
       width: 124px;
     }
     .lbl-expiry {
+      display: none;
+    }
+    /* "· not offered" would push the level label into the head's column; the strip, the wallet tile and the
+       verdict already say it */
+    .lbl-note {
       display: none;
     }
     .stamp {
