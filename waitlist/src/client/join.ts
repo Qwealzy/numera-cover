@@ -1,8 +1,9 @@
-// S7 waitlist ticket. Same /api/join request as site/ (no role on the wire); the browser uses the server's own
-// normalizeHandle for instant feedback, the server stays authoritative. Turnstile loads lazily (about 1.5
+// S7 waitlist ticket. The /api/join request is site/'s plus a required `email`; the handle is optional (no role
+// on the wire). The browser uses the server's own normalizeEmail / normalizeHandle for instant feedback; the
+// server stays authoritative. Turnstile loads lazily (about 1.5
 // viewports before the form, or on Join / focus) and is reset after every failed submit (each token works
 // once); after a success it is parked until the visitor reopens the form.
-import { normalizeHandle, type Channel } from '../server/waitlist.ts';
+import { normalizeEmail, normalizeHandle, type Channel } from '../server/waitlist.ts';
 import { waitlist as Wl } from '../copy/en.ts';
 import { motionOn } from './motion.ts';
 import { state, on, set } from './store.ts';
@@ -24,6 +25,7 @@ declare global {
 export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCaptcha: () => void } {
   const form = section.querySelector<HTMLFormElement>('[data-form]')!;
   const ticket = section.querySelector<HTMLElement>('[data-ticket]')!;
+  const email = form.querySelector<HTMLInputElement>('#wl-email')!;
   const handle = form.querySelector<HTMLInputElement>('#wl-handle')!;
   const field = handle.closest<HTMLElement>('.field')!;
   const terms = form.querySelector<HTMLElement>('[data-terms]')!;
@@ -106,6 +108,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     }
   }
   handle.addEventListener('input', feedback);
+  email.addEventListener('input', () => email.removeAttribute('aria-invalid'));
   handle.addEventListener('blur', () => {
     blurred = true;
     feedback();
@@ -143,6 +146,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   function busy(on: boolean) {
     form.setAttribute('aria-busy', String(on));
     handle.readOnly = on;
+    email.readOnly = on;
     for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox], input[name=channel]')) el.disabled = on;
     submit.setAttribute('aria-disabled', String(on));
     const label = submit.querySelector('.cta-label')!;
@@ -157,10 +161,11 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     }
   }
   /** A 200: the fields fold into an issued ticket that shows only what the visitor typed. */
-  function issue(norm: string, ch: Channel) {
+  function issue(mail: string, norm: string | null, ch: Channel | null) {
     const v = (k: string) => issued.querySelector<HTMLElement>(`[data-i="${k}"]`)!;
-    v('handle').textContent = norm;
-    v('channel').textContent = Wl.channel.options.find((o) => o.value === ch)?.label ?? ch;
+    v('email').textContent = mail;
+    v('handle').textContent = norm ?? Wl.issued.none;
+    v('channel').textContent = ch ? (Wl.channel.options.find((o) => o.value === ch)?.label ?? ch) : Wl.issued.none;
     v('door').textContent = doors[door_].title;
     issued.hidden = false;
     ticket.dataset.state = 'success';
@@ -174,11 +179,12 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     issued.hidden = true;
     ticket.dataset.state = 'idle';
     say('', '');
+    email.value = '';
     handle.value = '';
     blurred = false;
     feedback();
     resetCaptcha();
-    handle.focus();
+    email.focus();
   });
 
   form.addEventListener('submit', async (e) => {
@@ -186,12 +192,15 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     if (form.getAttribute('aria-busy') === 'true') return;
     blurred = true;
     loadCaptcha();
-    const ch = channel();
     const raw = handle.value;
-    for (const el of [handle, consent, juris]) el.removeAttribute('aria-invalid');
-    // the handle first, then the two boxes in the order they appear (the server checks each one anyway)
-    const norm = normalizeHandle(raw, ch);
-    if (!norm) return fail('handle', handle);
+    const hasHandle = raw.trim() !== '';
+    const ch = hasHandle ? channel() : null;
+    for (const el of [email, handle, consent, juris]) el.removeAttribute('aria-invalid');
+    // the email, then the optional handle, then the two boxes in the order they appear (the server checks each)
+    const mail = normalizeEmail(email.value);
+    if (!mail) return fail('email', email);
+    const norm = ch ? normalizeHandle(raw, ch) : null;
+    if (hasHandle && !norm) return fail('handle', handle);
     if (!juris.checked) return fail('jurisdiction', juris);
     if (!consent.checked) return fail('consent', consent);
     const token =
@@ -207,8 +216,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          handle: raw,
-          channel: ch,
+          email: email.value,
+          ...(hasHandle ? { handle: raw, channel: ch } : {}),
           consent: true,
           consentVersion: String(new FormData(form).get('consentVersion') ?? ''),
           jurisdiction: true,
@@ -222,11 +231,13 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
         ok = true;
         say(form.dataset.success ?? '', 'ok');
         set('joined', true);
-        issue(norm, ch);
+        issue(mail, norm, ch);
       } else {
         const err = j.error ?? 'generic';
-        const target = err === 'handle' ? handle : err === 'consent' ? consent : err === 'jurisdiction' ? juris : undefined;
-        fail(['handle', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(err) ? err : 'generic', target);
+        const target =
+          err === 'email' ? email : err === 'handle' || err === 'channel' ? handle : err === 'consent' ? consent : err === 'jurisdiction' ? juris : undefined;
+        const key = err === 'channel' ? 'handle' : err;
+        fail(['email', 'handle', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(key) ? key : 'generic', target);
       }
     } catch {
       // network error or the 15 s timeout: nothing was confirmed, so the generic message
@@ -251,7 +262,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
         issued.focus({ preventScroll: true });
         return;
       }
-      handle.focus({ preventScroll: true });
+      email.focus({ preventScroll: true });
       if (motionOn()) {
         ticket.classList.remove('shake');
         void ticket.offsetWidth;

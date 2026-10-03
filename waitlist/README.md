@@ -4,11 +4,19 @@ An interactive early-access page for Numera Liquidation Cover, with a waitlist f
 USDC underwriters. Astro 5 builds it to static output. Cloudflare Pages serves it, with one Pages Function
 (`functions/api/join.ts`) backed by a D1 table.
 
-The waitlist backend is copied from `site/` and stays drop-in compatible:
+The waitlist backend started as a copy of `site/` and has diverged since 2026-10-03:
 
-- the same `/api/join` request and response;
-- the same Turnstile check, D1 binding `DB` and migration `0001`;
-- the same build-env guard.
+- `/api/join` takes a required `email` (trimmed and lowercased, at most 254 characters, a pragmatic syntax check,
+  no MX lookup; dots and `+tags` are kept) and an optional Telegram/X `handle` with its `channel`;
+- the email is the unique key: a duplicate returns the same 200 and stores nothing new;
+- migration `0002_email.sql` rebuilds the `waitlist` table (email column, handle and channel nullable, handle no
+  longer unique); rows from `0001` are kept with no email;
+- the same JSON-only rule, size cap, rate limit (5 per salted IP hash per hour) and Turnstile order as before.
+
+**Do not deploy this folder and `site/` against the same D1 database.** `site/`'s handler inserts with
+`ON CONFLICT(handle_norm) DO NOTHING`; after `0002` `handle_norm` has no unique constraint, so every `site/` signup
+would fail with a 500, and `site/`'s form sends no email, which this handler refuses with 400 `email`. Only one of
+the two is meant to be deployed.
 
 This folder is standalone. It is not merged into `site/` and does not replace it.
 
@@ -18,7 +26,7 @@ Testnet only. Not an offer. Nothing on the page is a quote.
 
 ```bash
 npm ci
-npm test               # node --test: waitlist handler, chain reads, build env, copy rules, contrast, grid parity,
+npm test               # node --test: waitlist handler, migrations on SQLite, chain reads, build env, copy rules, contrast, grid parity,
                        # tail-table hash guard, personal-data scan (src, public and dist), no faded text (opacity lint)
 npm run build          # dist/ (a dev build leaves the /privacy placeholders visible)
 npm run check:dist     # no inline scripts, no data:/blob:, only allowed origins, no explorer links,
@@ -113,13 +121,13 @@ three of:
 
 | Path | What |
 |---|---|
-| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | Copied from `site/` (`/api/join`, D1, Turnstile) |
+| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | Started from `site/` (`/api/join`, D1, Turnstile); email required and handle optional since `0002` |
 | `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Copied from `site/`. `chain.ts` adds the ledger and oracle reads below the original code. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |
 | `src/lib/pricing.ts`, `geometry.ts`, `lanes.ts`, `cascade.ts` | Pure modules shared by the build (static SVG fallback) and the browser |
 | `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the price-table marker (`price.ts`), the toy, live reads and the form |
 | `test/opacity.test.mjs` | Fails on any partial `opacity` in component or global CSS outside a short list of decorative selectors: a state is never shown by fading text |
-| `src/pages/privacy.astro` | The notice from `site/`, restyled. Only the Recipients sentence changed, so the version is now `privacy-2026-10-02-v2`, and `privacy-2026-10-02` is still accepted. |
+| `src/pages/privacy.astro` | The notice from `site/`, restyled. Version `privacy-2026-10-03` adds the email (category, purpose: launch and testnet notices only, retention, how to unsubscribe) and the explicit e-message consent (Law No. 6563); `privacy-2026-10-02-v2` and `privacy-2026-10-02` are still accepted. |
 | `public/_headers`, `robots.txt`, `favicon-32.png`, `numera-mark-60.png` | Copied from `site/` (the CSP is unchanged) |
 | `public/boot.js` | Runs before paint. It sets the motion state and is an external file, because the CSP has no inline scripts. |
 | `public/grain.png` | Film grain in the paper colour, written by `scripts/gen-grain.mjs` |
@@ -248,21 +256,23 @@ for the architect to see:
 
 ## Open decisions (for the architect or founder; not acted on here)
 
-1. **Role field.** The trader/underwriter "doors" change wording only, and the wire format is identical to
-   `site/`. Storing a role would take five changes:
+1. **Role field.** The trader/underwriter "doors" change wording only, and the wire
+   format carries no role. Storing a role would take five changes:
    - an optional request field `role`, one of `trader`, `underwriter` or `both`, validated after `channel`;
    - a new error, 400 `role`;
-   - a migration, `0002_role.sql`:
+   - a migration, `0003_role.sql`:
      `ALTER TABLE waitlist ADD COLUMN role TEXT CHECK (role IS NULL OR role IN ('trader','underwriter','both'));`;
    - "What we store" in the notice gains the role;
    - a `CONSENT_VERSION` bump.
 
    Duplicates keep `DO NOTHING`.
 2. **Pages project and D1 database.** `wrangler.toml` names `numera-cover` and `numera-waitlist`, as `site/` does.
-   If both sites write the same database, `CONSENT_VERSIONS` already lists both notice versions.
+   Since migration `0002` the two backends are not compatible on one database (see the top of this file).
 3. **More perps.** The estimator is BTC-only (max leverage 40×, from `docs/research/hyperliquid.md`). ETH, SOL and
    HYPE would need their max leverage from a source the architect accepts, plus grid rows for each value. The
    page reads no perp metadata; the privacy notice's Recipients sentence says exactly what is read (the pool
    statistics and the BTC oracle price).
+4. **Email delivery.** The page now collects email addresses for one launch email. Which service sends it is not
+   decided; once it is, the privacy notice's Recipients section must name it (and the notice version moves on).
 
 License: AGPL-3.0-only (repo). Fonts: SIL OFL 1.1.

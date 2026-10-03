@@ -1,9 +1,11 @@
-// Copied unchanged from site/test/waitlist.test.ts (waitlist v2 build, 2026-10-02): the same contract must pass here.
+// Started from site/test/waitlist.test.ts (waitlist v2 build, 2026-10-02); since 2026-10-03 email is required
+// (unique on the normalised address) and the handle is optional.
 // node --test: validation, normalisation and the /api/join handler with a fake D1 and a fake Turnstile.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeHandle,
+  normalizeEmail,
   validateSignup,
   handleJoin,
   ipHash,
@@ -13,10 +15,10 @@ import {
   type D1Like,
   type D1Stmt,
 } from '../src/server/waitlist.ts';
-import { CONSENT_VERSION } from '../src/copy/en.ts';
+import { CONSENT_VERSION, CONSENT_VERSIONS } from '../src/copy/en.ts';
 
 // ---- fake D1: implements exactly the statements the handler issues ----
-type Row = { handle_norm: string; channel: string; consent_version: string; jurisdiction_ok: number; created_at: number };
+type Row = { email: string; handle_norm: string | null; channel: string | null; consent_version: string; jurisdiction_ok: number; created_at: number };
 function fakeD1(opts: { failOn?: RegExp } = {}) {
   const waitlist: Row[] = [];
   let attempts: { ip_hash: string; created_at: number }[] = [];
@@ -35,10 +37,10 @@ function fakeD1(opts: { failOn?: RegExp } = {}) {
           if (sql.startsWith('DELETE FROM join_attempts')) attempts = attempts.filter((a) => a.created_at >= (args[0] as number));
           else if (sql.startsWith('INSERT INTO join_attempts')) attempts.push({ ip_hash: args[0] as string, created_at: args[1] as number });
           else if (sql.startsWith('INSERT INTO waitlist')) {
-            assert.match(sql, /ON CONFLICT\(handle_norm\) DO NOTHING/);
-            const [handle_norm, channel, consent_version, created_at] = args as [string, string, string, number];
-            if (!waitlist.some((r) => r.handle_norm === handle_norm))
-              waitlist.push({ handle_norm, channel, consent_version, jurisdiction_ok: 1, created_at });
+            assert.match(sql, /ON CONFLICT\(email\) DO NOTHING/);
+            const [email, handle_norm, channel, consent_version, created_at] = args as [string, string | null, string | null, string, number];
+            if (!waitlist.some((r) => r.email === email))
+              waitlist.push({ email, handle_norm, channel, consent_version, jurisdiction_ok: 1, created_at });
           } else throw new Error(`unexpected run: ${sql}`);
           return {};
         },
@@ -60,6 +62,7 @@ function fakeD1(opts: { failOn?: RegExp } = {}) {
 
 const T0 = Date.UTC(2026, 9, 2, 12, 0, 0);
 const goodBody = (over: Record<string, unknown> = {}) => ({
+  email: 'alice@example.org',
   handle: '@Alice_Trader',
   channel: 'telegram',
   consent: true,
@@ -93,8 +96,54 @@ test('normalizeHandle: telegram 5-32, letter first; x 1-15; strips @, URL, case'
   assert.equal(normalizeHandle(42, 'x'), null);
 });
 
+/** A syntactically valid address of exactly n characters (64-char local part, 60-char domain labels). */
+function addressOf(n: number): string {
+  const local = 'a'.repeat(64);
+  let domain = '.org';
+  let left = n - local.length - 1 - domain.length;
+  const labels: string[] = [];
+  while (left > 0) {
+    const k = Math.min(60, labels.length ? left - 1 : left);
+    labels.push('b'.repeat(k));
+    left -= k + (labels.length > 1 ? 1 : 0);
+  }
+  domain = labels.join('.') + domain;
+  return `${local}@${domain}`;
+}
+
+test('normalizeEmail: trims and lowercases, keeps dots and +tags; pragmatic syntax; at most 254 chars', () => {
+  assert.equal(normalizeEmail('  Alice.Smith+WL@Example.ORG \n'), 'alice.smith+wl@example.org');
+  assert.equal(normalizeEmail('a@b.co'), 'a@b.co');
+  assert.equal(normalizeEmail("o'neil_x-1@mail.sub-domain.example.com"), "o'neil_x-1@mail.sub-domain.example.com");
+  for (const bad of ['', '   ', 'alice', 'alice@', '@example.org', 'alice@example', 'alice@@example.org', 'a@b@example.org',
+    'alice@example.c', 'alice@-example.org', 'alice@example-.org', 'alice@exa_mple.org', '.alice@example.org',
+    'alice.@example.org', 'al..ice@example.org', 'al ice@example.org', 'alice@example..org', 'alice@1.2.3.4', '<a>@example.org'])
+    assert.equal(normalizeEmail(bad), null, JSON.stringify(bad));
+  assert.equal(normalizeEmail(42), null);
+  assert.equal(normalizeEmail(null), null);
+  const a254 = addressOf(254);
+  assert.equal(a254.length, 254);
+  assert.equal(normalizeEmail(a254), a254);
+  const a255 = addressOf(255);
+  assert.equal(a255.length, 255);
+  assert.equal(normalizeEmail(a255), null);
+  assert.equal(normalizeEmail('a'.repeat(65) + '@example.org'), null);
+});
+
+test('validateSignup: email required; handle optional (absent, null, blank) but validated when given', () => {
+  const base = { consentVersion: CONSENT_VERSION, token: 'XXXX.DUMMY.TOKEN.XXXX' };
+  for (const over of [{ handle: undefined }, { handle: null }, { handle: '   ' }, { handle: '', channel: undefined }])
+    assert.deepEqual(validateSignup(goodBody(over)), { email: 'alice@example.org', handleNorm: null, channel: null, ...base }, JSON.stringify(over));
+  assert.deepEqual(validateSignup(goodBody({ email: undefined })), { error: 'email' });
+  assert.deepEqual(validateSignup(goodBody({ email: 'not-an-email' })), { error: 'email' });
+  assert.deepEqual(validateSignup(goodBody({ email: 'ALICE@Example.org ' })), { email: 'alice@example.org', handleNorm: 'tg:alice_trader', channel: 'telegram', ...base });
+  assert.deepEqual(validateSignup(goodBody({ handle: 'no' })), { error: 'handle' });
+  assert.deepEqual(validateSignup(goodBody({ channel: undefined })), { error: 'channel' });
+});
+
 test('validateSignup: names the first failing field', () => {
   assert.deepEqual(validateSignup(goodBody()), {
+    email: 'alice@example.org',
     handleNorm: 'tg:alice_trader',
     channel: 'telegram',
     consentVersion: CONSENT_VERSION,
@@ -119,25 +168,37 @@ test('ipHash: salted, stable, 64 hex, differs per salt', async () => {
   assert.ok(!a.includes('203'));
 });
 
-test('handler: signup inserts one row; duplicate returns the same success and adds nothing', async () => {
+test('handler: signup inserts one row; a duplicate email returns the same success and adds nothing', async () => {
   const f = fakeD1();
   const r1 = await handleJoin(req(goodBody()), env(f.db), pass);
   assert.equal(r1.status, 200);
   assert.deepEqual(await r1.json(), { ok: true });
-  const r2 = await handleJoin(req(goodBody({ handle: 'alice_trader' })), env(f.db), pass);
+  // the same address in another case, with other whitespace and another handle: still the same person
+  const r2 = await handleJoin(req(goodBody({ email: ' Alice@EXAMPLE.org', handle: 'x.com/other', channel: 'x' })), env(f.db), pass);
   assert.equal(r2.status, 200);
   assert.deepEqual(await r2.json(), { ok: true });
   assert.equal(f.waitlist.length, 1);
   assert.deepEqual(f.waitlist[0], {
+    email: 'alice@example.org',
     handle_norm: 'tg:alice_trader',
     channel: 'telegram',
     consent_version: CONSENT_VERSION,
     jurisdiction_ok: 1,
     created_at: T0 / 1000,
   });
-  // same name on X is a different person
-  await handleJoin(req(goodBody({ channel: 'x' })), env(f.db), pass);
-  assert.equal(f.waitlist.length, 2);
+  // a +tag or a dot makes a different address (nothing is stripped)
+  await handleJoin(req(goodBody({ email: 'alice+wl@example.org' })), env(f.db), pass);
+  await handleJoin(req(goodBody({ email: 'a.lice@example.org', handle: undefined })), env(f.db), pass);
+  assert.equal(f.waitlist.length, 3);
+  // email only: no handle, no channel
+  assert.deepEqual(f.waitlist[2], {
+    email: 'a.lice@example.org',
+    handle_norm: null,
+    channel: null,
+    consent_version: CONSENT_VERSION,
+    jurisdiction_ok: 1,
+    created_at: T0 / 1000,
+  });
   // the raw IP is never written
   assert.ok(f.attempts().every((a) => /^[0-9a-f]{64}$/.test(a.ip_hash)));
 });
@@ -145,16 +206,17 @@ test('handler: signup inserts one row; duplicate returns the same success and ad
 test('handler: 6th request from one IP within an hour is 429; another IP and the next hour pass', async () => {
   const f = fakeD1();
   for (let i = 0; i < 5; i++) {
-    const r = await handleJoin(req(goodBody({ handle: `user_number_${i}` })), env(f.db), pass);
+    const r = await handleJoin(req(goodBody({ email: `user${i}@example.org`, handle: `user_number_${i}` })), env(f.db), pass);
     assert.equal(r.status, 200, `request ${i + 1}`);
   }
-  const sixth = await handleJoin(req(goodBody({ handle: 'user_number_6' })), env(f.db), pass);
+  const sixth = await handleJoin(req(goodBody({ email: 'user6@example.org', handle: 'user_number_6' })), env(f.db), pass);
   assert.equal(sixth.status, 429);
   assert.deepEqual(await sixth.json(), { ok: false, error: 'rate' });
   assert.equal(f.waitlist.length, 5);
-  assert.equal((await handleJoin(req(goodBody({ handle: 'other_ip_user' }), '198.51.100.1'), env(f.db), pass)).status, 200);
+  assert.equal((await handleJoin(req(goodBody({ email: 'other@example.org' }), '198.51.100.1'), env(f.db), pass)).status, 200);
   const later = { ...pass, now: () => T0 + 3601_000 };
-  assert.equal((await handleJoin(req(goodBody({ handle: 'user_number_7' })), env(f.db), later)).status, 200);
+  assert.equal((await handleJoin(req(goodBody({ email: 'user7@example.org' })), env(f.db), later)).status, 200);
+  assert.equal(f.waitlist.length, 7);
 });
 
 test('handler: invalid requests also count toward the rate limit', async () => {
@@ -189,7 +251,8 @@ test('handler: bad input is 400 before Turnstile is called', async () => {
   let called = 0;
   const deps = { verify: async () => (called++, true), now: () => T0 };
   for (const [body, error] of [
-    [goodBody({ handle: 'x' }), 'handle'],
+    [goodBody({ email: 'nope' }), 'email'],
+    [goodBody({ email: 'b@example.org', handle: 'x' }), 'handle'],
     [goodBody({ consent: false }), 'consent'],
     [goodBody({ jurisdiction: undefined }), 'jurisdiction'],
     ['{not json', 'body'],
@@ -233,4 +296,10 @@ test('turnstileVerifier: posts secret/response/remoteip to siteverify; only succ
     throw new Error('offline');
   }) as unknown as typeof fetch);
   assert.equal(await throwing('tok', 'sec', ''), false);
+});
+
+test('consent: the current version and both earlier versions are accepted; anything else is refused', () => {
+  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
+  for (const v of CONSENT_VERSIONS) assert.ok(!('error' in validateSignup(goodBody({ consentVersion: v }))), v);
+  assert.deepEqual(validateSignup(goodBody({ consentVersion: 'privacy-2026-10-04' })), { error: 'consent' });
 });

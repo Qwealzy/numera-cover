@@ -1,6 +1,6 @@
 ---
-// S7, the waitlist as a cover ticket. The /api/join contract is byte-identical to site/ (handle, channel,
-// consent, consentVersion, jurisdiction, turnstileToken). The door changes wording only; no role on the wire.
+// S7, the waitlist as a cover ticket. The /api/join body is site/'s plus `email` (required since 2026-10-03; the
+// handle and channel became optional). The door changes wording only; no role on the wire.
 // On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
 import { waitlist as Wl, footer as F, CONSENT_VERSION } from '../copy/en.ts';
 import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
@@ -76,6 +76,24 @@ const Nx = Wl.issued.next;
             data-valid={JSON.stringify(Wl.valid)}
             data-doors={JSON.stringify({ trader: D.trader, underwriter: D.underwriter })}
           >
+            <div class="field email-field">
+              <label for="wl-email" class="label">{Wl.email.label}</label>
+              <div class="input-wrap">
+                <input
+                  id="wl-email"
+                  name="email"
+                  type="email"
+                  required
+                  maxlength="254"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  aria-describedby="wl-email-hint"
+                />
+              </div>
+              <p id="wl-email-hint" class="hint">{Wl.email.hint}</p>
+            </div>
+
             <div class="id-row">
               <fieldset class="channel">
                 <legend class="label">{Wl.channel.label}</legend>
@@ -93,7 +111,6 @@ const Nx = Wl.issued.next;
                     id="wl-handle"
                     name="handle"
                     type="text"
-                    required
                     maxlength="64"
                     autocomplete="off"
                     autocapitalize="none"
@@ -133,6 +150,7 @@ const Nx = Wl.issued.next;
             <p class="i-stamp mono">{Wl.issued.stamp}</p>
             <p class="i-line">{Wl.success}</p>
             <dl class="i-rows mono">
+              <div><dt>{Wl.issued.email}</dt><dd data-i="email"></dd></div>
               <div><dt>{Wl.issued.handle}</dt><dd data-i="handle"></dd></div>
               <div><dt>{Wl.issued.channel}</dt><dd data-i="channel"></dd></div>
               <div><dt>{Wl.issued.door}</dt><dd data-i="door"></dd></div>
@@ -546,7 +564,7 @@ const Nx = Wl.issued.next;
   .input-wrap {
     position: relative;
   }
-  input[type='text'] {
+  input:is([type='text'], [type='email']) {
     width: 100%;
     min-height: 52px;
     padding: 0.7rem 2.6rem 0.7rem 0.95rem;
@@ -557,12 +575,12 @@ const Nx = Wl.issued.next;
     font-family: var(--font-mono);
     font-size: 1rem;
   }
-  input[type='text']:focus-visible {
+  input:is([type='text'], [type='email']):focus-visible {
     outline: var(--focus);
     outline-offset: 2px;
     border-color: var(--green);
   }
-  input[type='text']:read-only {
+  input:is([type='text'], [type='email']):read-only {
     border-style: dashed;
   }
   input[aria-invalid='true'] {

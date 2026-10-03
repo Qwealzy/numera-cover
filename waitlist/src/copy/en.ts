@@ -5,12 +5,12 @@
 // Sources of every figure are named in the comment next to it.
 
 /** Version of the privacy notice a waitlist consent refers to. Bump it whenever the notice text changes;
- *  the server accepts only versions listed in CONSENT_VERSIONS. v2 changed one Recipients sentence
- *  (the BTC oracle price is now read too, besides the pool statistics), so the version moved on; `date` said 2026-10-02, the same
- *  day as the previous version, hence the -v2 suffix (build spec 2.1). */
-export const CONSENT_VERSION = 'privacy-2026-10-02-v2';
-/** The previous version stays accepted: both sites may write the same D1 database. */
-export const CONSENT_VERSIONS: readonly string[] = [CONSENT_VERSION, 'privacy-2026-10-02'];
+ *  the server accepts only versions listed in CONSENT_VERSIONS. 2026-10-03 (`date`): the waitlist now takes an
+ *  email address (required) and the consent names the launch email explicitly (Law No. 6563 on
+ *  commercial electronic messages needs explicit consent). privacy-2026-10-02-v2 changed one Recipients sentence. */
+export const CONSENT_VERSION = 'privacy-2026-10-03';
+/** Earlier versions stay accepted server-side (founder instruction 2026-10-03). */
+export const CONSENT_VERSIONS: readonly string[] = [CONSENT_VERSION, 'privacy-2026-10-02-v2', 'privacy-2026-10-02'];
 
 export const brand = {
   name: 'NUMERA',
@@ -477,7 +477,8 @@ export const proof = {
 export const waitlist = {
   kicker: '06 · Early access',
   heading: 'Join the waitlist',
-  intro: 'Leave a Telegram or X handle and we will message you when the next testnet round opens. No email, no wallet.',
+  intro:
+    'Leave your email and we will write when the next testnet round opens. A Telegram or X handle is optional. No wallet, no keys.',
   doors: {
     label: 'I would',
     trader: {
@@ -492,23 +493,28 @@ export const waitlist = {
     },
     note: 'Your choice only changes this wording; the form stores the same fields either way.',
   },
-  handle: { label: 'Your handle', hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @' },
+  email: { label: 'Your email', hint: 'Used only to tell you when the next testnet round opens.' },
+  handle: { label: 'Your handle (optional)', hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @' },
   channel: { label: 'Channel', options: [{ value: 'telegram', label: 'Telegram' }, { value: 'x', label: 'X' }] },
   terms: { prefix: 'stored as', empty: 'stored as —' },
   valid: { telegram: 'Looks valid for Telegram', x: 'Looks valid for X' },
+  // explicit consent to a commercial electronic message (Law No. 6563), named as such
   consent: {
-    before: 'I agree that Numera stores my handle to contact me about the testnet, as described in the ',
+    before:
+      'Email me when the next Numera testnet round opens. I agree that Numera stores my email (and my handle, if I give one) for this, as described in the ',
     link: 'privacy notice',
-    after: '.',
+    after: '. I can unsubscribe at any time.',
   },
   jurisdiction: 'I am not a resident of, located in, or a citizen of the US, Ontario (Canada) or a sanctioned jurisdiction.',
   submit: 'Join the waitlist',
   sending: 'Sending…',
-  success: 'You are on the list. We will reach out on the channel you chose.',
+  success: 'You are on the list. We will email you when the next testnet round opens.',
   // the issued ticket after a 200 (shows only what the visitor typed; nothing is stored in the browser)
   issued: {
     stamp: 'ON THE LIST',
+    email: 'Email',
     handle: 'Handle',
+    none: '—',
     channel: 'Channel',
     door: 'Ticket',
     again: 'Use a different handle',
@@ -517,14 +523,18 @@ export const waitlist = {
     // and "Your rights" (withdraw at any time with a message to the contact).
     next: {
       heading: 'What happens next',
-      when: ['Next', 'A message on the channel above when the next testnet round opens.'],
-      stored: ['Stored', 'Your handle, the channel, the notice version, your jurisdiction confirmation and the time you joined.'],
+      when: ['Next', 'One email when the next testnet round opens.'],
+      stored: [
+        'Stored',
+        'Your email, your handle and channel if you gave them, the notice version, your jurisdiction confirmation and the time you joined.',
+      ],
       // the two handles go between these parts (footer.telegram, footer.x)
-      leave: ['Leave', 'Any time: message ', ' on Telegram or ', ' on X.'],
+      leave: ['Leave', 'Any time: reply to our email, or message ', ' on Telegram or ', ' on X, to unsubscribe or be deleted.'],
     },
   },
   errors: {
-    handle: 'That handle does not look valid for the chosen channel.',
+    email: 'Please enter a valid email address.',
+    handle: 'That handle does not look valid for the chosen channel. Leave it empty if you prefer.',
     consent: 'Please agree to the privacy notice.',
     jurisdiction: 'Please confirm the jurisdiction statement.',
     captcha: 'The spam check did not pass. Please try again.',
@@ -572,7 +582,7 @@ export const faq = {
     {
       // privacy notice "What we store and why"
       q: 'What do you store?',
-      a: 'Your handle, the channel, the notice version you agreed to, your jurisdiction confirmation and the time you joined. A salted IP hash is kept for 24 hours against spam. The privacy notice has the details.',
+      a: 'Your email address, your handle and channel if you gave them, the notice version you agreed to, your jurisdiction confirmation and the time you joined. A salted IP hash is kept for 24 hours against spam. The privacy notice has the details.',
       link: 'Read the privacy notice',
     },
   ],
@@ -610,15 +620,16 @@ export const privacy = {
     {
       h: 'What we store and why',
       p: [
-        'Your handle, the channel you chose (Telegram or X), the version of this notice you agreed to, your jurisdiction confirmation and the time you joined.',
-        'Purpose: to contact you about the Numera testnet and early access. Nothing else; no profiling, no advertising, no sale.',
+        'Your email address (stored as typed, trimmed and in lower case), and, only if you gave them, your handle and the channel you chose (Telegram or X). Also the version of this notice you agreed to, your jurisdiction confirmation and the time you joined.',
+        'Purpose: to email you when the next Numera testnet round opens and about its launch, and, if you gave a handle, to contact you there about the same. Launch and testnet notices only; no newsletter, no profiling, no advertising, no sale.',
         'To stop automated abuse, each request also stores a salted one-way hash of your IP address for 24 hours. The IP address itself is never stored.',
       ],
     },
     {
       h: 'Legal basis',
       p: [
-        'Your consent (GDPR Art. 6(1)(a)) for the waitlist entry. The short-lived IP hash rests on our legitimate interest in keeping the form free of spam (Art. 6(1)(f)).',
+        'Your consent (GDPR Art. 6(1)(a)) for the waitlist entry and the launch email. The short-lived IP hash rests on our legitimate interest in keeping the form free of spam (Art. 6(1)(f)).',
+        'Under Law No. 6563 on the Regulation of Electronic Commerce, we send these emails only with the explicit consent you give in the form.',
       ],
     },
     {
@@ -637,20 +648,21 @@ export const privacy = {
     {
       h: 'How long',
       p: [
-        'Waitlist entries are deleted by {{DELETE_BY}} at the latest, or earlier when you ask. IP hashes are deleted after 24 hours.',
+        'Waitlist entries, including your email address, are deleted by {{DELETE_BY}} at the latest, or earlier when you ask or unsubscribe. IP hashes are deleted after 24 hours.',
       ],
     },
     {
       h: 'Your rights',
       p: [
         'You may ask for access, correction, deletion, restriction or a copy of your data, and object to processing. You may withdraw your consent at any time with a message to the contact above; withdrawal does not affect processing before it.',
+        'To unsubscribe from the launch email, or to have your entry deleted, reply to any email we send you, or message the contact above. We then delete your entry and send you nothing more.',
         'You may complain to the data protection authority where you live or work.',
       ],
     },
     {
       h: 'Voluntary',
       p: [
-        'Joining is voluntary and not needed to read this site or use the open-source code. Without a handle we simply cannot contact you.',
+        'Joining is voluntary and not needed to read this site or use the open-source code. Without an email address we simply cannot tell you when the testnet opens; the handle is optional.',
       ],
     },
     {

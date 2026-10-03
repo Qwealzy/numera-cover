@@ -1,4 +1,5 @@
-// Copied from site/src/server/waitlist.ts (waitlist v2 build, 2026-10-02); keep in sync with the original.
+// Started from site/src/server/waitlist.ts (waitlist v2 build, 2026-10-02). Since 2026-10-03 it diverges: email
+// is required (unique on the normalised address) and the Telegram/X handle is optional (migration 0002).
 // Waitlist signup logic for the Cloudflare Pages Function functions/api/join.ts.
 // Pure and dependency-free so node --test can run it with a fake D1 and a fake Turnstile (test/waitlist.test.ts).
 // Only erasable TypeScript syntax (Node strips the types when it runs the tests).
@@ -10,6 +11,7 @@ export const CHANNELS: readonly Channel[] = ['telegram', 'x'];
 export const LIMITS = {
   bodyBytes: 4096, // a valid body is ~2.5 kB at most (Turnstile tokens run to ~2 kB)
   handleChars: 64, // raw input, before normalisation
+  emailChars: 254, // RFC 5321 path limit, after trimming
   tokenChars: 2048,
   perHour: 5, // requests per salted IP hash per rolling hour
   hourSec: 3600,
@@ -32,23 +34,55 @@ export function normalizeHandle(raw: unknown, channel: Channel): string | null {
   return HANDLE_RE[channel].test(h) ? `${PREFIX[channel]}:${h}` : null;
 }
 
-export type Signup = { handleNorm: string; channel: Channel; consentVersion: string; token: string };
-export type Invalid = { error: 'handle' | 'channel' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
+// A pragmatic address check, no MX lookup: a local part of 1-64 common characters without leading, trailing or
+// double dots, an @, and a domain of letter/digit/hyphen labels with a 2-63 letter top-level label.
+const EMAIL_LOCAL = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+const EMAIL_DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
-/** Validates a parsed JSON body. -> Signup, or { error } naming the first failing field. */
+/** Normalised address (trimmed, lowercased; dots and +tags kept), or null if it does not look deliverable. */
+export function normalizeEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const e = raw.trim().toLowerCase();
+  if (!e || e.length > LIMITS.emailChars) return null;
+  const at = e.lastIndexOf('@');
+  if (at < 1 || e.indexOf('@') !== at) return null;
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  if (local.length > 64 || domain.length > 253) return null;
+  return EMAIL_LOCAL.test(local) && EMAIL_DOMAIN.test(domain) ? e : null;
+}
+
+export type Signup = {
+  email: string;
+  handleNorm: string | null; // null when no handle was given
+  channel: Channel | null;
+  consentVersion: string;
+  token: string;
+};
+export type Invalid = { error: 'email' | 'handle' | 'channel' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
+
+/** Validates a parsed JSON body. -> Signup, or { error } naming the first failing field. The email is required;
+ *  the handle is optional (absent, null or blank), and when it is given the channel must be valid too. */
 export function validateSignup(body: unknown): Signup | Invalid {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'body' };
   const b = body as Record<string, unknown>;
-  const channel = b.channel;
-  if (channel !== 'telegram' && channel !== 'x') return { error: 'channel' };
-  const handleNorm = normalizeHandle(b.handle, channel);
-  if (!handleNorm) return { error: 'handle' };
+  const email = normalizeEmail(b.email);
+  if (!email) return { error: 'email' };
+  let handleNorm: string | null = null;
+  let channel: Channel | null = null;
+  const blank = b.handle === undefined || b.handle === null || (typeof b.handle === 'string' && !b.handle.trim());
+  if (!blank) {
+    if (b.channel !== 'telegram' && b.channel !== 'x') return { error: 'channel' };
+    channel = b.channel;
+    handleNorm = normalizeHandle(b.handle, channel);
+    if (!handleNorm) return { error: 'handle' };
+  }
   if (b.consent !== true || typeof b.consentVersion !== 'string' || !CONSENT_VERSIONS.includes(b.consentVersion))
     return { error: 'consent' };
   if (b.jurisdiction !== true) return { error: 'jurisdiction' };
   const token = b.turnstileToken;
   if (typeof token !== 'string' || !token || token.length > LIMITS.tokenChars) return { error: 'captcha' };
-  return { handleNorm, channel, consentVersion: b.consentVersion, token };
+  return { email, handleNorm, channel, consentVersion: b.consentVersion, token };
 }
 
 /** Salted SHA-256 of the client IP, hex (the IP itself is never stored). */
@@ -99,7 +133,8 @@ const json = (status: number, body: Record<string, unknown>) =>
 
 /**
  * POST /api/join. Order: config -> content type -> size -> rate limit (every attempt counts) -> validation
- * -> Turnstile -> insert. A duplicate handle returns the same success as a new one (no enumeration).
+ * -> Turnstile -> insert. A duplicate email returns the same success as a new one (no enumeration) and changes
+ * nothing stored.
  * Responses: 200 {ok:true} | 400 {ok:false,error} | 403 captcha | 413 | 415 | 429 rate | 500 config/db.
  */
 export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps): Promise<Response> {
@@ -143,9 +178,9 @@ export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps)
   try {
     await db
       .prepare(
-        'INSERT INTO waitlist (handle_norm, channel, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, 1, ?) ON CONFLICT(handle_norm) DO NOTHING',
+        'INSERT INTO waitlist (email, handle_norm, channel, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(email) DO NOTHING',
       )
-      .bind(v.handleNorm, v.channel, v.consentVersion, now)
+      .bind(v.email, v.handleNorm, v.channel, v.consentVersion, now)
       .run();
   } catch {
     return json(500, { ok: false, error: 'db' });
