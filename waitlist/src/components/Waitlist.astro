@@ -1,10 +1,11 @@
 ---
 // S7, the waitlist as a cover ticket. The /api/join body is site/'s plus `email` (required since 2026-10-03; the
-// handle and channel became optional). No role on the wire.
+// old handle + channel pair became optional telegram and x fields). No role on the wire.
 // On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
 import { waitlist as Wl, footer as F, CONSENT_VERSION } from '../copy/en.ts';
 import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
 import { MARK_GREEN, MARK_NAVY } from '../lib/geometry.ts';
+import { ICON_VIEWBOX, TELEGRAM_PATH, X_PATH } from '../lib/icons.ts';
 
 interface Props {
   sitekey: string;
@@ -78,34 +79,30 @@ const Nx = Wl.issued.next;
                 <span class="more-sign" aria-hidden="true">+</span> {Wl.more}
               </button>
               <div id="wl-more" class="more-body" data-more-body hidden>
-                <div class="id-row">
-                  <fieldset class="channel">
-                    <legend class="visually-hidden">{Wl.channel.label}</legend>
-                    <div class="seg">
-                      {Wl.channel.options.map((o, i) => (
-                        <label><input type="radio" name="channel" value={o.value} checked={i === 0} /><span>{o.label}</span></label>
-                      ))}
+                <!-- two optional fields, each with its network's icon; a signup may give either, both or none -->
+                <div class="handles">
+                  {(['telegram', 'x'] as const).map((k) => (
+                    <div class="field" data-field={k}>
+                      <label for={`wl-${k}`} class="visually-hidden">{Wl[k].label}</label>
+                      <div class="input-wrap has-icon">
+                        <svg class="in-icon" viewBox={ICON_VIEWBOX} aria-hidden="true" focusable="false"><path d={k === 'telegram' ? TELEGRAM_PATH : X_PATH} /></svg>
+                        <input
+                          id={`wl-${k}`}
+                          name={k}
+                          type="text"
+                          maxlength="64"
+                          autocomplete="off"
+                          autocapitalize="none"
+                          spellcheck="false"
+                          placeholder={Wl[k].placeholder}
+                          aria-describedby="wl-handles-hint"
+                        />
+                        <span class="valid-dot" aria-hidden="true"></span>
+                      </div>
                     </div>
-                  </fieldset>
-                  <div class="field">
-                    <label for="wl-handle" class="visually-hidden">{Wl.handle.label}</label>
-                    <div class="input-wrap">
-                      <input
-                        id="wl-handle"
-                        name="handle"
-                        type="text"
-                        maxlength="64"
-                        autocomplete="off"
-                        autocapitalize="none"
-                        spellcheck="false"
-                        placeholder={Wl.handle.placeholder}
-                        aria-describedby="wl-handle-hint"
-                      />
-                      <span class="valid-dot" aria-hidden="true"></span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-                <p id="wl-handle-hint" class="hint focus-hint">{Wl.handle.hint}</p>
+                <p id="wl-handles-hint" class="hint focus-hint">{Wl.handlesHint}</p>
               </div>
             </div>
 
@@ -133,8 +130,8 @@ const Nx = Wl.issued.next;
             <p class="i-line">{Wl.success}</p>
             <dl class="i-rows mono">
               <div><dt>{Wl.issued.email}</dt><dd data-i="email"></dd></div>
-              <div><dt>{Wl.issued.handle}</dt><dd data-i="handle"></dd></div>
-              <div><dt>{Wl.issued.channel}</dt><dd data-i="channel"></dd></div>
+              <div><dt>{Wl.issued.telegram}</dt><dd data-i="telegram"></dd></div>
+              <div><dt>{Wl.issued.x}</dt><dd data-i="x"></dd></div>
             </dl>
             <div class="i-next">
               <p class="label i-next-h">{Nx.heading}</p>
@@ -441,22 +438,26 @@ const Nx = Wl.issued.next;
   .more-body.sizing {
     overflow: hidden;
   }
-  .id-row {
+  .handles {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
-    align-items: center;
   }
-
-  .channel {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    display: grid;
-    gap: 0.4rem;
+  .in-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    margin-top: -9px;
+    fill: var(--text-label);
+    pointer-events: none;
   }
-  .channel legend {
-    margin-bottom: 0.4rem;
+  .has-icon input {
+    padding-left: 2.6rem;
+  }
+  .has-icon:focus-within .in-icon {
+    fill: var(--text-strong);
   }
   .field {
     display: grid;
@@ -588,13 +589,13 @@ const Nx = Wl.issued.next;
       grid-template-columns: minmax(0, 1fr);
     }
   }
-  /* narrow screens: the email and the button stack, the channel toggle sits above the handle */
+  /* narrow screens: the email and the button stack, and the two handle fields stack */
   @media (max-width: 560px) {
     .join-lead {
       --join-mark-h: 15rem;
     }
     .email-row,
-    .id-row {
+    .handles {
       grid-template-columns: minmax(0, 1fr);
     }
     .submit {

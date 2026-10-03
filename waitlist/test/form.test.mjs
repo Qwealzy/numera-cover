@@ -14,13 +14,17 @@ const client = readFileSync(path.join(SITE, 'src/client/join.ts'), 'utf8');
 test('email and submit on one row; the handle block behind <button aria-expanded> and hidden by default', () => {
   assert.match(astro, /<div class="email-row">[\s\S]*id="wl-email"[\s\S]*data-submit[\s\S]*<\/div>\s*<p id="wl-email-hint"/);
   assert.match(astro, /<button type="button" class="more-toggle" aria-expanded="false" aria-controls="wl-more"/);
-  assert.match(astro, /<div id="wl-more" class="more-body" data-more-body hidden>[\s\S]*name="channel"[\s\S]*id="wl-handle"/);
+  assert.match(astro, /<div id="wl-more" class="more-body" data-more-body hidden>[\s\S]*\(\['telegram', 'x'\] as const\)\.map/);
+  // two optional inputs with their own icon; no channel toggle any more
+  assert.match(astro, /id=\{`wl-\$\{k\}`\}/);
+  assert.match(astro, /<svg class="in-icon" viewBox=\{ICON_VIEWBOX\} aria-hidden="true" focusable="false"><path d=\{k === 'telegram' \? TELEGRAM_PATH : X_PATH\} \/><\/svg>/);
+  assert.doesNotMatch(astro, /name="channel"|wl-handle"/);
   assert.match(client, /moreToggle\.setAttribute\('aria-expanded', String\(open\)\)/);
 });
 
 test('every input has a label; helper texts are focus-only; the stored-as line and the door toggle are gone', () => {
-  for (const id of ['wl-email', 'wl-handle', 'wl-jurisdiction', 'wl-consent']) assert.match(astro, new RegExp(`<label for="${id}"`));
-  assert.match(astro, /<legend class="visually-hidden">\{Wl\.channel\.label\}<\/legend>/);
+  for (const id of ['wl-email', 'wl-jurisdiction', 'wl-consent']) assert.match(astro, new RegExp(`<label for="${id}"`));
+  assert.match(astro, /<label for=\{`wl-\$\{k\}`\} class="visually-hidden">\{Wl\[k\]\.label\}<\/label>/);
   assert.match(astro, /class="hint focus-hint">\{Wl\.email\.hint\}/);
   assert.match(astro, /\.focus-hint \{\s*display: none;/);
   assert.doesNotMatch(astro, /data-terms|stored as|data-door|t-line/);

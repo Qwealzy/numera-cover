@@ -1,5 +1,6 @@
 // Started from site/src/server/waitlist.ts (waitlist v2 build, 2026-10-02). Since 2026-10-03 it diverges: email
-// is required (unique on the normalised address) and the Telegram/X handle is optional (migration 0002).
+// is required (unique on the normalised address); a Telegram username and an X handle are each optional, and a
+// signup may give both (migration 0002).
 // Waitlist signup logic for the Cloudflare Pages Function functions/api/join.ts.
 // Pure and dependency-free so node --test can run it with a fake D1 and a fake Turnstile (test/waitlist.test.ts).
 // Only erasable TypeScript syntax (Node strips the types when it runs the tests).
@@ -25,7 +26,7 @@ const HANDLE_RE: Record<Channel, RegExp> = {
 };
 const PREFIX: Record<Channel, string> = { telegram: 'tg', x: 'x' };
 
-/** Normalised unique key "tg:<name>" / "x:<name>" (lowercase, no @, no profile URL), or null if invalid. */
+/** Normalised key "tg:<name>" / "x:<name>" (lowercase, no @, no profile URL), or null if invalid. */
 export function normalizeHandle(raw: unknown, channel: Channel): string | null {
   if (typeof raw !== 'string' || raw.length > LIMITS.handleChars) return null;
   let h = raw.trim().toLowerCase();
@@ -52,37 +53,40 @@ export function normalizeEmail(raw: unknown): string | null {
   return EMAIL_LOCAL.test(local) && EMAIL_DOMAIN.test(domain) ? e : null;
 }
 
+/** An optional handle field: absent, null or blank -> null; otherwise the bare normalised name (lowercase, no @,
+ *  no URL, no "tg:"/"x:" prefix: the column says which network), or false when it is invalid. */
+export function optionalHandle(raw: unknown, channel: Channel): string | null | false {
+  if (raw === undefined || raw === null || (typeof raw === 'string' && !raw.trim())) return null;
+  const n = normalizeHandle(raw, channel);
+  return n ? n.slice(n.indexOf(':') + 1) : false;
+}
+
 export type Signup = {
   email: string;
-  handleNorm: string | null; // null when no handle was given
-  channel: Channel | null;
+  telegram: string | null; // bare username, or null when not given
+  x: string | null;
   consentVersion: string;
   token: string;
 };
-export type Invalid = { error: 'email' | 'handle' | 'channel' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
+export type Invalid = { error: 'email' | 'telegram' | 'x' | 'consent' | 'jurisdiction' | 'captcha' | 'body' };
 
 /** Validates a parsed JSON body. -> Signup, or { error } naming the first failing field. The email is required;
- *  the handle is optional (absent, null or blank), and when it is given the channel must be valid too. */
+ *  `telegram` and `x` are each optional and validated with the same rules as before when present. */
 export function validateSignup(body: unknown): Signup | Invalid {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'body' };
   const b = body as Record<string, unknown>;
   const email = normalizeEmail(b.email);
   if (!email) return { error: 'email' };
-  let handleNorm: string | null = null;
-  let channel: Channel | null = null;
-  const blank = b.handle === undefined || b.handle === null || (typeof b.handle === 'string' && !b.handle.trim());
-  if (!blank) {
-    if (b.channel !== 'telegram' && b.channel !== 'x') return { error: 'channel' };
-    channel = b.channel;
-    handleNorm = normalizeHandle(b.handle, channel);
-    if (!handleNorm) return { error: 'handle' };
-  }
+  const telegram = optionalHandle(b.telegram, 'telegram');
+  if (telegram === false) return { error: 'telegram' };
+  const x = optionalHandle(b.x, 'x');
+  if (x === false) return { error: 'x' };
   if (b.consent !== true || typeof b.consentVersion !== 'string' || !CONSENT_VERSIONS.includes(b.consentVersion))
     return { error: 'consent' };
   if (b.jurisdiction !== true) return { error: 'jurisdiction' };
   const token = b.turnstileToken;
   if (typeof token !== 'string' || !token || token.length > LIMITS.tokenChars) return { error: 'captcha' };
-  return { email, handleNorm, channel, consentVersion: b.consentVersion, token };
+  return { email, telegram, x, consentVersion: b.consentVersion, token };
 }
 
 /** Salted SHA-256 of the client IP, hex (the IP itself is never stored). */
@@ -178,9 +182,9 @@ export async function handleJoin(request: Request, env: JoinEnv, deps: JoinDeps)
   try {
     await db
       .prepare(
-        'INSERT INTO waitlist (email, handle_norm, channel, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(email) DO NOTHING',
+        'INSERT INTO waitlist (email, telegram, x, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(email) DO NOTHING',
       )
-      .bind(v.email, v.handleNorm, v.channel, v.consentVersion, now)
+      .bind(v.email, v.telegram, v.x, v.consentVersion, now)
       .run();
   } catch {
     return json(500, { ok: false, error: 'db' });

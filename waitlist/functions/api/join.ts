@@ -1,5 +1,5 @@
 // Started from site/functions/api/join.ts (waitlist v2 build, 2026-10-02); the logic now differs (email required,
-// handle optional; see src/server/waitlist.ts and migrations/0002_email.sql).
+// Telegram and X handles each optional; see src/server/waitlist.ts and migrations/0002_email.sql).
 // Cloudflare Pages Function: POST /api/join (waitlist signup). Logic and tests live in src/server/waitlist.ts.
 // Bindings (site/wrangler.toml + Pages secrets): DB (D1), TURNSTILE_SECRET, IP_HASH_SALT.
 import { handleJoin, turnstileVerifier, type JoinEnv } from '../../src/server/waitlist.ts';

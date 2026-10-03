@@ -7,10 +7,12 @@ USDC underwriters. Astro 5 builds it to static output. Cloudflare Pages serves i
 The waitlist backend started as a copy of `site/` and has diverged since 2026-10-03:
 
 - `/api/join` takes a required `email` (trimmed and lowercased, at most 254 characters, a pragmatic syntax check,
-  no MX lookup; dots and `+tags` are kept) and an optional Telegram/X `handle` with its `channel`;
+  no MX lookup; dots and `+tags` are kept) and two optional fields, `telegram` and `x` (either, both or none),
+  each validated with the original handle rules and stored as the bare lowercase name;
 - the email is the unique key: a duplicate returns the same 200 and stores nothing new;
-- migration `0002_email.sql` rebuilds the `waitlist` table (email column, handle and channel nullable, handle no
-  longer unique); rows from `0001` are kept with no email;
+- migration `0002_email.sql` rebuilds the `waitlist` table (`email` unique, `telegram` and `x` nullable; the old
+  `handle_norm`/`channel` pair is kept only for rows from `0001`, which keep no email). 0002 was revised in place on
+  2026-10-03 before any deploy;
 - the same JSON-only rule, size cap, rate limit (5 per salted IP hash per hour) and Turnstile order as before.
 
 **Do not deploy this folder and `site/` against the same D1 database.** `site/`'s handler inserts with
@@ -121,7 +123,7 @@ three of:
 
 | Path | What |
 |---|---|
-| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | Started from `site/` (`/api/join`, D1, Turnstile); email required and handle optional since `0002` |
+| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | Started from `site/` (`/api/join`, D1, Turnstile); email required, Telegram and X each optional since `0002` |
 | `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Copied from `site/`. `chain.ts` adds the ledger and oracle reads below the original code. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |
 | `src/lib/pricing.ts`, `geometry.ts`, `lanes.ts`, `cascade.ts` | Pure modules shared by the build (static SVG fallback) and the browser |

@@ -8,10 +8,17 @@
  *  the server accepts only versions listed in CONSENT_VERSIONS. 2026-10-03 (`date`): the waitlist now takes an
  *  email address (required) and the consent names the launch email explicitly (Law No. 6563 on
  *  commercial electronic messages needs explicit consent). privacy-2026-10-02-v2 changed one Recipients sentence. */
-export const CONSENT_VERSION = 'privacy-2026-10-03-v2';
-/** Earlier versions stay accepted server-side (founder instruction 2026-10-03). -v2 (same day, `date`
- *  2026-10-03): the form's consent and jurisdiction statements were shortened, same meaning. */
-export const CONSENT_VERSIONS: readonly string[] = [CONSENT_VERSION, 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02'];
+export const CONSENT_VERSION = 'privacy-2026-10-03-v3';
+/** Earlier versions stay accepted server-side (founder instruction 2026-10-03). Same day (`date` 2026-10-03):
+ *  -v2 shortened the form's consent and jurisdiction statements (same meaning); -v3: a signup may give both a
+ *  Telegram username and an X handle (notice and consent wording). */
+export const CONSENT_VERSIONS: readonly string[] = [
+  CONSENT_VERSION,
+  'privacy-2026-10-03-v2',
+  'privacy-2026-10-03',
+  'privacy-2026-10-02-v2',
+  'privacy-2026-10-02',
+];
 
 export const brand = {
   name: 'NUMERA',
@@ -484,15 +491,12 @@ export const waitlist = {
   ticketTitle: 'Waitlist · HyperEVM testnet',
   email: { label: 'Your email', placeholder: 'Your email', hint: 'Used only to tell you when the next testnet round opens.' },
   more: 'Add Telegram or X (optional)',
-  handle: {
-    label: 'Your Telegram or X handle (optional)',
-    placeholder: 'Telegram or X handle',
-    hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @',
-  },
-  channel: { label: 'Channel', options: [{ value: 'telegram', label: 'Telegram' }, { value: 'x', label: 'X' }] },
+  telegram: { label: 'Telegram username (optional)', placeholder: 'Telegram username' },
+  x: { label: 'X handle (optional)', placeholder: 'X handle' },
+  handlesHint: 'Either, both or none. Telegram: 5-32 characters; X: 1-15 characters; with or without @.',
   // explicit consent to a commercial electronic message (Law No. 6563), named as such
   consent: {
-    before: 'Email me when the next testnet round opens, and store my email (and handle, if given) as the ',
+    before: 'Email me when the next testnet round opens, and store my email (and handles, if given) as the ',
     link: 'privacy notice',
     after: ' describes. I can unsubscribe any time.',
   },
@@ -505,7 +509,8 @@ export const waitlist = {
   issued: {
     stamp: 'ON THE LIST',
     email: 'Email',
-    handle: 'Handle',
+    telegram: 'Telegram',
+    x: 'X',
     none: '—',
     channel: 'Channel',
     again: 'Use a different handle',
@@ -517,7 +522,7 @@ export const waitlist = {
       when: ['Next', 'One email when the next testnet round opens.'],
       stored: [
         'Stored',
-        'Your email, your handle and channel if you gave them, the notice version, your jurisdiction confirmation and the time you joined.',
+        'Your email, your Telegram and X handles if you gave them, the notice version, your jurisdiction confirmation and the time you joined.',
       ],
       // the two handles go between these parts (footer.telegram, footer.x)
       leave: ['Leave', 'Any time: reply to our email, or message ', ' on Telegram or ', ' on X, to unsubscribe or be deleted.'],
@@ -525,7 +530,8 @@ export const waitlist = {
   },
   errors: {
     email: 'Please enter a valid email address.',
-    handle: 'That handle does not look valid for the chosen channel. Leave it empty if you prefer.',
+    telegram: 'That does not look like a Telegram username (5-32 characters, starting with a letter). Leave it empty if you prefer.',
+    x: 'That does not look like an X handle (1-15 characters). Leave it empty if you prefer.',
     consent: 'Please agree to the privacy notice.',
     jurisdiction: 'Please confirm the jurisdiction statement.',
     captcha: 'The spam check did not pass. Please try again.',
@@ -573,7 +579,7 @@ export const faq = {
     {
       // privacy notice "What we store and why"
       q: 'What do you store?',
-      a: 'Your email address, your handle and channel if you gave them, the notice version you agreed to, your jurisdiction confirmation and the time you joined. A salted IP hash is kept for 24 hours against spam. The privacy notice has the details.',
+      a: 'Your email address, your Telegram username and X handle if you gave them, the notice version you agreed to, your jurisdiction confirmation and the time you joined. A salted IP hash is kept for 24 hours against spam. The privacy notice has the details.',
       link: 'Read the privacy notice',
     },
   ],
@@ -611,7 +617,7 @@ export const privacy = {
     {
       h: 'What we store and why',
       p: [
-        'Your email address (stored as typed, trimmed and in lower case), and, only if you gave them, your handle and the channel you chose (Telegram or X). Also the version of this notice you agreed to, your jurisdiction confirmation and the time you joined.',
+        'Your email address (stored as typed, trimmed and in lower case), and, only if you gave them, your Telegram username and your X handle (either or both). Also the version of this notice you agreed to, your jurisdiction confirmation and the time you joined.',
         'Purpose: to email you when the next Numera testnet round opens and about its launch, and, if you gave a handle, to contact you there about the same. Launch and testnet notices only; no newsletter, no profiling, no advertising, no sale.',
         'To stop automated abuse, each request also stores a salted one-way hash of your IP address for 24 hours. The IP address itself is never stored.',
       ],
@@ -653,7 +659,7 @@ export const privacy = {
     {
       h: 'Voluntary',
       p: [
-        'Joining is voluntary and not needed to read this site or use the open-source code. Without an email address we simply cannot tell you when the testnet opens; the handle is optional.',
+        'Joining is voluntary and not needed to read this site or use the open-source code. Without an email address we simply cannot tell you when the testnet opens; the handles are optional.',
       ],
     },
     {

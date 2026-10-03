@@ -1,6 +1,6 @@
 // node --test: migrations 0001 + 0002 on a fresh SQLite database (node:sqlite; D1 is SQLite), then the real
 // /api/join handler against it through a small D1 adapter, so the SQL itself is exercised: rows from 0001 survive
-// 0002, email + handle and email-only signups land, a duplicate email adds nothing, the 6th request is 429.
+// 0002, signups with both handles and with email only land, a duplicate email adds nothing, the 6th request is 429.
 // `wrangler d1 migrations apply --local` is the deploy-side check (README); this one runs in every npm test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,17 +56,18 @@ test('0001 then 0002 on a fresh database: old rows kept (no email), new constrai
     { ...(db.prepare('SELECT email, handle_norm, channel, consent_version FROM waitlist').get() as object) },
     { email: null, handle_norm: 'tg:old_user', channel: 'telegram', consent_version: 'privacy-2026-10-02' },
   );
-  const ins = db.prepare('INSERT INTO waitlist (email, handle_norm, channel, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, ?, ?, 1)');
-  // neither email nor handle; a handle without a channel; a bad channel; jurisdiction not confirmed
-  assert.throws(() => ins.run(null, null, null, 'v', 1), /CHECK/);
-  assert.throws(() => ins.run('a@b.co', 'tg:abcde', null, 'v', 1), /CHECK/);
-  assert.throws(() => ins.run('a@b.co', 'x:a', 'email', 'v', 1), /CHECK/);
+  const ins = db.prepare('INSERT INTO waitlist (email, telegram, x, consent_version, jurisdiction_ok, created_at) VALUES (?, ?, ?, ?, ?, 1)');
+  // no email and no legacy handle; a too-short Telegram name; a too-long X handle; jurisdiction not confirmed
+  assert.throws(() => ins.run(null, 'alice_trader', null, 'v', 1), /CHECK/);
+  assert.throws(() => ins.run('a@b.co', 'abcd', null, 'v', 1), /CHECK/);
+  assert.throws(() => ins.run('a@b.co', null, 'a'.repeat(16), 'v', 1), /CHECK/);
   assert.throws(() => ins.run('a@b.co', null, null, 'v', 0), /CHECK/);
   ins.run('a@b.co', null, null, 'v', 1);
-  assert.throws(() => ins.run('a@b.co', 'x:other', 'x', 'v', 1), /UNIQUE/);
-  // the same handle with another email is a separate signup (handles are not unique any more)
-  ins.run('c@d.co', 'tg:old_user', 'telegram', 'v', 1);
-  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM waitlist').get() as { n: number }).n, 3);
+  assert.throws(() => ins.run('a@b.co', null, 'other', 'v', 1), /UNIQUE/);
+  // both handles on one row; the same handles with another email are a separate signup (handles are not unique)
+  ins.run('c@d.co', 'alice_trader', 'alice', 'v', 1);
+  ins.run('e@f.co', 'alice_trader', 'alice', 'v', 1);
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM waitlist').get() as { n: number }).n, 4);
 });
 
 test('handler on the migrated schema: email + handle, email only, duplicate email, 429 on the 6th', async () => {
@@ -74,16 +75,16 @@ test('handler on the migrated schema: email + handle, email only, duplicate emai
   db.exec(mig('0001_waitlist.sql'));
   db.exec(mig('0002_email.sql'));
   const e = env(db);
-  const rows = () => db.prepare('SELECT email, handle_norm, channel FROM waitlist ORDER BY rowid').all().map((r) => ({ ...r }));
+  const rows = () => db.prepare('SELECT email, telegram, x FROM waitlist ORDER BY rowid').all().map((r) => ({ ...r }));
 
-  assert.equal((await handleJoin(post({ email: 'Alice@Example.org', handle: '@alice_trader', channel: 'telegram' }), e, deps)).status, 200);
+  assert.equal((await handleJoin(post({ email: 'Alice@Example.org', telegram: '@alice_trader', x: '@Alice_X' }), e, deps)).status, 200);
   assert.equal((await handleJoin(post({ email: 'bob+wl@example.org' }), e, deps)).status, 200);
-  const dup = await handleJoin(post({ email: ' ALICE@example.ORG ', handle: 'someone', channel: 'x' }), e, deps);
+  const dup = await handleJoin(post({ email: ' ALICE@example.ORG ', x: 'someone' }), e, deps);
   assert.equal(dup.status, 200);
   assert.deepEqual(await dup.json(), { ok: true });
   assert.deepEqual(rows(), [
-    { email: 'alice@example.org', handle_norm: 'tg:alice_trader', channel: 'telegram' },
-    { email: 'bob+wl@example.org', handle_norm: null, channel: null },
+    { email: 'alice@example.org', telegram: 'alice_trader', x: 'alice_x' },
+    { email: 'bob+wl@example.org', telegram: null, x: null },
   ]);
   assert.equal((await handleJoin(post({ email: 'carol@example.org' }), e, deps)).status, 200);
   assert.equal((await handleJoin(post({ email: 'dave@example.org' }), e, deps)).status, 200);

@@ -1,11 +1,12 @@
 // Started from site/test/waitlist.test.ts (waitlist v2 build, 2026-10-02); since 2026-10-03 email is required
-// (unique on the normalised address) and the handle is optional.
+// (unique on the normalised address); a Telegram username and an X handle are each optional (either, both, none).
 // node --test: validation, normalisation and the /api/join handler with a fake D1 and a fake Turnstile.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeHandle,
   normalizeEmail,
+  optionalHandle,
   validateSignup,
   handleJoin,
   ipHash,
@@ -18,7 +19,7 @@ import {
 import { CONSENT_VERSION, CONSENT_VERSIONS } from '../src/copy/en.ts';
 
 // ---- fake D1: implements exactly the statements the handler issues ----
-type Row = { email: string; handle_norm: string | null; channel: string | null; consent_version: string; jurisdiction_ok: number; created_at: number };
+type Row = { email: string; telegram: string | null; x: string | null; consent_version: string; jurisdiction_ok: number; created_at: number };
 function fakeD1(opts: { failOn?: RegExp } = {}) {
   const waitlist: Row[] = [];
   let attempts: { ip_hash: string; created_at: number }[] = [];
@@ -38,9 +39,10 @@ function fakeD1(opts: { failOn?: RegExp } = {}) {
           else if (sql.startsWith('INSERT INTO join_attempts')) attempts.push({ ip_hash: args[0] as string, created_at: args[1] as number });
           else if (sql.startsWith('INSERT INTO waitlist')) {
             assert.match(sql, /ON CONFLICT\(email\) DO NOTHING/);
-            const [email, handle_norm, channel, consent_version, created_at] = args as [string, string | null, string | null, string, number];
+            assert.match(sql, /^INSERT INTO waitlist \(email, telegram, x, consent_version, jurisdiction_ok, created_at\)/);
+            const [email, telegram, x, consent_version, created_at] = args as [string, string | null, string | null, string, number];
             if (!waitlist.some((r) => r.email === email))
-              waitlist.push({ email, handle_norm, channel, consent_version, jurisdiction_ok: 1, created_at });
+              waitlist.push({ email, telegram, x, consent_version, jurisdiction_ok: 1, created_at });
           } else throw new Error(`unexpected run: ${sql}`);
           return {};
         },
@@ -63,8 +65,7 @@ function fakeD1(opts: { failOn?: RegExp } = {}) {
 const T0 = Date.UTC(2026, 9, 2, 12, 0, 0);
 const goodBody = (over: Record<string, unknown> = {}) => ({
   email: 'alice@example.org',
-  handle: '@Alice_Trader',
-  channel: 'telegram',
+  telegram: '@Alice_Trader',
   consent: true,
   consentVersion: CONSENT_VERSION,
   jurisdiction: true,
@@ -130,29 +131,49 @@ test('normalizeEmail: trims and lowercases, keeps dots and +tags; pragmatic synt
   assert.equal(normalizeEmail('a'.repeat(65) + '@example.org'), null);
 });
 
-test('validateSignup: email required; handle optional (absent, null, blank) but validated when given', () => {
-  const base = { consentVersion: CONSENT_VERSION, token: 'XXXX.DUMMY.TOKEN.XXXX' };
-  for (const over of [{ handle: undefined }, { handle: null }, { handle: '   ' }, { handle: '', channel: undefined }])
-    assert.deepEqual(validateSignup(goodBody(over)), { email: 'alice@example.org', handleNorm: null, channel: null, ...base }, JSON.stringify(over));
+test('optionalHandle: blank is null, valid is the bare lowercase name, invalid is false', () => {
+  for (const blank of [undefined, null, '', '   ']) assert.equal(optionalHandle(blank, 'telegram'), null);
+  assert.equal(optionalHandle('@Alice_Trader', 'telegram'), 'alice_trader');
+  assert.equal(optionalHandle('https://x.com/Some_One', 'x'), 'some_one');
+  assert.equal(optionalHandle('abcd', 'telegram'), false);
+  assert.equal(optionalHandle('a'.repeat(16), 'x'), false);
+});
+
+test('validateSignup: email required; Telegram and X each optional: none / tg only / x only / both / each invalid', () => {
+  const base = { email: 'alice@example.org', consentVersion: CONSENT_VERSION, token: 'XXXX.DUMMY.TOKEN.XXXX' };
+  const v = (over: Record<string, unknown>) => validateSignup(goodBody({ telegram: undefined, ...over }));
+  // none (absent, null or blank)
+  for (const over of [{}, { telegram: null, x: null }, { telegram: '  ', x: '' }]) assert.deepEqual(v(over), { ...base, telegram: null, x: null }, JSON.stringify(over));
+  // Telegram only, X only, both
+  assert.deepEqual(v({ telegram: '@Alice_Trader' }), { ...base, telegram: 'alice_trader', x: null });
+  assert.deepEqual(v({ x: '@J' }), { ...base, telegram: null, x: 'j' });
+  assert.deepEqual(v({ telegram: 't.me/alice_trader', x: 'x.com/Alice_T' }), { ...base, telegram: 'alice_trader', x: 'alice_t' });
+  // each invalid (today's rules), also when the other one is valid
+  assert.deepEqual(v({ telegram: 'abcd' }), { error: 'telegram' });
+  assert.deepEqual(v({ telegram: '1alice' , x: 'ok' }), { error: 'telegram' });
+  assert.deepEqual(v({ x: 'a'.repeat(16) }), { error: 'x' });
+  assert.deepEqual(v({ telegram: 'alice_trader', x: 'bad-handle' }), { error: 'x' });
+  assert.deepEqual(v({ x: 42 }), { error: 'x' });
+  // the old single handle + channel pair is not read any more
+  assert.deepEqual(v({ handle: '@bob_trader', channel: 'telegram' }), { ...base, telegram: null, x: null });
+  // email still required and normalised
   assert.deepEqual(validateSignup(goodBody({ email: undefined })), { error: 'email' });
   assert.deepEqual(validateSignup(goodBody({ email: 'not-an-email' })), { error: 'email' });
-  assert.deepEqual(validateSignup(goodBody({ email: 'ALICE@Example.org ' })), { email: 'alice@example.org', handleNorm: 'tg:alice_trader', channel: 'telegram', ...base });
-  assert.deepEqual(validateSignup(goodBody({ handle: 'no' })), { error: 'handle' });
-  assert.deepEqual(validateSignup(goodBody({ channel: undefined })), { error: 'channel' });
+  assert.deepEqual(validateSignup(goodBody({ email: 'ALICE@Example.org ' })), { ...base, telegram: 'alice_trader', x: null });
 });
 
 test('validateSignup: names the first failing field', () => {
   assert.deepEqual(validateSignup(goodBody()), {
     email: 'alice@example.org',
-    handleNorm: 'tg:alice_trader',
-    channel: 'telegram',
+    telegram: 'alice_trader',
+    x: null,
     consentVersion: CONSENT_VERSION,
     token: 'XXXX.DUMMY.TOKEN.XXXX',
   });
   assert.deepEqual(validateSignup(null), { error: 'body' });
   assert.deepEqual(validateSignup([1]), { error: 'body' });
-  assert.deepEqual(validateSignup(goodBody({ channel: 'email' })), { error: 'channel' });
-  assert.deepEqual(validateSignup(goodBody({ handle: 'no' })), { error: 'handle' });
+  assert.deepEqual(validateSignup(goodBody({ telegram: 'no' })), { error: 'telegram' });
+  assert.deepEqual(validateSignup(goodBody({ x: 'no-no' })), { error: 'x' });
   assert.deepEqual(validateSignup(goodBody({ consent: 'true' })), { error: 'consent' });
   assert.deepEqual(validateSignup(goodBody({ consentVersion: 'privacy-1999-01-01' })), { error: 'consent' });
   assert.deepEqual(validateSignup(goodBody({ jurisdiction: false })), { error: 'jurisdiction' });
@@ -173,28 +194,30 @@ test('handler: signup inserts one row; a duplicate email returns the same succes
   const r1 = await handleJoin(req(goodBody()), env(f.db), pass);
   assert.equal(r1.status, 200);
   assert.deepEqual(await r1.json(), { ok: true });
-  // the same address in another case, with other whitespace and another handle: still the same person
-  const r2 = await handleJoin(req(goodBody({ email: ' Alice@EXAMPLE.org', handle: 'x.com/other', channel: 'x' })), env(f.db), pass);
+  // the same address in another case, with other whitespace and other handles: still the same person
+  const r2 = await handleJoin(req(goodBody({ email: ' Alice@EXAMPLE.org', telegram: 'other_user', x: 'other' })), env(f.db), pass);
   assert.equal(r2.status, 200);
   assert.deepEqual(await r2.json(), { ok: true });
   assert.equal(f.waitlist.length, 1);
   assert.deepEqual(f.waitlist[0], {
     email: 'alice@example.org',
-    handle_norm: 'tg:alice_trader',
-    channel: 'telegram',
+    telegram: 'alice_trader',
+    x: null,
     consent_version: CONSENT_VERSION,
     jurisdiction_ok: 1,
     created_at: T0 / 1000,
   });
   // a +tag or a dot makes a different address (nothing is stripped)
   await handleJoin(req(goodBody({ email: 'alice+wl@example.org' })), env(f.db), pass);
-  await handleJoin(req(goodBody({ email: 'a.lice@example.org', handle: undefined })), env(f.db), pass);
-  assert.equal(f.waitlist.length, 3);
-  // email only: no handle, no channel
+  await handleJoin(req(goodBody({ email: 'a.lice@example.org', telegram: undefined })), env(f.db), pass);
+  await handleJoin(req(goodBody({ email: 'both@example.org', telegram: '@both_handles', x: '@BothX' })), env(f.db), pass);
+  assert.equal(f.waitlist.length, 4);
+  assert.deepEqual([f.waitlist[3].telegram, f.waitlist[3].x], ['both_handles', 'bothx']);
+  // email only: no handles
   assert.deepEqual(f.waitlist[2], {
     email: 'a.lice@example.org',
-    handle_norm: null,
-    channel: null,
+    telegram: null,
+    x: null,
     consent_version: CONSENT_VERSION,
     jurisdiction_ok: 1,
     created_at: T0 / 1000,
@@ -206,10 +229,10 @@ test('handler: signup inserts one row; a duplicate email returns the same succes
 test('handler: 6th request from one IP within an hour is 429; another IP and the next hour pass', async () => {
   const f = fakeD1();
   for (let i = 0; i < 5; i++) {
-    const r = await handleJoin(req(goodBody({ email: `user${i}@example.org`, handle: `user_number_${i}` })), env(f.db), pass);
+    const r = await handleJoin(req(goodBody({ email: `user${i}@example.org`, telegram: `user_number_${i}` })), env(f.db), pass);
     assert.equal(r.status, 200, `request ${i + 1}`);
   }
-  const sixth = await handleJoin(req(goodBody({ email: 'user6@example.org', handle: 'user_number_6' })), env(f.db), pass);
+  const sixth = await handleJoin(req(goodBody({ email: 'user6@example.org', telegram: 'user_number_6' })), env(f.db), pass);
   assert.equal(sixth.status, 429);
   assert.deepEqual(await sixth.json(), { ok: false, error: 'rate' });
   assert.equal(f.waitlist.length, 5);
@@ -221,7 +244,7 @@ test('handler: 6th request from one IP within an hour is 429; another IP and the
 
 test('handler: invalid requests also count toward the rate limit', async () => {
   const f = fakeD1();
-  for (let i = 0; i < 5; i++) assert.equal((await handleJoin(req(goodBody({ handle: '!' })), env(f.db), pass)).status, 400);
+  for (let i = 0; i < 5; i++) assert.equal((await handleJoin(req(goodBody({ telegram: '!' })), env(f.db), pass)).status, 400);
   assert.equal((await handleJoin(req(goodBody()), env(f.db), pass)).status, 429);
 });
 
@@ -252,7 +275,8 @@ test('handler: bad input is 400 before Turnstile is called', async () => {
   const deps = { verify: async () => (called++, true), now: () => T0 };
   for (const [body, error] of [
     [goodBody({ email: 'nope' }), 'email'],
-    [goodBody({ email: 'b@example.org', handle: 'x' }), 'handle'],
+    [goodBody({ email: 'b@example.org', telegram: 'x' }), 'telegram'],
+    [goodBody({ email: 'c@example.org', x: 'bad-handle' }), 'x'],
     [goodBody({ consent: false }), 'consent'],
     [goodBody({ jurisdiction: undefined }), 'jurisdiction'],
     ['{not json', 'body'],
@@ -299,7 +323,7 @@ test('turnstileVerifier: posts secret/response/remoteip to siteverify; only succ
 });
 
 test('consent: the current version and all earlier versions are accepted; anything else is refused', () => {
-  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
+  assert.deepEqual([...CONSENT_VERSIONS], [CONSENT_VERSION, 'privacy-2026-10-03-v2', 'privacy-2026-10-03', 'privacy-2026-10-02-v2', 'privacy-2026-10-02']);
   for (const v of CONSENT_VERSIONS) assert.ok(!('error' in validateSignup(goodBody({ consentVersion: v }))), v);
   assert.deepEqual(validateSignup(goodBody({ consentVersion: 'privacy-2026-10-04' })), { error: 'consent' });
 });

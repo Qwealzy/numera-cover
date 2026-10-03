@@ -1,9 +1,9 @@
-// S7 waitlist ticket. The /api/join request is site/'s plus a required `email`; the handle is optional (no role
+// S7 waitlist ticket. The /api/join request is site/'s plus a required `email`; `telegram` and `x` are each optional (no role
 // on the wire). The browser uses the server's own normalizeEmail / normalizeHandle for instant feedback; the
 // server stays authoritative. Turnstile loads lazily (about 1.5
 // viewports before the form, or on Join / focus) and is reset after every failed submit (each token works
 // once); after a success it is parked until the visitor reopens the form.
-import { normalizeEmail, normalizeHandle, type Channel } from '../server/waitlist.ts';
+import { normalizeEmail, optionalHandle, type Channel } from '../server/waitlist.ts';
 import { waitlist as Wl } from '../copy/en.ts';
 import { motionOn } from './motion.ts';
 import { set } from './store.ts';
@@ -26,8 +26,12 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   const form = section.querySelector<HTMLFormElement>('[data-form]')!;
   const ticket = section.querySelector<HTMLElement>('[data-ticket]')!;
   const email = form.querySelector<HTMLInputElement>('#wl-email')!;
-  const handle = form.querySelector<HTMLInputElement>('#wl-handle')!;
-  const field = handle.closest<HTMLElement>('.field')!;
+  const tg = form.querySelector<HTMLInputElement>('#wl-telegram')!;
+  const xh = form.querySelector<HTMLInputElement>('#wl-x')!;
+  const handles: [Channel, HTMLInputElement][] = [
+    ['telegram', tg],
+    ['x', xh],
+  ];
   const moreToggle = form.querySelector<HTMLButtonElement>('[data-more-toggle]')!;
   const moreBody = form.querySelector<HTMLElement>('[data-more-body]')!;
   const consent = form.querySelector<HTMLInputElement>('#wl-consent')!;
@@ -79,14 +83,15 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   form.addEventListener('focusin', loadCaptcha);
 
   // ---- live feedback ----
-  const channel = (): Channel => ((new FormData(form).get('channel') as string) === 'x' ? 'x' : 'telegram');
+  const fieldOf = (el: HTMLInputElement) => el.closest<HTMLElement>('.field')!;
   function feedback() {
-    const raw = handle.value;
-    const norm = raw.trim() ? normalizeHandle(raw, channel()) : null;
-    if (norm) {
-      field.dataset.valid = 'y';
-      handle.removeAttribute('aria-invalid');
-    } else field.dataset.valid = blurred && raw.trim() ? 'n' : '';
+    for (const [ch, el] of handles) {
+      const v = optionalHandle(el.value, ch);
+      if (v) {
+        fieldOf(el).dataset.valid = 'y';
+        el.removeAttribute('aria-invalid');
+      } else fieldOf(el).dataset.valid = blurred && v === false ? 'n' : '';
+    }
   }
 
   // ---- the optional Telegram/X block, collapsed behind a disclosure button ----
@@ -119,16 +124,17 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   moreToggle.addEventListener('click', () => {
     const open = moreToggle.getAttribute('aria-expanded') !== 'true';
     setMore(open);
-    if (open) handle.focus();
+    if (open) tg.focus();
   });
-  handle.addEventListener('input', feedback);
   email.addEventListener('input', () => email.removeAttribute('aria-invalid'));
-  handle.addEventListener('blur', () => {
-    blurred = true;
-    feedback();
-  });
+  for (const [, el] of handles) {
+    el.addEventListener('input', feedback);
+    el.addEventListener('blur', () => {
+      blurred = true;
+      feedback();
+    });
+  }
   form.addEventListener('change', (e) => {
-    if ((e.target as HTMLInputElement).name === 'channel') feedback();
     const t = e.target as HTMLInputElement;
     if (t.type === 'checkbox' && t.checked) t.removeAttribute('aria-invalid');
   });
@@ -151,18 +157,19 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     say(errors[key] ?? errors.generic, 'error');
     shake();
     if (focusEl) {
-      if (focusEl === handle) setMore(true);
+      const isHandle = focusEl === tg || focusEl === xh;
+      if (isHandle) setMore(true);
       focusEl.setAttribute('aria-invalid', 'true');
-      if (focusEl === handle) field.dataset.valid = 'n';
+      if (isHandle) fieldOf(focusEl as HTMLInputElement).dataset.valid = 'n';
       focusEl.focus();
     } else statusEl.focus({ preventScroll: false });
   }
   /** Sending: aria-busy, read-only fields; the submit keeps focus (aria-disabled, not disabled). */
   function busy(on: boolean) {
     form.setAttribute('aria-busy', String(on));
-    handle.readOnly = on;
+    for (const [, el] of handles) el.readOnly = on;
     email.readOnly = on;
-    for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox], input[name=channel]')) el.disabled = on;
+    for (const el of form.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) el.disabled = on;
     submit.setAttribute('aria-disabled', String(on));
     const label = submit.querySelector('.cta-label')!;
     label.textContent = on ? Wl.sending : Wl.submit;
@@ -176,11 +183,11 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     }
   }
   /** A 200: the fields fold into an issued ticket that shows only what the visitor typed. */
-  function issue(mail: string, norm: string | null, ch: Channel | null) {
+  function issue(mail: string, telegram: string | null, x: string | null) {
     const v = (k: string) => issued.querySelector<HTMLElement>(`[data-i="${k}"]`)!;
     v('email').textContent = mail;
-    v('handle').textContent = norm ?? Wl.issued.none;
-    v('channel').textContent = ch ? (Wl.channel.options.find((o) => o.value === ch)?.label ?? ch) : Wl.issued.none;
+    v('telegram').textContent = telegram ? `@${telegram}` : Wl.issued.none;
+    v('x').textContent = x ? `@${x}` : Wl.issued.none;
     issued.hidden = false;
     ticket.dataset.state = 'success';
     // the ticket's top (the stamp) comes into view on narrow screens
@@ -194,7 +201,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     ticket.dataset.state = 'idle';
     say('', '');
     email.value = '';
-    handle.value = '';
+    tg.value = '';
+    xh.value = '';
     setMore(false);
     blurred = false;
     feedback();
@@ -207,15 +215,14 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     if (form.getAttribute('aria-busy') === 'true') return;
     blurred = true;
     loadCaptcha();
-    const raw = handle.value;
-    const hasHandle = raw.trim() !== '';
-    const ch = hasHandle ? channel() : null;
-    for (const el of [email, handle, consent, juris]) el.removeAttribute('aria-invalid');
-    // the email, then the optional handle, then the two boxes in the order they appear (the server checks each)
+    for (const el of [email, tg, xh, consent, juris]) el.removeAttribute('aria-invalid');
+    // the email, then the optional handles, then the two boxes in the order they appear (the server checks each)
     const mail = normalizeEmail(email.value);
     if (!mail) return fail('email', email);
-    const norm = ch ? normalizeHandle(raw, ch) : null;
-    if (hasHandle && !norm) return fail('handle', handle);
+    const tgName = optionalHandle(tg.value, 'telegram');
+    if (tgName === false) return fail('telegram', tg);
+    const xName = optionalHandle(xh.value, 'x');
+    if (xName === false) return fail('x', xh);
     if (!juris.checked) return fail('jurisdiction', juris);
     if (!consent.checked) return fail('consent', consent);
     const token =
@@ -232,7 +239,8 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           email: email.value,
-          ...(hasHandle ? { handle: raw, channel: ch } : {}),
+          ...(tgName ? { telegram: tg.value } : {}),
+          ...(xName ? { x: xh.value } : {}),
           consent: true,
           consentVersion: String(new FormData(form).get('consentVersion') ?? ''),
           jurisdiction: true,
@@ -246,13 +254,11 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
         ok = true;
         say(form.dataset.success ?? '', 'ok');
         set('joined', true);
-        issue(mail, norm, ch);
+        issue(mail, tgName, xName);
       } else {
         const err = j.error ?? 'generic';
-        const target =
-          err === 'email' ? email : err === 'handle' || err === 'channel' ? handle : err === 'consent' ? consent : err === 'jurisdiction' ? juris : undefined;
-        const key = err === 'channel' ? 'handle' : err;
-        fail(['email', 'handle', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(key) ? key : 'generic', target);
+        const targets: Record<string, HTMLElement> = { email, telegram: tg, x: xh, consent, jurisdiction: juris };
+        fail(['email', 'telegram', 'x', 'consent', 'jurisdiction', 'captcha', 'rate'].includes(err) ? err : 'generic', targets[err]);
       }
     } catch {
       // network error or the 15 s timeout: nothing was confirmed, so the generic message
