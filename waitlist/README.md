@@ -4,23 +4,19 @@ An interactive early-access page for Numera Liquidation Cover, with a waitlist f
 USDC underwriters. Astro 5 builds it to static output. Cloudflare Pages serves it, with one Pages Function
 (`functions/api/join.ts`) backed by a D1 table.
 
-The waitlist backend started as a copy of `site/` and has diverged since 2026-10-03:
+The waitlist backend works like this:
 
 - `/api/join` takes a required `email` (trimmed and lowercased, at most 254 characters, a pragmatic syntax check,
   no MX lookup; dots and `+tags` are kept) and two optional fields, `telegram` and `x` (either, both or none),
-  each validated with the original handle rules and stored as the bare lowercase name;
+  each validated with the handle rules and stored as the bare lowercase name;
 - the email is the unique key: a duplicate returns the same 200 and stores nothing new;
-- migration `0002_email.sql` rebuilds the `waitlist` table (`email` unique, `telegram` and `x` nullable; the old
-  `handle_norm`/`channel` pair is kept only for rows from `0001`, which keep no email). 0002 was revised in place on
-  2026-10-03 before any deploy;
+- migration `0002_email.sql` rebuilds the `waitlist` table (`email` unique, `telegram` and `x` nullable; the
+  `handle_norm`/`channel` pair from `0001` is kept only for rows created by that migration, which keep no email);
 - the same JSON-only rule, size cap, rate limit (5 per salted IP hash per hour) and Turnstile order as before.
 
-**Do not deploy this folder and `site/` against the same D1 database.** `site/`'s handler inserts with
-`ON CONFLICT(handle_norm) DO NOTHING`; after `0002` `handle_norm` has no unique constraint, so every `site/` signup
-would fail with a 500, and `site/`'s form sends no email, which this handler refuses with 400 `email`. Only one of
-the two is meant to be deployed.
-
-This folder is standalone. It is not merged into `site/` and does not replace it.
+Migration `0002` removes the unique constraint on `handle_norm`, so a handler that inserts with
+`ON CONFLICT(handle_norm) DO NOTHING` fails on this schema, and a form that sends no email is refused with 400 `email`.
+Deploy this folder only against a D1 database that uses these migrations.
 
 Testnet only. Not an offer. Nothing on the page is a quote.
 
@@ -44,7 +40,7 @@ The dev and local servers bind to `127.0.0.1:4471`.
 
 ### Build environment
 
-These variables are read by `src/lib/buildenv.mjs`, which started as a copy of `site/`'s.
+These variables are read by `src/lib/buildenv.mjs`, which reads the build variables below.
 
 | Variable | Effect |
 |---|---|
@@ -59,7 +55,7 @@ These variables are read by `src/lib/buildenv.mjs`, which started as a copy of `
 - Pages secrets: `TURNSTILE_SECRET` and `IP_HASH_SALT`.
 - D1 binding: `DB`, set in `wrangler.toml`. The database id is a placeholder.
 
-**Deploying is founder-run.** `node scripts/deploy-site.mjs` (repo root) builds and deploys this folder and applies migrations 0001 + 0002 to the remote D1; it prints the plan first, `--yes` runs a preview deploy, `--prod --yes` production. The D1 database must live in the `eu` jurisdiction (the privacy notice says so; a jurisdiction is fixed at creation): `--create-db --yes` creates it with `wrangler d1 create numera-waitlist --jurisdiction eu`, and every deploy first checks `wrangler d1 info --json` and stops if the database is elsewhere (or, when wrangler does not report it, until `--accept-unverified-jurisdiction` is given). No agent deploys this folder, and nothing here writes to any chain.
+**Deploying is founder-run.** `node scripts/deploy-site.mjs` (repo root) builds and deploys this folder and applies migrations 0001 + 0002 to the remote D1; it prints the plan first, `--yes` runs a preview deploy, `--prod --yes` production. The D1 database must live in the `eu` jurisdiction (the privacy notice says so; a jurisdiction is fixed at creation): `--create-db --yes` creates it with `wrangler d1 create numera-waitlist --jurisdiction eu`, and every deploy first checks `wrangler d1 list --json` (matched by the `database_id` in `wrangler.toml`) and stops if the database is elsewhere (or, when wrangler does not report it, until `--accept-unverified-jurisdiction` is given). No agent deploys this folder, and nothing here writes to any chain.
 
 ## What is live, what is static, what is illustrative
 
@@ -79,7 +75,7 @@ These variables are read by `src/lib/buildenv.mjs`, which started as a copy of `
   remembered for the page view, so a periodic read is just its `eth_call`s (no chain re-check each time); after
   a failure there the endpoints are re-picked with the chain check, the failed one last.
 - A failed read shows "—". No number is ever filled in.
-- The page uses only the two testnet RPC origins and Turnstile; the CSP in `public/_headers` is unchanged from `site/`.
+- The page uses only the two testnet RPC origins and Turnstile; the CSP is in `public/_headers`.
 
 ### The premium grid
 
@@ -125,14 +121,14 @@ three of:
 
 | Path | What |
 |---|---|
-| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | Started from `site/` (`/api/join`, D1, Turnstile); email required, Telegram and X each optional since `0002` |
-| `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Copied from `site/`. `chain.ts` adds the ledger and oracle reads below the original code. |
+| `functions/api/join.ts`, `src/server/waitlist.ts`, `migrations/` | `/api/join`, D1, Turnstile; email required, Telegram and X each optional since `0002` |
+| `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Build-variable loader and chain reads. `chain.ts` holds the ledger and oracle reads. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |
 | `src/lib/pricing.ts`, `geometry.ts`, `lanes.ts`, `cascade.ts` | Pure modules shared by the build (static SVG fallback) and the browser |
 | `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the price-table marker (`price.ts`), the toy, live reads and the form |
 | `test/opacity.test.mjs` | Fails on any partial `opacity` in component or global CSS outside a short list of decorative selectors: a state is never shown by fading text |
-| `src/pages/privacy.astro` | The notice from `site/`, restyled. Version `privacy-2026-10-03` adds the email (category, purpose: launch and testnet notices only, retention, how to unsubscribe) and the explicit e-message consent (Law No. 6563); `privacy-2026-10-02-v2` and `privacy-2026-10-02` are still accepted. |
-| `public/_headers`, `robots.txt`, `favicon-32.png`, `numera-mark-60.png` | Copied from `site/` (the CSP is unchanged) |
+| `src/pages/privacy.astro` | The privacy notice. Version `privacy-2026-10-03` adds the email (category, purpose: launch and testnet notices only, retention, how to unsubscribe) and the explicit e-message consent (Law No. 6563); `privacy-2026-10-02-v2` and `privacy-2026-10-02` are still accepted. |
+| `public/_headers`, `robots.txt`, `favicon-32.png`, `numera-mark-60.png` | Static assets and the CSP |
 | `public/boot.js` | Runs before paint. It sets the motion state and is an external file, because the CSP has no inline scripts. |
 | `public/grain.png` | Film grain in the paper colour, written by `scripts/gen-grain.mjs` |
 
@@ -236,7 +232,7 @@ Transitive summary (`npm run licenses`, 318 packages):
 ### `npm audit`
 
 `npm audit` reports astro (critical), sharp (high) and esbuild (low). The only fix it offers is astro 7, a
-breaking upgrade; 5.18.2 is the newest astro 5 release, and `site/` uses the same line. None of the advisories
+breaking upgrade; 5.18.2 is the newest astro 5 release. None of the advisories
 reaches this build:
 
 - **astro** (XSS through `define:vars`, spread attributes, slot names and view-transition values; server-island
@@ -259,8 +255,6 @@ for the architect to see:
 - `zod-to-ts@1.2.0`: no license field in `package.json`; its LICENSE file is MIT. It comes from `astro` and runs
   at build time only.
 
-`site/` has the same tree, because it uses the same `astro` and `wrangler`.
-
 ## Open decisions (for the architect or founder; not acted on here)
 
 1. **Role field.** The form no longer asks whether a visitor trades or underwrites (the "I would" toggle was
@@ -273,8 +267,8 @@ for the architect to see:
    - a `CONSENT_VERSION` bump.
 
    Duplicates keep `DO NOTHING`.
-2. **Pages project and D1 database.** `wrangler.toml` names `numera-cover` and `numera-waitlist`, as `site/` does.
-   Since migration `0002` the two backends are not compatible on one database (see the top of this file).
+2. **Pages project and D1 database.** `wrangler.toml` names `numera-cover` and `numera-waitlist`.
+   Since migration `0002` the handler needs the schema from `migrations/` (see the top of this file).
 3. **More perps.** The estimator is BTC-only (max leverage 40×, from `docs/research/hyperliquid.md`). ETH, SOL and
    HYPE would need their max leverage from a source the architect accepts, plus grid rows for each value. The
    page reads no perp metadata; the privacy notice's Recipients sentence says exactly what is read (the pool
