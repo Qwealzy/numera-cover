@@ -39,3 +39,17 @@ test('both checkboxes stay: jurisdiction and the explicit email consent with the
 test("Turnstile renders with appearance 'interaction-only'", () => {
   assert.match(client, /appearance: 'interaction-only'/);
 });
+
+test('errors: an empty email reads "Enter your email.", a malformed one keeps its sentence; each error shows next to its field', async () => {
+  const { waitlist } = await import('../src/copy/en.ts');
+  assert.equal(waitlist.errors.emailEmpty, 'Enter your email.');
+  assert.equal(waitlist.errors.email, 'Please enter a valid email address.');
+  assert.match(client, /fail\(email\.value\.trim\(\) \? 'email' : 'emailEmpty', email\)/);
+  // one inline slot per field: email, both handles, both checkboxes, each wired through aria-describedby
+  for (const n of ['email', 'jurisdiction', 'consent']) assert.match(astro, new RegExp(`<p id="wl-${n}-error" class="field-error" data-error="${n}" hidden></p>`));
+  assert.match(astro, /<p id=\{`wl-\$\{k\}-error`\} class="field-error" data-error=\{k\} hidden><\/p>/);
+  assert.match(client, /el\.setAttribute\('aria-describedby', \[slot\.id, \.\.\.ids\]\.join\(' '\)\)/);
+  // a field error is shown inline (the status line keeps only errors that belong to no field)
+  assert.match(client, /if \(focusEl && showInline\(focusEl, msg\)\) say\('', ''\);\s*else say\(msg, 'error'\);/);
+  assert.match(astro, /\.field-error\[hidden\] \{\s*display: none;/);
+});

@@ -126,9 +126,13 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     setMore(open);
     if (open) tg.focus();
   });
-  email.addEventListener('input', () => email.removeAttribute('aria-invalid'));
+  email.addEventListener('input', () => {
+    email.removeAttribute('aria-invalid');
+    clearInline(email);
+  });
   for (const [, el] of handles) {
     el.addEventListener('input', feedback);
+    el.addEventListener('input', () => clearInline(el));
     el.addEventListener('blur', () => {
       blurred = true;
       feedback();
@@ -136,7 +140,10 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   }
   form.addEventListener('change', (e) => {
     const t = e.target as HTMLInputElement;
-    if (t.type === 'checkbox' && t.checked) t.removeAttribute('aria-invalid');
+    if (t.type === 'checkbox' && t.checked) {
+      t.removeAttribute('aria-invalid');
+      clearInline(t);
+    }
   });
 
   // ---- states ----
@@ -150,11 +157,41 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     void ticket.offsetWidth;
     ticket.classList.add('shake');
   }
-  /** An error: the message in the reserved slot, a shake, and focus on the field at fault, or on the
-   *  message itself when no field is at fault (captcha, rate, network), so keyboard users keep their place. */
+  // ---- inline errors: the message sits next to its field, wired with aria-describedby ----
+  const errSlot = (name: string) => form.querySelector<HTMLElement>(`[data-error="${name}"]`);
+  const fieldName = (el: HTMLElement) => el.id.replace(/^wl-/, '');
+  function clearInline(el?: HTMLElement) {
+    for (const slot of form.querySelectorAll<HTMLElement>('[data-error]')) {
+      if (el && slot !== errSlot(fieldName(el))) continue;
+      slot.hidden = true;
+      slot.textContent = '';
+      const input = form.querySelector<HTMLElement>(`#wl-${slot.dataset.error}`);
+      if (input) {
+        const rest = (input.getAttribute('aria-describedby') ?? '').split(' ').filter((t) => t && t !== slot.id);
+        if (rest.length) input.setAttribute('aria-describedby', rest.join(' '));
+        else input.removeAttribute('aria-describedby');
+      }
+    }
+  }
+  function showInline(el: HTMLElement, msg: string): boolean {
+    const slot = errSlot(fieldName(el));
+    if (!slot) return false;
+    slot.textContent = msg;
+    slot.hidden = false;
+    const ids = (el.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+    if (!ids.includes(slot.id)) el.setAttribute('aria-describedby', [slot.id, ...ids].join(' '));
+    return true;
+  }
+
+  /** An error: the message next to the field at fault (or in the reserved status slot when no field is at fault:
+   *  captcha, rate, region, network), a shake, and focus on the field, or on the status line, so keyboard users
+   *  keep their place. */
   function fail(key: string, focusEl?: HTMLElement) {
     ticket.dataset.state = 'error';
-    say(errors[key] ?? errors.generic, 'error');
+    clearInline();
+    const msg = errors[key] ?? errors.generic;
+    if (focusEl && showInline(focusEl, msg)) say('', '');
+    else say(msg, 'error');
     shake();
     if (focusEl) {
       const isHandle = focusEl === tg || focusEl === xh;
@@ -200,6 +237,7 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     issued.hidden = true;
     ticket.dataset.state = 'idle';
     say('', '');
+    clearInline();
     email.value = '';
     tg.value = '';
     xh.value = '';
@@ -216,9 +254,10 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     blurred = true;
     loadCaptcha();
     for (const el of [email, tg, xh, consent, juris]) el.removeAttribute('aria-invalid');
+    clearInline();
     // the email, then the optional handles, then the two boxes in the order they appear (the server checks each)
     const mail = normalizeEmail(email.value);
-    if (!mail) return fail('email', email);
+    if (!mail) return fail(email.value.trim() ? 'email' : 'emailEmpty', email); // empty and malformed read differently
     const tgName = optionalHandle(tg.value, 'telegram');
     if (tgName === false) return fail('telegram', tg);
     const xName = optionalHandle(xh.value, 'x');

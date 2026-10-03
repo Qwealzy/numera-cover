@@ -540,6 +540,7 @@ export const waitlist = {
     },
   },
   errors: {
+    emailEmpty: 'Enter your email.',
     email: 'Please enter a valid email address.',
     telegram: 'That does not look like a Telegram username (5-32 characters, starting with a letter). Leave it empty if you prefer.',
     x: 'That does not look like an X handle (1-15 characters). Leave it empty if you prefer.',

@@ -164,6 +164,6 @@ test('the waitlist wording: email first, honest intro, explicit email consent; o
   assert.equal(en.waitlist.noscript, 'The waitlist form needs JavaScript for its spam check. You can also message @godsonits on Telegram.');
   // exactly the founder's wording (2026-10-03)
   assert.equal(en.waitlist.jurisdiction, 'I am 18 or older, and I am not a resident or citizen of, or located in, the US, the UK, Ontario (Canada) or a sanctioned jurisdiction.');
-  assert.deepEqual(Object.keys(en.waitlist.errors).sort(), ['captcha', 'consent', 'email', 'generic', 'jurisdiction', 'rate', 'region', 'telegram', 'x']);
+  assert.deepEqual(Object.keys(en.waitlist.errors).sort(), ['captcha', 'consent', 'email', 'emailEmpty', 'generic', 'jurisdiction', 'rate', 'region', 'telegram', 'x']);
   assert.equal(en.stats.note.endsWith('A dash means the read failed; no number is ever filled in.'), true);
 });

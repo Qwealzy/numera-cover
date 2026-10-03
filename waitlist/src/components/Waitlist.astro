@@ -73,6 +73,9 @@ const Nx = Wl.issued.next;
               <button class="btn btn-primary submit join-cta" type="submit" data-submit><span class="cta-label">{Wl.submit}</span></button>
             </div>
             <p id="wl-email-hint" class="hint focus-hint">{Wl.email.hint}</p>
+            <!-- inline error slots, one next to each field (filled by src/client/join.ts); the status line below keeps
+                 the errors that belong to no field (spam check, rate limit, region, network) -->
+            <p id="wl-email-error" class="field-error" data-error="email" hidden></p>
 
             <div class="more" data-more>
               <button type="button" class="more-toggle" aria-expanded="false" aria-controls="wl-more" data-more-toggle>
@@ -99,6 +102,7 @@ const Nx = Wl.issued.next;
                         />
                         <span class="valid-dot" aria-hidden="true"></span>
                       </div>
+                      <p id={`wl-${k}-error`} class="field-error" data-error={k} hidden></p>
                     </div>
                   ))}
                 </div>
@@ -109,12 +113,14 @@ const Nx = Wl.issued.next;
             <div class="check">
               <input id="wl-jurisdiction" name="jurisdiction" type="checkbox" required />
               <label for="wl-jurisdiction">{Wl.jurisdiction}</label>
+              <p id="wl-jurisdiction-error" class="field-error" data-error="jurisdiction" hidden></p>
             </div>
             <div class="check">
               <input id="wl-consent" name="consent" type="checkbox" required />
               <label for="wl-consent">
                 {Wl.consent.before}<a href="/privacy">{Wl.consent.link}</a>{Wl.consent.after}<a href="/terms">{Wl.consent.termsLink}</a>{Wl.consent.end}
               </label>
+              <p id="wl-consent-error" class="field-error" data-error="consent" hidden></p>
             </div>
             <input type="hidden" name="consentVersion" value={CONSENT_VERSION} />
 
@@ -516,6 +522,22 @@ const Nx = Wl.issued.next;
   .hint {
     font-size: 0.8rem;
     color: var(--text-label);
+  }
+  /* the message next to its field: same voice as the status line, dashed marker, no colour-only signal */
+  .field-error {
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: var(--text-strong);
+  }
+  .field-error[hidden] {
+    display: none;
+  }
+  .field-error::before {
+    content: '○ ';
+  }
+  .check .field-error {
+    grid-column: 2;
   }
   .check {
     display: grid;
