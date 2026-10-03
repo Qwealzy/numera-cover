@@ -7,6 +7,8 @@ Status: **HyperEVM testnet only** (chain 998). No mainnet deployment, no real fu
 
 Security: see [`SECURITY.md`](SECURITY.md).
 
+Early-access page: https://cover.numeralabs.xyz
+
 ## Problem
 
 Leveraged perp positions are closed by short, sharp wicks that touch the liquidation price and then

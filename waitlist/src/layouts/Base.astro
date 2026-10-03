@@ -8,6 +8,7 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { meta } from '../copy/en.ts';
 import markUrl from '../assets/numera-mark.svg?url';
+import { SITE_URL } from '../site.ts';
 
 interface Props {
   title?: string;
@@ -16,6 +17,8 @@ interface Props {
   page?: 'home' | 'doc';
 }
 const { title = meta.title, description = meta.description, noindex = false, page = 'home' } = Astro.props;
+
+const canonical = SITE_URL + Astro.url.pathname.replace(/\.html$/, '');
 
 // Latin subset (same unicode-range as the fontsource Latin files).
 const LATIN =
@@ -38,6 +41,8 @@ const fontCss = `
     <meta name="theme-color" content="#0c1520" />
     <meta name="color-scheme" content="dark" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:url" content={canonical} />
     {noindex && <meta name="robots" content="noindex" />}
     <link rel="icon" type="image/svg+xml" href={markUrl} />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />

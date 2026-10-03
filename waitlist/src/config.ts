@@ -51,3 +51,5 @@ if (RECORDED_RUN.seconds !== 3) throw new Error('recorded run: the copy says 3 s
 
 export const WAITLIST_ENDPOINT = '/api/join';
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+
+export { SITE_URL } from './site.ts';
