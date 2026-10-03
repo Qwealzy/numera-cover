@@ -59,7 +59,7 @@ These variables are read by `src/lib/buildenv.mjs`, which started as a copy of `
 - Pages secrets: `TURNSTILE_SECRET` and `IP_HASH_SALT`.
 - D1 binding: `DB`, set in `wrangler.toml`. The database id is a placeholder.
 
-**Deploying is founder-run.** `node scripts/deploy-site.mjs` (repo root) builds and deploys this folder and applies migrations 0001 + 0002 to the remote D1; it prints the plan first, `--yes` runs a preview deploy, `--prod --yes` production. No agent deploys this folder, and nothing here writes to any chain.
+**Deploying is founder-run.** `node scripts/deploy-site.mjs` (repo root) builds and deploys this folder and applies migrations 0001 + 0002 to the remote D1; it prints the plan first, `--yes` runs a preview deploy, `--prod --yes` production. The D1 database must live in the `eu` jurisdiction (the privacy notice says so; a jurisdiction is fixed at creation): `--create-db --yes` creates it with `wrangler d1 create numera-waitlist --jurisdiction eu`, and every deploy first checks `wrangler d1 info --json` and stops if the database is elsewhere (or, when wrangler does not report it, until `--accept-unverified-jurisdiction` is given). No agent deploys this folder, and nothing here writes to any chain.
 
 ## What is live, what is static, what is illustrative
 

@@ -5,9 +5,10 @@
 //   node scripts/deploy-site.mjs                  # preview: prints the plan, runs nothing
 //   node scripts/deploy-site.mjs --yes            # preview deploy (branch "preview")
 //   node scripts/deploy-site.mjs --prod --yes     # production deploy (branch "main" = numera-cover.pages.dev)
+//   node scripts/deploy-site.mjs --create-db --yes  # first run only: create the D1 database in the eu jurisdiction
 //   node scripts/deploy-site.mjs --help
 //
-// Steps: check the build env (the /privacy and /terms placeholders, the Source link, Turnstile site key) and the D1 id; check the Pages
+// Steps: check the D1 database is in the eu jurisdiction (refuses otherwise); check the build env (the /privacy and /terms placeholders, the Source link, Turnstile site key) and the D1 id; check the Pages
 // secrets exist (names only, values are never read); production build; D1 migrations 0001+0002 --remote; pages deploy.
 // Values come from the shell environment only; this script reads no .env file and prints no secret.
 // Every command runs with cwd waitlist/ through its pinned local wrangler/astro (waitlist/node_modules/.bin).
@@ -15,7 +16,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { repoRoot } from './lib/tools.mjs';
-import { USAGE, SITE_DIR, deployPlan, parseArgs } from './lib/deploysite.mjs';
+import { USAGE, SITE_DIR, deployPlan, parseArgs, judgeJurisdiction } from './lib/deploysite.mjs';
 
 const SITE = path.join(repoRoot, SITE_DIR);
 const args = parseArgs(process.argv.slice(2));
@@ -40,6 +41,7 @@ const plan = deployPlan(
 const shown = (s) => `${s.env ? 'SITE_ENV=production ' : ''}${s.cmd.join(' ')}`;
 console.log(`[plan] Cloudflare Pages deploy of ${SITE_DIR}/ (${args.prod ? 'PRODUCTION' : 'preview'}), cwd ${SITE_DIR}/:`);
 plan.steps.forEach((s, i) => console.log(`  ${i + 1}. ${s.name}: ${shown(s)}`));
+if (plan.branch === null) console.log('[plan] --create-db only creates the database; then paste its database_id into waitlist/wrangler.toml and run again without it');
 if (plan.problems.length) {
   console.log('[FAIL] not ready:');
   for (const p of plan.problems) console.log(`  - ${p}`);
@@ -57,7 +59,7 @@ for (const [i, s] of plan.steps.entries()) {
   const r = spawnSync(bin(cmd), rest, {
     cwd: SITE,
     env: { ...process.env, ...(s.env ?? {}) },
-    stdio: s.expect ? ['inherit', 'pipe', 'inherit'] : 'inherit',
+    stdio: s.expect || s.jurisdiction ? ['inherit', 'pipe', 'inherit'] : 'inherit',
     encoding: 'utf8',
     shell: process.platform === 'win32', // .cmd shims need a shell; every argument is a constant from the plan
     windowsHide: true,
@@ -65,6 +67,17 @@ for (const [i, s] of plan.steps.entries()) {
   if (r.status !== 0) {
     console.log(`[FAIL] ${s.name} (exit ${r.status})`);
     process.exit(1);
+  }
+  if (s.jurisdiction) {
+    const j = judgeJurisdiction(r.stdout);
+    if (j.verdict === 'ok') console.log(`[OK] ${j.message}`);
+    else if (j.verdict === 'refuse' || !s.jurisdiction.acceptUnverified) {
+      console.log(`[FAIL] ${j.message}`);
+      process.exit(1);
+    } else {
+      console.log(`[WARN] ${j.message}`);
+      console.log('[WARN] continuing because --accept-unverified-jurisdiction was given');
+    }
   }
   if (s.expect) {
     const missing = s.expect.filter((n) => !(r.stdout ?? '').includes(n));
@@ -75,4 +88,5 @@ for (const [i, s] of plan.steps.entries()) {
     console.log(`[OK] secrets present: ${s.expect.join(', ')}`);
   }
 }
-console.log(`\n[OK] deployed branch ${plan.branch}; wrangler printed the URL above.`);
+console.log('');
+console.log(plan.branch === null ? '[OK] wrangler printed the new database_id above: paste it into waitlist/wrangler.toml.' : `[OK] deployed branch ${plan.branch}; wrangler printed the URL above.`);
