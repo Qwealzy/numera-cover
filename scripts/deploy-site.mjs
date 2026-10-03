@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Deploys the public early-access site (site/) to Cloudflare Pages. FOUNDER-RUN: needs `npx wrangler login`.
+// Deploys the public early-access site (waitlist/) to Cloudflare Pages. FOUNDER-RUN: needs `npx wrangler login`.
+// site/ stays in the repo and in check.mjs but is not deployed (founder decision 2026-10-03, option b).
 //
 //   node scripts/deploy-site.mjs                  # preview: prints the plan, runs nothing
 //   node scripts/deploy-site.mjs --yes            # preview deploy (branch "preview")
@@ -7,29 +8,34 @@
 //   node scripts/deploy-site.mjs --help
 //
 // Steps: check the build env (the /privacy placeholders, Turnstile site key) and the D1 id; check the Pages
-// secrets exist (names only, values are never read); production build; D1 migrations --remote; pages deploy.
+// secrets exist (names only, values are never read); production build; D1 migrations 0001+0002 --remote; pages deploy.
 // Values come from the shell environment only; this script reads no .env file and prints no secret.
-// Every command runs with cwd site/ through its pinned local wrangler/astro (site/node_modules/.bin).
-import { existsSync, readFileSync } from 'node:fs';
+// Every command runs with cwd waitlist/ through its pinned local wrangler/astro (waitlist/node_modules/.bin).
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { repoRoot } from './lib/tools.mjs';
-import { USAGE, deployPlan, parseArgs } from './lib/deploysite.mjs';
+import { USAGE, SITE_DIR, deployPlan, parseArgs } from './lib/deploysite.mjs';
 
-const SITE = path.join(repoRoot, 'site');
+const SITE = path.join(repoRoot, SITE_DIR);
 const args = parseArgs(process.argv.slice(2));
 if (args.help) {
   console.log(USAGE);
   process.exit(0);
 }
 if (!existsSync(path.join(SITE, 'node_modules'))) {
-  console.log('[FAIL] site/node_modules is missing: run npm ci in site/ first');
+  console.log(`[FAIL] ${SITE_DIR}/node_modules is missing: run npm ci in ${SITE_DIR}/ first`);
   process.exit(1);
 }
 
-const plan = deployPlan(args, process.env, readFileSync(path.join(SITE, 'wrangler.toml'), 'utf8'));
+const plan = deployPlan(
+  args,
+  process.env,
+  readFileSync(path.join(SITE, 'wrangler.toml'), 'utf8'),
+  readdirSync(path.join(SITE, 'migrations')),
+);
 const shown = (s) => `${s.env ? 'SITE_ENV=production ' : ''}${s.cmd.join(' ')}`;
-console.log(`[plan] Cloudflare Pages deploy of site/ (${args.prod ? 'PRODUCTION' : 'preview'}), cwd site/:`);
+console.log(`[plan] Cloudflare Pages deploy of ${SITE_DIR}/ (${args.prod ? 'PRODUCTION' : 'preview'}), cwd ${SITE_DIR}/:`);
 plan.steps.forEach((s, i) => console.log(`  ${i + 1}. ${s.name}: ${shown(s)}`));
 if (plan.problems.length) {
   console.log('[FAIL] not ready:');

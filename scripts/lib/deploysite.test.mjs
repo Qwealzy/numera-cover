@@ -1,14 +1,26 @@
 // Tests for the site deploy plan: node --test scripts/lib/deploysite.test.mjs (run by scripts/check.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { deployPlan, parseArgs, d1DatabaseId, PLACEHOLDER_DB_ID } from './deploysite.mjs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { deployPlan, parseArgs, d1DatabaseId, PLACEHOLDER_DB_ID, SITE_DIR, MIGRATIONS, USAGE } from './deploysite.mjs';
 
-const TOML = (id) => `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "numera-waitlist"\ndatabase_id = "${id}"\n`;
+const TOML = (id) =>
+  `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "numera-waitlist"\ndatabase_id = "${id}"\nmigrations_dir = "migrations"\n`;
 const ENV = { SITE_CONTROLLER_NAME: 'Example', SITE_DELETE_BY: '2027-03-31', PUBLIC_TURNSTILE_SITEKEY: '0x4AAAAAAA' };
 
+test('deploys waitlist/ with its migrations 0001 + 0002; the committed files are all there', () => {
+  assert.equal(SITE_DIR, 'waitlist');
+  assert.deepEqual(MIGRATIONS, ['0001_waitlist.sql', '0002_email.sql']);
+  const files = readdirSync(new URL('../../waitlist/migrations/', import.meta.url));
+  for (const m of MIGRATIONS) assert.ok(files.includes(m), m);
+  assert.match(USAGE, /Builds and deploys waitlist\/ and applies its D1 migrations \(0001_waitlist\.sql, 0002_email\.sql\)/);
+  // a migration missing from the folder is a problem, not a silent skip
+  assert.match(deployPlan(parseArgs([]), ENV, TOML('abc-123'), ['0001_waitlist.sql']).problems.join('\n'), /waitlist\/migrations\/0002_email\.sql is missing/);
+  assert.match(deployPlan(parseArgs([]), ENV, TOML('abc-123').replace(/migrations_dir.*\n/, '')).problems.join('\n'), /no migrations_dir/);
+});
+
 test('committed wrangler.toml still carries the placeholder id (deploy refuses until the founder sets it)', () => {
-  const toml = readFileSync(new URL('../../site/wrangler.toml', import.meta.url), 'utf8');
+  const toml = readFileSync(new URL('../../waitlist/wrangler.toml', import.meta.url), 'utf8');
   assert.equal(d1DatabaseId(toml), PLACEHOLDER_DB_ID);
   assert.match(deployPlan(parseArgs([]), ENV, toml).problems.join('\n'), /database_id is the placeholder/);
 });
@@ -20,6 +32,7 @@ test('ready env: preview by default, --prod deploys branch main; order build -> 
   assert.deepEqual(ok.steps.map((s) => s.cmd[0] + ' ' + s.cmd[1]), ['wrangler pages', 'astro build', 'wrangler d1', 'wrangler pages']);
   assert.deepEqual(ok.steps.at(-1).cmd.slice(-4), ['--project-name', 'numera-cover', '--branch', 'preview']);
   assert.ok(ok.steps[2].cmd.includes('--remote'));
+  assert.equal(ok.steps[2].name, 'apply D1 migrations 0001+0002 (remote)');
   assert.equal(ok.steps[1].env.SITE_ENV, 'production');
   const prod = deployPlan(parseArgs(['--prod', '--create-project']), ENV, TOML('abc-123'));
   assert.equal(prod.branch, 'main');

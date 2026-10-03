@@ -1,5 +1,11 @@
 // Plan for scripts/deploy-site.mjs (pure, tested in deploysite.test.mjs). Nothing here runs a command.
-import { readBuildEnv } from '../../site/src/lib/buildenv.mjs';
+// The deployed site is waitlist/ (founder decision 2026-10-03, option b); site/ stays in the repo, undeployed.
+import { readBuildEnv } from '../../waitlist/src/lib/buildenv.mjs';
+
+/** The directory that is built and deployed, relative to the repo root. */
+export const SITE_DIR = 'waitlist';
+/** D1 migrations the deployed handler needs, in order (waitlist/migrations/). 0002 makes email the unique key. */
+export const MIGRATIONS = ['0001_waitlist.sql', '0002_email.sql'];
 
 export const PROJECT = 'numera-cover';
 export const DB_NAME = 'numera-waitlist';
@@ -11,6 +17,8 @@ export const USAGE = `node scripts/deploy-site.mjs [--prod] [--create-project] [
   --prod            production deploy (branch "main" -> https://${PROJECT}.pages.dev)
   --create-project  first run only: create the Pages project (production branch main)
   --yes             execute; without it the script prints the plan and exits
+Builds and deploys ${SITE_DIR}/ and applies its D1 migrations (${MIGRATIONS.join(', ')}) to the remote database
+${DB_NAME}. 0002 is not compatible with site/'s handler: never point site/ at the same database afterwards.
 Needs: \`npx wrangler login\` once, and in the shell environment SITE_CONTROLLER_NAME, SITE_DELETE_BY (YYYY-MM-DD),
 PUBLIC_TURNSTILE_SITEKEY; optional SITE_LEGAL_REVIEWED=1. Pages secrets ${REQUIRED_SECRETS.join(', ')} must be set
 (npx wrangler pages secret put <NAME> --project-name ${PROJECT}).`;
@@ -27,20 +35,23 @@ export function parseArgs(argv) {
   };
 }
 
-/** database_id of the DB binding in site/wrangler.toml, or null. */
+/** database_id of the DB binding in waitlist/wrangler.toml, or null. */
 export function d1DatabaseId(toml) {
   const m = toml.match(/database_name\s*=\s*"numera-waitlist"[\s\S]*?database_id\s*=\s*"([^"]*)"/);
   return m ? m[1] : null;
 }
 
-/** -> { problems: string[], steps: { name, cmd: string[], env?: object }[], branch } */
-export function deployPlan(args, env, wranglerToml) {
+/** `migrationFiles`: the file names in waitlist/migrations/ (every one in MIGRATIONS must be there).
+ *  -> { problems: string[], steps: { name, cmd: string[], env?: object }[], branch } */
+export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS) {
   const b = readBuildEnv({ ...env, SITE_ENV: 'production' });
   const problems = [...b.problems];
   if (args.unknown.length) problems.push(`unknown argument(s): ${args.unknown.join(' ')}`);
   const dbId = d1DatabaseId(wranglerToml);
   if (!dbId || dbId === PLACEHOLDER_DB_ID)
-    problems.push(`site/wrangler.toml database_id is the placeholder: run \`npx wrangler d1 create ${DB_NAME}\` and paste the id`);
+    problems.push(`${SITE_DIR}/wrangler.toml database_id is the placeholder: run \`npx wrangler d1 create ${DB_NAME}\` and paste the id`);
+  if (!/migrations_dir\s*=\s*"migrations"/.test(wranglerToml)) problems.push(`${SITE_DIR}/wrangler.toml has no migrations_dir = "migrations"`);
+  for (const m of MIGRATIONS) if (!migrationFiles.includes(m)) problems.push(`${SITE_DIR}/migrations/${m} is missing`);
   const branch = args.prod ? 'main' : 'preview';
   const buildEnv = {
     SITE_ENV: 'production',
@@ -55,7 +66,7 @@ export function deployPlan(args, env, wranglerToml) {
   steps.push(
     { name: 'check Pages secrets exist', cmd: ['wrangler', 'pages', 'secret', 'list', '--project-name', PROJECT], expect: REQUIRED_SECRETS },
     { name: 'build (production)', cmd: ['astro', 'build'], env: buildEnv },
-    { name: 'apply D1 migrations (remote)', cmd: ['wrangler', 'd1', 'migrations', 'apply', DB_NAME, '--remote'] },
+    { name: `apply D1 migrations ${MIGRATIONS.map((m) => m.slice(0, 4)).join('+')} (remote)`, cmd: ['wrangler', 'd1', 'migrations', 'apply', DB_NAME, '--remote'] },
     { name: `deploy dist (branch ${branch})`, cmd: ['wrangler', 'pages', 'deploy', 'dist', '--project-name', PROJECT, '--branch', branch] },
   );
   return { problems, steps, branch };
