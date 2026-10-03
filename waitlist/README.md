@@ -60,7 +60,7 @@ These variables are read by `src/lib/buildenv.mjs`, which is copied unchanged fr
 | Hero price path | SIM | A random path drawn in the browser, labelled SIM. It is not market data. |
 | Wick lanes (S2) | Scripted | One scripted wick, labelled "Scripted path, not market data." |
 | Reservation toy (S5) | SIM | A toy pool, not the live pool. It shows % and blocks only. |
-| Recorded run (S6) | Static record | `deployments/testnet-v2.json` `e2e_F9_2026-10-02_3`. Verify any hash with `cast receipt`. |
+| Recorded run (S6) | Static record | `deployments/testnet-v2.json` `e2e_F9_2026-10-02_3`: a static block track and three receipt cards (block, call, status 1); no hashes are shown. |
 | Figures (">$19B", "≈6,300", "≈$1.76B", the grid table, the evidence lines) | Static, with the source named on the page | README Problem and Evidence; `docs/pitch/business-plan.md`; `engine/reports/calibration.md` |
 
 - Live reads run on load, then every 25 s, and only while the tab is visible. The endpoint that answered is
@@ -117,7 +117,7 @@ three of:
 | `src/lib/buildenv.mjs`, `src/lib/chain.ts` | Copied from `site/`. `chain.ts` adds the ledger and oracle reads below the original code. |
 | `src/copy/en.ts` | Every visible string. Figures carry their source in a comment. |
 | `src/lib/pricing.ts`, `geometry.ts`, `lanes.ts`, `cascade.ts` | Pure modules shared by the build (static SVG fallback) and the browser |
-| `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the price-table marker (`price.ts`), the toy, live reads, the recorded run and the form |
+| `src/client/*.ts` | The browser code: one rAF scheduler (`motion.ts`), the instrument, lanes, the six parts, the price-table marker (`price.ts`), the toy, live reads and the form |
 | `test/opacity.test.mjs` | Fails on any partial `opacity` in component or global CSS outside a short list of decorative selectors: a state is never shown by fading text |
 | `src/pages/privacy.astro` | The notice from `site/`, restyled. Only the Recipients sentence changed, so the version is now `privacy-2026-10-02-v2`, and `privacy-2026-10-02` is still accepted. |
 | `public/_headers`, `robots.txt`, `favicon-32.png`, `numera-mark-60.png` | Copied from `site/` (the CSP is unchanged) |

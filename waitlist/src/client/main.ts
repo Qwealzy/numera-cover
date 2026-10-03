@@ -8,7 +8,6 @@ import { mountLanes } from './lanes.ts';
 import { mountSteps } from './steps.ts';
 import { mountToy } from './toy.ts';
 import { startLive, mountLedger } from './live.ts';
-import { mountProof } from './proof.ts';
 import { mountJoin } from './join.ts';
 import { mountPriceYou } from './price.ts';
 
@@ -83,8 +82,6 @@ export function boot(): void {
   if (price) guarded('price', () => mountPriceYou(price));
   const toy = $('[data-toy]');
   if (toy) guarded('toy', () => mountToy(toy));
-  const proof = $('#proof');
-  if (proof) guarded('proof', () => mountProof(proof));
 
   const joinSection = $('#join');
   let join: ReturnType<typeof mountJoin> | null = null;

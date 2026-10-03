@@ -36,7 +36,7 @@ const run = mock['e2e_F9_2026-10-02_3'];
 const tx = (purpose: RegExp) => {
   const t = run.txs.find((x) => purpose.test(x.purpose));
   if (!t || !/^0x[0-9a-f]{64}$/.test(t.hash)) throw new Error(`recorded run: no tx for ${purpose}`);
-  return { hash: t.hash, block: t.block, status: t.status };
+  return { block: t.block, status: t.status };
 };
 export const RECORDED_RUN = {
   coverId: run.coverId,
@@ -49,6 +49,5 @@ export const RECORDED_RUN = {
 };
 if (RECORDED_RUN.seconds !== 3) throw new Error('recorded run: the copy says 3 s by block timestamps; re-check it');
 
-export const VERIFY_RPC = 'https://rpcs.chain.link/hyperevm/testnet';
 export const WAITLIST_ENDPOINT = '/api/join';
 export const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
