@@ -472,7 +472,7 @@
       ],
       "e2e_2026-10-02": {
         "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
-        "note": "LP deposit on Real v2 by the founder wallet; totalAssets 1900 mUSDC after; a reverted deposit (insufficient wallet balance, app bug) and duplicate approvals in the v2 deposit path (app bug) are in backlog.md, not listed here",
+        "note": "LP deposit on Real v2 from a testnet wallet; totalAssets 1900 mUSDC after. A reverted deposit (insufficient wallet balance) and duplicate approvals in the v2 deposit path came from app bugs and are not listed here",
         "txs": [
           {
             "purpose": "deposit 1900 mUSDC",
