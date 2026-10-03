@@ -1,5 +1,5 @@
 /* Numera app — palette and grammar from the Numera site (numera-site/src/styles/global.css):
-   the logo's navy + green on paper, no red/orange/gradients; the dark "policy record" panel is the
+   the logo's navy + green on paper, no red/orange/gradients; the dark "ledger" panel is the
    product surface, so the app lives on it. Distinctions without a brand colour are carried by SHAPE
    or WEIGHT (hollow ring = refusal/breach), never by a new hue. */
 
@@ -325,7 +325,7 @@ main {
   align-content: start;
 }
 
-/* the panel: the site's dark "policy record" */
+/* the panel: the site's dark "ledger" */
 .panel {
   background: var(--navy-deep);
   border: 1px solid var(--rule);
@@ -945,4 +945,16 @@ footer .wrap {
 .receipt__args dd {
   margin: 0;
   word-break: break-all;
+}
+
+/* legal disclaimer strip, shown on every page (D28) */
+.disclaimer {
+  margin: 0;
+  padding: 6px 16px;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--paper);
+  border-bottom: 1px solid var(--navy-deep);
 }

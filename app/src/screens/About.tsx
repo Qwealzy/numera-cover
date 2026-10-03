@@ -15,10 +15,10 @@ export function About() {
           <p className="about__lede">
             Leveraged perp traders lose their margin to short, sharp wicks that touch the liquidation price and reverse. A stop-loss doesn’t solve it: it
             closes the position at the worst price of the move, and slips in a gap. Numera sells cover tied to your actual position: if the oracle price
-            touches your level before expiry, the pool pays you a fixed amount in the same transaction. No claim, no assessor, no trade to execute.
+            touches your level before expiry, the pool pays you a fixed amount in the same transaction. No paperwork, no assessor, no trade to execute.
           </p>
           <div className="row" style={{ marginTop: 18 }}>
-            <button className="btn btn--primary" onClick={() => setTab('protect')}>
+            <button className="btn btn--primary" onClick={() => setTab('buy')}>
               Try it on testnet
             </button>
             {WAITLIST_URL && (
@@ -33,7 +33,7 @@ export function About() {
           <li className="register__entry">
             <span className="register__n">1</span>
             <div>
-              <p className="register__act">Protect</p>
+              <p className="register__act">Choose</p>
               <p className="register__detail">
                 Connect, pick an open perp position. The level defaults to just above your liquidation price; the payout is capped at the margin you would
                 lose.
@@ -43,7 +43,7 @@ export function About() {
           <li className="register__entry">
             <span className="register__n">2</span>
             <div>
-              <p className="register__act">Pay a premium</p>
+              <p className="register__act">Pay the price</p>
               <p className="register__detail">
                 The engine prices the touch probability from live volatility, floored by what history shows, and signs the quote. You see every input.
               </p>
@@ -55,7 +55,7 @@ export function About() {
               <p className="register__act">Paid automatically</p>
               <p className="register__detail">
                 If the oracle touches your level before expiry, anyone (our keeper, you, a bot) calls <span className="mono">trigger()</span> and the pool
-                pays at once. Otherwise the cover expires and the premium stays with the underwriters.
+                pays at once. Otherwise the cover expires and the cover price stays with the underwriters.
               </p>
             </div>
           </li>
@@ -98,7 +98,7 @@ export function About() {
             <span className="meta">{pool.short}</span>
           </div>
           <p className="small soft">
-            LPs deposit USDC and earn the premiums. Every payout is reserved when a cover is sold, so the pool can always pay what it owes; only free
+            LPs deposit USDC and earn the cover prices. Every payout is reserved when a cover is sold, so the pool can always pay what it owes; only free
             capital can be withdrawn.
           </p>
           <dl className="kv" style={{ marginTop: 10 }}>

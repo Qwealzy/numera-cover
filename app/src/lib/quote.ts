@@ -150,7 +150,7 @@ export function buyBlocker(c: { signerCheck: string | null | undefined; poolSign
   if (c.signerCheck === undefined || !c.poolSigner) return 'Checking the quote signature against the pool’s signer…';
   if (c.signerCheck === null || c.signerCheck.toLowerCase() !== c.poolSigner.toLowerCase())
     return 'Buy is disabled: the quote’s signature does not recover to this pool’s quote signer, so buyCover would revert. Re-quote from an engine that serves this pool.';
-  if (!c.premOk) return 'Buy is disabled: the premium does not match the breakdown shown (see “Check the arithmetic”). Re-quote.';
+  if (!c.premOk) return 'Buy is disabled: the price does not match the breakdown shown (see “Check the arithmetic”). Re-quote.';
   return undefined;
 }
 

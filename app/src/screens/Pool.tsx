@@ -35,10 +35,10 @@ export function Pool() {
             Underwriter pool {poolKind === 'mock' && <MockTag inline />} {s && <span className="chip">{s.version}</span>}
           </h1>
           <p>
-            LPs deposit mUSDC and earn every premium; payouts come out of the pool. Each cover’s payout is locked when it is sold, so the pool can always
+            LPs deposit mUSDC and earn every cover price; payouts come out of the pool. Each cover’s payout is locked when it is sold, so the pool can always
             pay what it owes.{' '}
             {v2
-              ? 'Exits are queued: request, wait the withdraw delay, then claim inside the claim window. A premium counts for LPs once its cover settles.'
+              ? 'Exits are queued: request, wait the withdraw delay, then withdraw inside the withdraw window. A cover price counts for LPs once its cover settles.'
               : 'Only free (unlocked) assets can be withdrawn.'}
           </p>
         </div>
@@ -52,12 +52,12 @@ export function Pool() {
         <Notice kind="error">
           Paused by the payout breaker (LossBreakerTripped): {fmtUsdc(v2.paidInWindow)} mUSDC paid in this window, above the{' '}
           {fmtBps(v2.limits.maxPaidPerWindowBps, 0)} cap of {fmtUsdc((v2.paidWindowAssets * BigInt(v2.limits.maxPaidPerWindowBps)) / 10000n)}. New covers and
-          deposits are off until the owner unpauses; payouts, payout claims and LP exits still work.
+          deposits are off until the owner unpauses; payouts, payout collection and LP exits still work.
         </Notice>
       )}
       {cause === 'owner' && (
         <Notice>
-          The pool is paused{v2 ? ' (by the owner or the guardian)' : ''}: new covers and deposits are off; {v2 ? 'payouts, payout claims and LP exits' : 'withdrawals of free assets'}{' '}
+          The pool is paused{v2 ? ' (by the owner or the guardian)' : ''}: new covers and deposits are off; {v2 ? 'payouts, payout collection and LP exits' : 'withdrawals of free assets'}{' '}
           still work.
         </Notice>
       )}
@@ -65,10 +65,10 @@ export function Pool() {
         <Stat
           label="Total assets"
           value={s ? fmtUsdc(s.totalAssets) : '…'}
-          sub={v2 ? 'pool money: mUSDC balance − owed payouts − unearned premiums' : 'mUSDC held by the pool'}
+          sub={v2 ? 'pool money: mUSDC balance − owed payouts − unearned cover prices' : 'mUSDC held by the pool'}
         />
         <Stat label="Locked for covers" value={s ? fmtUsdc(s.lockedAssets) : '…'} sub="sum of active payouts" />
-        <Stat label="Free" value={s ? fmtUsdc(s.freeAssets) : '…'} sub={v2 ? 'what claimable exits can take' : 'withdrawable by LPs'} />
+        <Stat label="Free" value={s ? fmtUsdc(s.freeAssets) : '…'} sub={v2 ? 'what ready exits can take' : 'withdrawable by LPs'} />
         <Stat
           label="Utilization"
           value={s ? fmtRatio(s.lockedAssets, base) : '…'}
@@ -82,12 +82,12 @@ export function Pool() {
           )}
         </Stat>
         <Stat label="Share price" value={s ? fmtFixed(s.sharePrice, 6, 6) : '…'} sub="mUSDC per pool share (nmUSDC)" />
-        <Stat label="Covers sold" value={s ? s.coverCount.toString() : '…'} sub={covers.data ? `premiums ${fmtUsdc(sold)} · paid ${fmtUsdc(paid)}` : ''} />
+        <Stat label="Covers sold" value={s ? s.coverCount.toString() : '…'} sub={covers.data ? `cover prices ${fmtUsdc(sold)} · paid ${fmtUsdc(paid)}` : ''} />
         {v2 && (
           <>
             <Stat label="Capacity base" value={fmtUsdc(v2.capacityBase)} sub="total assets − assets of requested exits" />
-            <Stat label="Unearned premium" value={fmtUsdc(v2.unearnedPremium)} sub="premiums of active covers; pool money once they settle" />
-            <Stat label="Owed payouts" value={fmtUsdc(v2.owedAssets)} sub="triggered payouts the token refused; buyers claim them" />
+            <Stat label="Unearned cover price" value={fmtUsdc(v2.unearnedPremium)} sub="cover prices of active covers; pool money once they settle" />
+            <Stat label="Owed payouts" value={fmtUsdc(v2.owedAssets)} sub="triggered payouts the token refused; buyers collect them" />
             {win && (
               <Stat
                 label="Sale window"
@@ -187,7 +187,7 @@ function LpPanel() {
               <dd>{u ? fmtUsdc(u.assets) : '…'} mUSDC</dd>
             </div>
             <div>
-              <dt>{v2 ? 'Claimable now (maxWithdraw)' : 'Max withdraw now (maxWithdraw)'}</dt>
+              <dt>{v2 ? 'Withdrawable now (maxWithdraw)' : 'Max withdraw now (maxWithdraw)'}</dt>
               <dd>{u ? fmtUsdc(u.maxWithdraw) : '…'} mUSDC</dd>
             </div>
             <div>
@@ -273,7 +273,7 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
     claimErr = (e as Error).message;
   }
   const maxW = u.v2?.maxWithdraw ?? 0n;
-  if (claimAmt !== undefined && claimAmt > maxW) claimErr = `Above what can be claimed now (${fmtUsdc(maxW)} mUSDC, limited to free assets).`;
+  if (claimAmt !== undefined && claimAmt > maxW) claimErr = `Above what can be withdrawn now (${fmtUsdc(maxW)} mUSDC, limited to free assets).`;
   const reqValue = s && reqShares ? (reqShares * s.sharePrice) / 10n ** 12n : undefined;
   const slotValue = s ? (view.shares * s.sharePrice) / 10n ** 12n : 0n;
 
@@ -286,13 +286,13 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
   };
   const request = async (shares: bigint) => done(await tx.run(shares === 0n ? 'Re-queue request' : 'Request exit', (h) => requestRedeem(account, pool.pool, shares, h)));
   const cancel = async () => done(await tx.run('Cancel request', (h) => cancelRedeem(account, pool.pool, h)));
-  const claimMax = async () => done(await tx.run('Claim', (h) => claimShares(account, pool.pool, u.v2!.maxRedeem, h)));
-  const claimPart = async () => claimAmt && done(await tx.run('Claim', (h) => claimAssets(account, pool.pool, claimAmt!, h)));
+  const claimMax = async () => done(await tx.run('Withdraw', (h) => claimShares(account, pool.pool, u.v2!.maxRedeem, h)));
+  const claimPart = async () => claimAmt && done(await tx.run('Withdraw', (h) => claimAssets(account, pool.pool, claimAmt!, h)));
 
   const phaseChip = {
     none: <span className="chip">no request</span>,
     pending: <span className="chip">pending</span>,
-    claimable: <span className="chip chip--green">claimable</span>,
+    claimable: <span className="chip chip--green">ready</span>,
     lapsed: <span className="chip chip--alert">lapsed</span>,
   }[view.phase];
 
@@ -301,7 +301,7 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
       <div className="panel__head" style={{ padding: 0 }}>
         <h3 className="small">Exit (queued redeem) {phaseChip}</h3>
         <span className="meta">
-          delay {fmtDuration(Number(v2.withdrawDelay))} · claim window {fmtDuration(Number(v2.claimWindow))}
+          delay {fmtDuration(Number(v2.withdrawDelay))} · withdraw window {fmtDuration(Number(v2.claimWindow))}
         </span>
       </div>
       {view.phase !== 'none' && (
@@ -309,12 +309,12 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
           <div>
             <dt>Requested</dt>
             <dd>
-              {fmtShares(view.shares)} shares ≈ {fmtUsdc(slotValue)} mUSDC <span className="faint small">(priced at claim time)</span>
+              {fmtShares(view.shares)} shares ≈ {fmtUsdc(slotValue)} mUSDC <span className="faint small">(priced at withdraw time)</span>
             </dd>
           </div>
           {view.phase === 'pending' && (
             <div>
-              <dt>Claimable in</dt>
+              <dt>Ready to withdraw in</dt>
               <dd className="tnum">
                 {fmtDuration(view.secondsLeft)} <span className="faint small">at {fmtTime(view.claimableAt)}</span>
               </dd>
@@ -322,7 +322,7 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
           )}
           {view.phase === 'claimable' && (
             <div>
-              <dt>Claim window closes in</dt>
+              <dt>Withdraw window closes in</dt>
               <dd className="tnum">
                 {fmtDuration(view.secondsLeft)} <span className="faint small">at {fmtTime(view.claimDeadline)}</span>
               </dd>
@@ -330,7 +330,7 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
           )}
           {view.phase === 'lapsed' && (
             <div>
-              <dt>Claim window closed</dt>
+              <dt>Withdraw window closed</dt>
               <dd>{fmtTime(view.claimDeadline)}: re-queue to wait the delay again, or cancel to get the shares back.</dd>
             </div>
           )}
@@ -340,23 +340,23 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
         <>
           {view.partialOnly && (
             <Notice>
-              Free assets cover only part of your request now ({fmtUsdc(maxW)} mUSDC). Claim that part; the rest stays claimable until the window closes
+              Free assets cover only part of your request now ({fmtUsdc(maxW)} mUSDC). Withdraw that part; the rest stays ready until the window closes
               while covers settle.
             </Notice>
           )}
-          {!view.canClaim && <Notice>Nothing can be claimed right now (no free assets, or the slot matured after the last read). It refreshes shortly.</Notice>}
+          {!view.canClaim && <Notice>Nothing can be withdrawn right now (no free assets, or the slot matured after the last read). It refreshes shortly.</Notice>}
           <div className="row" style={{ marginTop: 10 }}>
             <button className="btn btn--primary" disabled={!view.canClaim || tx.busy} onClick={claimMax}>
-              Claim {view.partialOnly ? 'available' : 'all'} ({fmtUsdc(maxW)} mUSDC)
+              Withdraw {view.partialOnly ? 'available' : 'all'} ({fmtUsdc(maxW)} mUSDC)
             </button>
           </div>
           <div className="row" style={{ marginTop: 10 }}>
             <div className="field">
-              <label htmlFor="claim">Claim part (mUSDC)</label>
-              <input id="claim" type="text" inputMode="decimal" value={claim} onChange={(e) => setClaim(e.target.value)} placeholder="0" />
+              <label htmlFor="part">Withdraw part (mUSDC)</label>
+              <input id="part" type="text" inputMode="decimal" value={claim} onChange={(e) => setClaim(e.target.value)} placeholder="0" />
             </div>
             <button className="btn" disabled={!claimAmt || !!claimErr || tx.busy} onClick={claimPart}>
-              Claim part
+              Withdraw part
             </button>
           </div>
           {claimErr && <p className="small soft">{claimErr}</p>}
@@ -394,7 +394,7 @@ function ExitPanel({ tx }: { tx: ReturnType<typeof useTx> }) {
         )}
       </div>
       <p className="faint small" style={{ marginTop: 8 }}>
-        Requested shares keep bearing payouts until claimed and no longer back new covers. Requests, claims and cancels work while the pool is paused.
+        Requested shares keep bearing payouts until withdrawn and no longer back new covers. Requests, withdrawals and cancels work while the pool is paused.
       </p>
     </div>
   );
@@ -435,7 +435,7 @@ function RecentCovers({
                 <th>Market</th>
                 <th>Buyer</th>
                 <th className="r">Level</th>
-                <th className="r">Premium</th>
+                <th className="r">Price</th>
                 <th className="r">Payout</th>
                 <th>Status</th>
                 <th>Started</th>
@@ -545,7 +545,7 @@ function Limits() {
           {s.v2 && (
             <>
               <div>
-                <dt>Min premium (on-chain floor)</dt>
+                <dt>Min price (on-chain floor)</dt>
                 <dd>{fmtBps(s.v2.limits.minPremiumBps)} of payout</dd>
               </div>
               <div>
@@ -563,7 +563,7 @@ function Limits() {
                 <dd>{fmtBps(s.v2.limits.maxPaidPerWindowBps, 0)} of capacity</dd>
               </div>
               <div>
-                <dt>Exit delay · claim window · config timelock</dt>
+                <dt>Exit delay · withdraw window · config timelock</dt>
                 <dd>
                   {fmtDuration(Number(s.v2.withdrawDelay))} · {fmtDuration(Number(s.v2.claimWindow))} · {fmtDuration(Number(s.v2.configDelay))}
                   {s.v2.strict ? ' (strict)' : ' (testnet, non-strict)'}
