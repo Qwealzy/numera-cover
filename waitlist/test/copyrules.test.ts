@@ -14,8 +14,36 @@ const DIST = path.join(SITE, 'dist');
 
 // claims the brand never makes (protect*, risk-free, safe*, revolutionary, APY, "yield of")
 const EXTRA = /\bprotect(ed|s|ion|ing)?\b|\brisk-free\b|\bsafe(ly|ty)?\b|\brevolutionary\b|\bAPY\b|\byield of\b/i;
-// the only allowed matches: exact legal names in the privacy notice
-const LEGAL_NAMES = /data protection authority|Protection of Personal Data/g;
+// Insurance wording (legal-risk wording rule; decision 2026-10-03). The only allowed use of "insurance" is
+// the exact phrase "not insurance". Data that engine/deployment records name "premium" keeps its internal
+// identifiers, but nothing a visitor sees or a screen reader announces may use these words.
+const NOT_INSURANCE = /\bnot insurance\b/gi;
+export const INSURANCE_WORDS = /\bpremium(s)?\b|\bpolic(y|ies)\b|\bclaim(s|ed|ing)?\b|\binsur(ed|er|ers|ance|e|es)\b|\bprotect\w*|\bindemni\w*/i;
+
+/** Every string value of the copy module (functions are called with sample arguments), keys excluded. */
+function copyStrings(v: unknown, out: string[] = []): string[] {
+  if (typeof v === 'string') out.push(v);
+  else if (typeof v === 'function') {
+    try {
+      out.push(...copyStrings((v as (...a: unknown[]) => unknown)('$2.44', '7.95 %', 3), []));
+    } catch {
+      // not a template
+    }
+  } else if (v && typeof v === 'object') for (const x of Object.values(v)) copyStrings(x, out);
+  return out;
+}
+/** Text-bearing attributes of the built pages (aria-label, title, alt, placeholder, meta content). */
+function distAttrText(): string {
+  if (!existsSync(DIST)) return '';
+  return readdirSync(DIST)
+    .filter((f) => f.endsWith('.html'))
+    .map((f) =>
+      [...readFileSync(path.join(DIST, f), 'utf8').matchAll(/\s(?:aria-label|aria-description|title|alt|placeholder|data-errors|data-success)="([^"]*)"|<meta\s+(?:name|property)="(?:description|og:[a-z:]+|twitter:[a-z:]+)"\s+content="([^"]*)"/g)]
+        .map((m) => m[1] ?? m[2])
+        .join(' | '),
+    )
+    .join(' | ');
+}
 
 /** All copy as one string, including the template functions called with sample values. */
 function copyText(): string {
@@ -56,7 +84,7 @@ for (const [name, get] of [
   ['built pages', distText],
 ] as const) {
   test(`${name}: no protect/risk-free/safe/revolutionary/APY/yield-of wording`, () => {
-    const t = get().replace(LEGAL_NAMES, '');
+    const t = get();
     const m = t.match(EXTRA);
     assert.equal(m, null, m ? `found "${m[0]}" near: ${t.slice(Math.max(0, (m.index ?? 0) - 60), (m.index ?? 0) + 60)}` : '');
   });
@@ -74,6 +102,24 @@ for (const [name, get] of [
       assert.doesNotMatch(t, re);
   });
 }
+
+for (const [name, get] of [
+  ['copy module', () => copyStrings(en).join(' | ')],
+  ['built pages (visible text)', distText],
+  ['built pages (aria labels, titles, meta tags)', distAttrText],
+] as const)
+  test(`${name}: no premium, policy, claim, insured, insurance (except "not insurance"), protect*, indemnify`, () => {
+    const t = get().replace(NOT_INSURANCE, ' ');
+    const m = t.match(INSURANCE_WORDS);
+    assert.equal(m, null, m ? `found "${m[0]}" near: ${t.slice(Math.max(0, (m.index ?? 0) - 60), (m.index ?? 0) + 60)}` : '');
+  });
+
+test('the insurance-word rule catches each banned word and spares "not insurance"', () => {
+  for (const w of ['premium', 'Premiums', 'policy', 'policies', 'claim', 'claimed', 'insured', 'insure' + 'r', 'insurance', 'protect', 'protection', 'protected', 'indemnify', 'indemnity'])
+    assert.match(`pay a ${w} now`, INSURANCE_WORDS, w);
+  assert.equal('Mock funds. Not insurance. Not an offer.'.replace(NOT_INSURANCE, ' ').match(INSURANCE_WORDS), null);
+  assert.match('this is insurance'.replace(NOT_INSURANCE, ' '), INSURANCE_WORDS);
+});
 
 test('privacy notice: version bumped for the email; the older versions still accepted', () => {
   assert.equal(en.CONSENT_VERSION, 'privacy-2026-10-03-v4');

@@ -136,7 +136,7 @@ export function mountReadout(root: HTMLElement): void {
         ? R.refusedProb
         : e.refusal === 'level_too_close'
           ? R.refusedLevel
-          : `premium ${fmtUsd(premiumDollars(e.premium!))} ${R.perPayout}${e.floorApplied ? `, ${R.floor}` : ''}`;
+          : `cover price ${fmtUsd(premiumDollars(e.premium!))} ${R.perPayout}${e.floorApplied ? `, ${R.floor}` : ''}`;
     const text = `BTC ${s.side} ${s.lev}×, ${durLabel}, volatility ${vol}: liquidation ${fmtPct(e.liqDist)} ${where}, level ${fmtPct(e.lvlDist)} ${where}, ${premPart}. ${R.label}`;
     clearTimeout(sumTimer);
     sumTimer = window.setTimeout(() => {

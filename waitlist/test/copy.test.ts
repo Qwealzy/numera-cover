@@ -27,7 +27,7 @@ test('no forbidden word in any site source file', () => {
     readFileSync(f, 'utf8')
       .split(/\r?\n/)
       .map((l, i) => [l, i] as const)
-      .filter(([l]) => FORBIDDEN_WORDS.test(l))
+      .filter(([l]) => FORBIDDEN_WORDS.test(l.replace(/\bnot insurance\b/gi, ' ')))
       .map(([l, i]) => `${path.relative(SITE, f)}:${i + 1}: ${l.trim()}`),
   );
   assert.deepEqual(hits, []);

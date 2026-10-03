@@ -39,7 +39,7 @@ const durLabel = C.durations.find((x) => x.sec === s.dur)?.label ?? '';
 const volLabel = C.vols.find((v) => v.sigma === s.sigma)?.label ?? '';
 const summary =
   `BTC ${s.side} ${s.lev}×, ${durLabel}, volatility ${volLabel}: ` +
-  `liquidation ${fmtPct(e.liqDist)} ${R.below}, level ${fmtPct(e.lvlDist)} ${R.below}, premium ${premium} ${R.perPayout}. ${R.label}`;
+  `liquidation ${fmtPct(e.liqDist)} ${R.below}, level ${fmtPct(e.lvlDist)} ${R.below}, cover price ${premium} ${R.perPayout}. ${R.label}`;
 const pct = (x: number) => fmtProb(x);
 ---
 

@@ -1,7 +1,8 @@
 // Every user-visible English string of the waitlist site (v2). Started from site/src/copy/en.ts: the strings
 // that tests and legal meaning depend on are kept verbatim (status pill, hero limit, six steps, demo-pool
 // notes, waitlist messages, privacy notice). Word rules are enforced by test/copy.test.ts and
-// test/copyrules.test.ts: say "cover", "payout", "level", "premium", "underwriter", "pool".
+// test/copyrules.test.ts: say "cover", "payout", "level", "price" (what the trader pays), "underwriter", "pool".
+// The banned-wording list lives in test/copyrules.test.ts (founder decision 2026-10-03).
 // Sources of every figure are named in the comment next to it.
 
 /** Version of the privacy notice a waitlist consent refers to. Bump it whenever the notice text changes;
@@ -68,10 +69,10 @@ export const instrument = {
   walletNoCover: 'no cover at these settings',
   payoutChip: '+$100 payout (illustrative)',
   walletPaid: '+$100 (illustrative)',
-  // the underwriter face of the same scene: the tile becomes the pool (premium from the grid, rounded up)
+  // the underwriter face of the same scene: the tile becomes the pool (the price from the grid, rounded up)
   pool: 'Pool',
-  poolSold: (prem: string) => `+${prem} premium · $100 reserved`,
-  poolPaid: (prem: string) => `$100 paid out · ${prem} premium kept`,
+  poolSold: (prem: string) => `+${prem} cover price · $100 reserved`,
+  poolPaid: (prem: string) => `$100 paid out · ${prem} cover price kept`,
   poolNoSale: 'nothing sold, nothing reserved',
   poolChip: '−$100 to the buyer (illustrative)',
   positionOpen: 'Position: open',
@@ -91,7 +92,7 @@ export const instrument = {
   resume: 'Resume motion',
   replay: 'Replay',
   verdicts: {
-    none: 'No touch. No payout; the premium stays with the pool.',
+    none: 'No touch. No payout; the cover price stays with the pool.',
     touch: 'Touch. The pool pays; your position stays open.',
     liquidated: 'Touch and liquidation. The payout lands; the position is closed. Cover does not stop a liquidation.',
     // one setup is one cover, and a cover pays once (it becomes Paid in the trigger transaction)
@@ -102,8 +103,8 @@ export const instrument = {
     reasonProb: 'The touch chance is too high.',
     newCover: 'New setup, new cover from now. Pull the wick to test it.',
     // the same events seen from the pool (I underwrite)
-    uwNone: 'No touch. The $100 stays reserved; if expiry passes without a touch, the premium stays with the pool.',
-    uwTouch: 'Touch. The pool pays the reserved $100 to the buyer and keeps the premium.',
+    uwNone: 'No touch. The $100 stays reserved; if expiry passes without a touch, the cover price stays with the pool.',
+    uwTouch: 'Touch. The pool pays the reserved $100 to the buyer and keeps the cover price.',
     uwLiquidated: "Touch and liquidation. The pool pays the reserved $100; the buyer's position is closed.",
     uwPaid: 'Touch again. Already paid: the pool pays a cover once.',
   },
@@ -146,7 +147,7 @@ export const readout = {
   heading: 'Estimate',
   liquidation: 'Liquidation',
   level: 'Level',
-  premium: 'Premium',
+  premium: 'Cover price',
   perPayout: 'per $100 payout',
   touch: 'Touch chance',
   touchNote: 'model, before tail adjustment',
@@ -216,7 +217,7 @@ export const steps = [
   {
     id: 'buy',
     label: 'Buy cover',
-    text: 'You send the signed quote to the pool contract, which checks the signature, your open position and its limits, takes the premium and reserves the full payout.',
+    text: 'You send the signed quote to the pool contract, which checks the signature, your open position and its limits, takes the cover price and reserves the full payout.',
   },
   {
     id: 'oracle',
@@ -231,12 +232,12 @@ export const steps = [
   {
     id: 'pool',
     label: 'Pool',
-    text: 'Underwriters deposit USDC and earn the premiums; each payout is reserved at sale, so the pool cannot sell more cover than it can pay.',
+    text: 'Underwriters deposit USDC and earn the cover prices; each payout is reserved at sale, so the pool cannot sell more cover than it can pay.',
   },
   {
     id: 'payout',
     label: 'Payout',
-    text: 'The fixed USDC payout goes to your wallet in the trigger transaction; if the level is never touched before expiry, nothing is paid and the premium stays with the pool.',
+    text: 'The fixed USDC payout goes to your wallet in the trigger transaction; if the level is never touched before expiry, nothing is paid and the cover price stays with the pool.',
   },
 ] as const;
 
@@ -262,7 +263,7 @@ export const how = {
         ['chain', 'on chain: checked on chain at purchase'],
         ['skip', 'not reached'],
       ],
-      done: 'Premium taken; the full payout is reserved.',
+      done: 'Cover price taken; the full payout is reserved.',
       stopped: 'Stopped here. Nothing is sold and nothing is reserved.',
     },
     oracle: { title: 'Oracle price, read on-chain', note: 'Validator median of 8 venues, read through precompile 0x…0807.' },
@@ -270,7 +271,7 @@ export const how = {
     pool: { title: 'Payout locked at sale', note: 'The full payout is reserved in the pool when the cover is sold.' },
     payout: {
       title: 'Payout in the trigger transaction',
-      note: 'No touch before expiry: no payout; the premium stays with the pool.',
+      note: 'No touch before expiry: no payout; the cover price stays with the pool.',
     },
   },
   // More about each part; every line repeats a sourced statement made elsewhere on the page or in the docs.
@@ -293,7 +294,7 @@ export const how = {
     // README; docs/how-it-works.md §5.3-5.4; deployments/testnet-v2.json limits (testnet settings)
     pool: [
       'Locked payouts stay at or below 80 % of capacity and 50 % per perp (testnet settings).',
-      'A premium counts for underwriters only when its cover settles.',
+      'A cover price counts for underwriters only when its cover settles.',
     ],
     // en.ts step 6; README one-liner; docs/how-it-works.md §8
     payout: [
@@ -309,7 +310,7 @@ export const how = {
     side: 'side',
     level: 'level',
     payout: ['payout', '$100'],
-    premium: 'premium',
+    premium: 'price',
     expiry: 'expiry',
     deadline: ['deadline', 'about 30 s after issue'],
     nonce: ['nonce', 'one-time'],
@@ -322,7 +323,7 @@ export const how = {
   poolCard: {
     tag: 'SIM · your setup',
     reserved: '$100 payout reserved at sale',
-    premium: (p: string) => `${p} premium, counted when the cover settles`,
+    premium: (p: string) => `${p} cover price, counted when the cover settles`,
     none: 'Not offered at these settings: nothing is reserved.',
   },
   // ARCHITECTURE §5.3 buyCover order; values from deployments/testnet-v2.json limits ("testnet settings")
@@ -332,7 +333,7 @@ export const how = {
     perp: 'Perp on the allowlist (BTC)',
     duration: 'Duration at most 7 days',
     payout: 'Payout at least 1 USDC ($100 here)',
-    premium: 'Premium at least 0.20 % of the payout',
+    premium: 'Cover price at least 0.20 % of the payout',
     spot: 'Oracle within 0.30 % of the quoted spot',
     breached: 'Level not already breached',
     distance: 'Level at least 0.56 % from spot (0.25 % on chain, plus room for 0.30 % oracle drift)',
@@ -402,8 +403,8 @@ export const underwriters = {
   kicker: '04 · Underwriters',
   heading: 'The other side of every cover.',
   points: [
-    'Underwriters deposit USDC into the pool, an ERC-4626 vault, and earn premiums minus payouts through the share price.',
-    'A premium counts only when its cover settles.',
+    'Underwriters deposit USDC into the pool, an ERC-4626 vault, and earn cover prices minus payouts through the share price.',
+    'A cover price counts only when its cover settles.',
     'Each payout is reserved in full when the cover is sold.',
     'Caps (testnet settings): locked payouts stay at or below 80 % of capacity and 50 % per perp. New sales pause if payouts in one window exceed 15 % of assets.',
     'Underwriters bear the payouts, including any from a wrong or compromised quote.',
@@ -418,11 +419,11 @@ export const underwriters = {
     settleTouch: 'Settle: touch',
     reset: 'Reset',
     capLine: '80 % cap',
-    premiums: 'settled premiums',
+    premiums: 'settled cover prices',
     status: (blocks: number) => `${blocks} ${blocks === 1 ? 'payout' : 'payouts'} locked · ${blocks * 10} % of capacity`,
     refused: 'Refused: one more payout would lock more than 80 % of capacity.',
-    sold: 'Sold. The full payout is locked before the premium counts.',
-    settledNone: 'Expired without a touch. The payout is unlocked; the premium now counts for the pool.',
+    sold: 'Sold. The full payout is locked before the cover price counts.',
+    settledNone: 'Expired without a touch. The payout is unlocked; the cover price now counts for the pool.',
     settledTouch: 'Touched. The pool paid the locked payout to the buyer.',
     empty: 'Nothing is locked. Sell a cover first.',
   },
@@ -449,7 +450,7 @@ export const underwriters = {
     stops: [
       { t: 'Request', d: 'requestRedeem' },
       { t: 'Wait 10 min', d: 'withdrawDelay' },
-      { t: 'Claim within 1 h', d: 'claimWindow' },
+      { t: 'Withdraw within 1 h', d: 'redeem window' },
     ],
   },
 };
@@ -472,7 +473,7 @@ export const proof = {
   kicker: '05 · Proof',
   heading: 'One staged run, on the record.',
   bracket: '3 s by block timestamps · one staged run on the MOCK pool, 2026-10-02',
-  quote: 'BTC long · level 1 % below spot · payout 10 mUSDC · premium 0.434298 mUSDC · 1h',
+  quote: 'BTC long · level 1 % below spot · payout 10 mUSDC · price 0.434298 mUSDC · 1h',
   track: 'Block track',
   status: 'status 1',
   pending: 'not reached yet',
@@ -656,7 +657,7 @@ export const privacy = {
       p: [
         'You may ask for access, correction, deletion, restriction or a copy of your data, and object to processing. You may withdraw your consent at any time with a message to the contact above; withdrawal does not affect processing before it.',
         'To unsubscribe from the launch email, or to have your entry deleted, reply to any email we send you, or message the contact above. We then delete your entry and send you nothing more.',
-        'You may complain to the data protection authority where you live or work.',
+        'You may complain to the supervisory authority where you live or work.',
       ],
     },
     {
@@ -668,7 +669,7 @@ export const privacy = {
     {
       h: 'KVKK',
       p: [
-        'For persons covered by Law No. 6698 on the Protection of Personal Data (KVKK): the same controller, purposes, recipients and retention apply, and you may use the rights in its Article 11 through the contact above.',
+        'For persons covered by Law No. 6698 (KVKK): the same controller, purposes, recipients and retention apply, and you may use the rights in its Article 11 through the contact above.',
       ],
     },
   ],
