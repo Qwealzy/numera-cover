@@ -21,7 +21,7 @@ import { layout, historyU, liqTicks, distAt, labelTops, pathD, MARK_GREEN, MARK_
 import { instrument as I } from '../copy/en.ts';
 import { loop, motionOn, onMotion, setMotion, clamp, lerp, expoOut, smooth, spring } from './motion.ts';
 import { state, on } from './store.ts';
-import { INTRO, INTRO_MORPH_S, INTRO_PATH_S, wickU } from '../lib/timing.ts';
+import { INTRO, INTRO_MORPH_S, INTRO_PATH_S, AUTO, createAutoplay, wickU } from '../lib/timing.ts';
 
 const C = {
   paper: '248,242,239',
@@ -32,7 +32,7 @@ const rgba = (c: string, a: number) => `rgba(${c},${a})`;
 const SEED = 20261002;
 const SCROLL_PX_S = 52; // history scroll speed
 
-type Mode = 'wait' | 'intro' | 'idle' | 'pull' | 'release';
+type Mode = 'wait' | 'intro' | 'idle' | 'pull' | 'release' | 'auto';
 type Hl = 'liq' | 'level' | 'prem' | 'cap' | null;
 
 export function mountInstrument(root: HTMLElement): void {
@@ -119,6 +119,8 @@ export function mountInstrument(root: HTMLElement): void {
   let mode: Mode = 'idle';
   let introT = 0;
   let introStart = 0;
+  let autoT = 0; // seconds into the current autoplay run
+  let autoStart = 0;
   let pullU = 0;
   const rel = { x: 0, v: 0 };
   let touched = false;
@@ -173,6 +175,7 @@ export function mountInstrument(root: HTMLElement): void {
     if (mode === 'pull') return pullU;
     if (mode === 'release') return rel.x;
     if (mode === 'intro' || mode === 'wait') return introHeadU(introT);
+    if (mode === 'auto') return wickU(autoT - AUTO.dive0, baseU);
     return baseU + idleDrift();
   }
   function idleDrift(): number {
@@ -694,7 +697,13 @@ export function mountInstrument(root: HTMLElement): void {
         mode = 'idle';
         setLa('1');
         showHint();
+        auto.unblock('intro');
       }
+    } else if (mode === 'auto') {
+      const prev = autoT;
+      autoT = (now - autoStart) / 1000;
+      autoEvents(prev, autoT);
+      if (autoT >= AUTO.end) mode = 'idle';
     } else if (mode === 'release') {
       spring(rel, baseU, dt, 190, 17);
       if (Math.abs(rel.x - baseU) < 0.004 && Math.abs(rel.v) < 0.02) mode = 'idle';
@@ -734,6 +743,66 @@ export function mountInstrument(root: HTMLElement): void {
     }
     if (at(INTRO.chip) && !refused()) launchChip({ x: L.headX, y: yAt(1) });
   }
+
+  // ---- autoplay: with nobody pulling, a scripted wick touches the level every AUTO_PERIOD_S ----------------
+  // Each run is one new cover, told the same way as the intro: "Watching…", the touch, the trigger() stamp and
+  // the payout (or "Not offered" for a refused setup). Its verdicts update silently, so a screen reader is not
+  // interrupted every few seconds; the visitor's own pulls are still announced.
+  function startAuto(): boolean {
+    if (!ctx || !motionOn() || mode !== 'idle' || chipFly.t >= 0 || landing || dragging) return false;
+    clearSeq();
+    newCover();
+    hud();
+    say('watching', 0, false);
+    mode = 'auto';
+    autoT = 0;
+    autoStart = performance.now();
+    run.start();
+    return true;
+  }
+  function autoEvents(a: number, b: number) {
+    const at = (t: number) => a < t && b >= t;
+    if (at(AUTO.touch)) {
+      levelThickTarget = 5;
+      const hp = { x: L.headX, y: yAt(1) };
+      pulseAt = hp;
+      pulseT = 0;
+      if (!refused()) {
+        marks.push(hist.length - 1);
+        paidMark = hist.length - 1;
+        rippleX = hp.x;
+        rippleT = 0;
+      }
+    }
+    if (at(AUTO.paid)) {
+      levelThickTarget = 3;
+      if (refused()) say('refused', 0, false);
+      else {
+        paid = true;
+        landing = true;
+        stampImpact();
+        hud();
+        say('intro', 0, false);
+      }
+    }
+    if (at(AUTO.chip) && !refused()) launchChip({ x: L.headX, y: yAt(1) });
+  }
+  /** The visitor took over mid-run: keep the path; the run's cover has paid only if its touch happened. */
+  function endAutoNow() {
+    const reached = autoT >= AUTO.paid;
+    mode = 'idle';
+    if (!reached) {
+      marks = [];
+      paidMark = -1;
+      paid = false;
+      levelThickTarget = 3;
+    } else if (!refused()) paid = true;
+    if (chipFly.t >= 0) landChip();
+    landing = false;
+    hud();
+  }
+  const auto = createAutoplay(startAuto);
+  auto.block('intro'); // the intro (or the end frame) comes first
 
   function launchChip(from: { x: number; y: number }) {
     if (!motionOn()) {
@@ -820,6 +889,7 @@ export function mountInstrument(root: HTMLElement): void {
   function endFrame() {
     clearSeq();
     mode = 'idle';
+    auto.unblock('intro');
     setLa('1');
     resetHistory(true);
     fr = target();
@@ -857,11 +927,13 @@ export function mountInstrument(root: HTMLElement): void {
       return;
     }
     if (mode !== 'wait') prepIntro();
+    auto.block('intro');
     mode = 'intro';
     introStart = performance.now();
     run.start();
   }
   function replay() {
+    auto.input();
     if (!ctx || !motionOn()) {
       endFrame();
       return;
@@ -875,6 +947,8 @@ export function mountInstrument(root: HTMLElement): void {
     pulledOnce = true;
     hideHint();
     if (mode === 'intro' || mode === 'wait') endIntroNow();
+    if (mode === 'auto') endAutoNow();
+    auto.input();
     clearSeq();
     if (chipFly.t >= 0) landChip();
     // read where the head is drawn now (idle drift or a spring-back), before the mode switch
@@ -892,6 +966,7 @@ export function mountInstrument(root: HTMLElement): void {
     const reached = introT >= INTRO.paid;
     introT = INTRO.end;
     mode = 'idle';
+    auto.unblock('intro');
     setLa('1');
     if (!reached) {
       marks = [];
@@ -927,6 +1002,7 @@ export function mountInstrument(root: HTMLElement): void {
     hud();
     ariaValue();
     lastInput = performance.now();
+    auto.input();
     if (!motionOn()) paintStatic();
   }
   function release() {
@@ -1109,6 +1185,7 @@ export function mountInstrument(root: HTMLElement): void {
     if (!ctx) return;
     const stepPx = Math.max(4, Math.abs(fr.l * h - fr.e * h) / 8);
     const keys: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, ArrowLeft: 1, ArrowRight: -1, PageDown: 3, PageUp: -3 };
+    auto.input();
     if (ev.key in keys) {
       ev.preventDefault();
       if (mode !== 'pull') beginPull();
@@ -1171,7 +1248,8 @@ export function mountInstrument(root: HTMLElement): void {
     // a control change sells a new cover from now (a refused setup has none)
     clearSeq();
     if (mode === 'intro' || mode === 'wait') endIntroNow();
-    if (mode === 'pull' || mode === 'release') mode = 'idle';
+    if (mode === 'pull' || mode === 'release' || mode === 'auto') mode = 'idle';
+    auto.input();
     newCover();
     hud();
     clearTimeout(setupTimer);
@@ -1208,12 +1286,15 @@ export function mountInstrument(root: HTMLElement): void {
   }
   onMotion((m) => {
     pauseUi(m);
+    if (m) auto.unblock('motion');
+    else auto.block('motion');
     if (!m) {
       cancelAnimationFrame(tickRaf);
       tickRaf = 0;
       // pausing mid-intro shows the finished staged scene (the same view as reduced motion)
       if (mode === 'intro' || mode === 'wait') endFrame();
       if (mode === 'release') mode = 'idle';
+      if (mode === 'auto') endAutoNow();
       if (chipFly.t >= 0) landChip();
       lean = { x: 0, y: 0 };
       leanTarget = { x: 0, y: 0 };
@@ -1260,6 +1341,17 @@ export function mountInstrument(root: HTMLElement): void {
   }
 
   // ---- boot --------------------------------------------------------------------------------------------------
+  // autoplay runs only while the stage is on screen, the tab is visible and motion is on
+  if (!ctx) auto.block('canvas');
+  if (!motionOn()) auto.block('motion');
+  if (document.visibilityState !== 'visible') auto.block('hidden');
+  document.addEventListener('visibilitychange', () =>
+    document.visibilityState === 'visible' ? auto.unblock('hidden') : auto.block('hidden'),
+  );
+  auto.block('offscreen');
+  new IntersectionObserver((es) => {
+    for (const e of es) e.isIntersecting ? auto.unblock('offscreen') : auto.block('offscreen');
+  }).observe(stage);
   pauseBtn.removeAttribute('aria-pressed');
   pauseUi(motionOn());
   labels();

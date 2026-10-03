@@ -139,6 +139,12 @@ three of:
 - The intro starts only when what it carries is on screen: the level line (with the touch and the `trigger()`
   stamp) and the whole wallet tile. On phones that means scrolling the stage into view; until then it reads
   "Watching…".
+- **Autoplay.** With nobody pulling, a scripted wick touches the level every `AUTO_PERIOD_S` (7 s): each run sells
+  a new cover, shows "Watching…" for `AUTO_LEAD_S` (1 s), then the touch, the stamp and the payout, then calm. A drag
+  or a key on the price head pauses it until `AUTO_RESUME_S` (9 s) without input. It also stops while the stage is
+  off screen, the tab is hidden, motion is paused or the OS asks for reduced motion. Auto verdicts update the live
+  region silently, so a screen reader is not interrupted every few seconds. Scheduler and constants:
+  `src/lib/timing.ts` (`createAutoplay`), tested with fake timers in `test/autoplay.test.ts`.
 - The price head keeps a column of its own left of the line labels at every leverage. A level label too close
   to entry moves to the far side of its line, labels never cover the LIVE/SIM tags, the wallet tile or the
   estimate strip, and each label has a flat ground-colour backing so no line runs through its text.
