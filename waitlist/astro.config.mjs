@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import { assertBuildEnv } from './src/lib/buildenv.mjs';
 
 // SITE_ENV=production refuses to build while a /privacy placeholder or the Turnstile site key is missing.
-// Without it (dev, local verification) the placeholders stay visible on the page. Same guard as site/.
+// Without it (dev, local verification) the placeholders stay visible on the page.
 assertBuildEnv();
 
 // Static output, no adapter, no server runtime. The only server code is the Pages Function in functions/.

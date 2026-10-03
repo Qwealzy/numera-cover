@@ -1,4 +1,4 @@
-// Unit tests for scripts/lib/e2e.mjs (node --test, run by scripts/check.mjs).
+// Unit tests for scripts/lib/e2e.mjs (node --test).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';

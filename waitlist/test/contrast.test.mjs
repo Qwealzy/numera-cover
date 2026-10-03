@@ -1,4 +1,4 @@
-// Adapted from site/test/contrast.test.mjs to the v2 tokens: WCAG AA contrast of the text tokens in
+// WCAG AA contrast of the text tokens in
 // src/styles/tokens.css on every surface they sit on, the green UI edge, and the brand rule that every colour
 // token is a palette colour (or the ground) at some alpha. No red, no orange.
 import { test } from 'node:test';

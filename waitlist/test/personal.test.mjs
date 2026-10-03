@@ -1,7 +1,6 @@
-// node --test: the repo's public-export personal-data patterns find nothing in src/, public/ or dist/.
-// The patterns are imported at test time, never copied here: scripts/lib/exportscrub.mjs (PERSONAL) in this
-// checkout or the main checkout of the same repository; on older commits they are read from
-// scripts/export-public.mjs, which defines the same list.
+// node --test: the project's personal-data patterns find nothing in src/, public/ or dist/.
+// The pattern list belongs to the project's export tooling and is imported at test time, never copied here. A
+// checkout that does not contain that tooling (the published repository) skips this test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -24,20 +23,7 @@ async function loadPersonal() {
     const f = path.join(r, 'scripts', 'lib', 'exportscrub.mjs');
     if (existsSync(f)) return { from: f, list: (await import(pathToFileURL(f).href)).PERSONAL };
   }
-  // fallback: the same list inside scripts/export-public.mjs (not importable: it runs on import)
-  const f = path.join(REPO, 'scripts', 'export-public.mjs');
-  const src = readFileSync(f, 'utf8');
-  const block = src.slice(src.indexOf('const PERSONAL = ['), src.indexOf('];', src.indexOf('const PERSONAL = [')));
-  const lit = (s) => {
-    const m = s.match(/^\/(.+)\/([a-z]*)$/);
-    return new RegExp(m[1], m[2]);
-  };
-  const list = [...block.matchAll(/name: '([^']+)',\s*re: (\/.+?\/[a-z]*)(?:,\s*allow: (\/.+?\/[a-z]*))?,?\s*\}/gs)].map((m) => ({
-    name: m[1],
-    re: lit(m[2]),
-    allow: m[3] ? lit(m[3]) : undefined,
-  }));
-  return { from: f, list };
+  return null; // no export tooling in this checkout
 }
 
 function files(dir, out = []) {
@@ -50,8 +36,10 @@ function files(dir, out = []) {
   return out;
 }
 
-test('personal-data patterns of the public export find nothing in src, public and dist', async () => {
-  const { from, list } = await loadPersonal();
+test('personal-data patterns of the public export find nothing in src, public and dist', async (t) => {
+  const found = await loadPersonal();
+  if (!found) return t.skip('the export tooling that defines the pattern list is not part of this checkout');
+  const { from, list } = found;
   assert.ok(list.length >= 6, `expected the PERSONAL list from ${from}`);
   const hits = [];
   for (const f of [...files(path.join(SITE, 'src')), ...files(path.join(SITE, 'public')), ...files(path.join(SITE, 'dist'))]) {

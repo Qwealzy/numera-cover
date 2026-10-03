@@ -1,4 +1,4 @@
-// Regenerates src/data/grid.json with the repo's own engine (scripts/gen-grid.py). The engine's Python lives in a
+// Regenerates src/data/grid.json with the repo's own engine (waitlist/scripts/gen-grid.py). The engine's Python lives in a
 // virtualenv: set NUMERA_PYTHON, or this uses engine/.venv of this checkout or of the main checkout that owns it.
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

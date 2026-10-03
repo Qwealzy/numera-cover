@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// F9 re-proof on the live CoverPool v2 MOCK pool: "keeper triggers a breached cover on testnet" (features.json F9).
+// F9 re-proof on the live CoverPool v2 MOCK pool: "keeper triggers a breached cover on testnet" (feature F9).
 // The founder runs it; works from PowerShell, cmd and Git Bash.
 //
 //   node scripts/e2e-mock-v2.mjs                    # testnet (998): preflight + plan, sends nothing

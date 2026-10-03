@@ -1,4 +1,3 @@
-// Copied from site/src/lib/chain.ts (waitlist v2 build, 2026-10-02); keep in sync with the original.
 // Browser-side, read-only JSON-RPC reads of the testnet pool (plain fetch, no library).
 // Any failure yields null; the page then shows a dash, never a made-up number.
 
@@ -69,7 +68,7 @@ export async function readPoolStats(
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// Waitlist v2 additions (not in site/): the ledger reads and the oracle price. Same RPCs, same chain check,
+// The ledger reads and the oracle price. Same RPCs, same chain check,
 // same rule: any failure yields null and the page shows a dash.
 
 /** More 4-byte selectors (keccak checked with eth_utils in engine/.venv; content brief §3c). */

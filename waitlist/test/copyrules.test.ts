@@ -155,7 +155,7 @@ test('privacy notice: version bumped for the email; the older versions still acc
   assert.deepEqual(validateSignup(body('privacy-2026-09-30')), { error: 'consent' });
 });
 
-test('the waitlist wording: email first, honest intro, explicit email consent; other messages verbatim from site/', () => {
+test('the waitlist wording: email first, honest intro, explicit email consent; other messages unchanged', () => {
   assert.equal(en.waitlist.success, 'You are on the list. We will email you when the next testnet round opens.');
   assert.doesNotMatch(en.waitlist.intro, /no email/i);
   assert.match(en.waitlist.intro, /No wallet, no keys\./);

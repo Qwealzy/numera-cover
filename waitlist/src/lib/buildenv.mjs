@@ -1,4 +1,3 @@
-// Copied unchanged from site/src/lib/buildenv.mjs (waitlist v2 build, 2026-10-02).
 // Build-time settings of the site, read from the environment (never from a committed file).
 // Used by astro.config.mjs (fails a production build), by the pages (fills the placeholders) and by
 // scripts/deploy-site.mjs (checks before it builds).

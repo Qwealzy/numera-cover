@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // Deploys the public early-access site (waitlist/) to Cloudflare Pages. FOUNDER-RUN: needs `npx wrangler login`.
-// site/ stays in the repo and in check.mjs but is not deployed (founder decision 2026-10-03, option b).
 //
 //   node scripts/deploy-site.mjs                  # preview: prints the plan, runs nothing
 //   node scripts/deploy-site.mjs --yes            # preview deploy (branch "preview")

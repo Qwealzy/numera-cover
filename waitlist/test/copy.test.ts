@@ -1,4 +1,4 @@
-// Adapted from site/test/copy.test.ts: every assertion of the original, against this site's copy module, plus
+// Word rules against this site's copy module, plus
 // the wider file scan (scripts, boot.js, .py). public/_headers is skipped: HTTP header names are not copy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

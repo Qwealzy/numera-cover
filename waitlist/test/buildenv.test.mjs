@@ -1,4 +1,4 @@
-// From site/test/buildenv.test.mjs (waitlist v2 build, 2026-10-02), plus SITE_GOVERNING_LAW for /terms (2026-10-03).
+// Build-time settings of the site, including SITE_GOVERNING_LAW for /terms.
 // node --test: the production gate on /privacy placeholders and the Turnstile site key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

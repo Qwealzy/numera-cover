@@ -1,5 +1,5 @@
 // Plan for scripts/deploy-site.mjs (pure, tested in deploysite.test.mjs). Nothing here runs a command.
-// The deployed site is waitlist/ (founder decision 2026-10-03, option b); site/ stays in the repo, undeployed.
+// The deployed site is waitlist/.
 import { readBuildEnv } from '../../waitlist/src/lib/buildenv.mjs';
 
 /** The directory that is built and deployed, relative to the repo root. */
@@ -30,7 +30,7 @@ wrangler d1 list --json and checks it is in the ${D1_JURISDICTION} jurisdiction 
 EU): another jurisdiction, or no such database in the list, stops the run; an entry without a readable jurisdiction stops it
 too, unless --accept-unverified-jurisdiction is given.
 Builds and deploys ${SITE_DIR}/ and applies its D1 migrations (${MIGRATIONS.join(', ')}) to the remote database
-${DB_NAME}. 0002 is not compatible with site/'s handler: never point site/ at the same database afterwards.
+${DB_NAME}. 0002 changes the schema (email becomes the unique key): a handler written for the 0001 schema fails against it.
 Needs: \`npx wrangler login\` once, and in the shell environment SITE_CONTROLLER_NAME, SITE_DELETE_BY (YYYY-MM-DD),
 SITE_GOVERNING_LAW (the law of the terms of use), SITE_SOURCE_URL (the PUBLIC repository, footer link),
 PUBLIC_TURNSTILE_SITEKEY; optional SITE_LEGAL_REVIEWED=1. Pages secrets ${REQUIRED_SECRETS.join(', ')} must be set
@@ -127,7 +127,7 @@ export function deployPlan(args, env, wranglerToml, migrationFiles = MIGRATIONS,
   const problems = [...b.problems];
   // the footer "Source" link must never be the private origin repository (compared as host/owner/repo)
   if (b.sourceUrl && originUrl && repoKey(b.sourceUrl) === repoKey(originUrl))
-    problems.push('SITE_SOURCE_URL is the private origin repository; use the PUBLIC repository (made by scripts/export-public.mjs)');
+    problems.push('SITE_SOURCE_URL is the private origin repository; use the PUBLIC repository (the public export of this project)');
   if (args.unknown.length) problems.push(`unknown argument(s): ${args.unknown.join(' ')}`);
   const dbId = d1DatabaseId(wranglerToml);
   if (!dbId || dbId === PLACEHOLDER_DB_ID)

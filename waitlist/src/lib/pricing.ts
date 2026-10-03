@@ -1,4 +1,4 @@
-// Hero estimator: lookups into the precomputed grid (src/data/grid.json, written by scripts/gen-grid.py with
+// Hero estimator: lookups into the precomputed grid (src/data/grid.json, written by waitlist/scripts/gen-grid.py with
 // the repo's own engine/numera_engine/pricing.py) plus the liquidation helper used to turn a live oracle
 // spot into dollar levels. No pricing formula is re-implemented here: every premium comes from the grid.
 // Only erasable TypeScript syntax (node --test strips the types).

@@ -1,4 +1,4 @@
-// Tests for the site deploy plan: node --test scripts/lib/deploysite.test.mjs (run by scripts/check.mjs).
+// Tests for the site deploy plan: node --test scripts/lib/deploysite.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';

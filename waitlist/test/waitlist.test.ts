@@ -1,4 +1,4 @@
-// Started from site/test/waitlist.test.ts (waitlist v2 build, 2026-10-02); since 2026-10-03 email is required
+// Since 2026-10-03 email is required
 // (unique on the normalised address); a Telegram username and an X handle are each optional (either, both, none).
 // node --test: validation, normalisation and the /api/join handler with a fake D1 and a fake Turnstile.
 import { test } from 'node:test';

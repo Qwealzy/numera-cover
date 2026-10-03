@@ -1,4 +1,4 @@
-// Started from site/src/server/waitlist.ts (waitlist v2 build, 2026-10-02). Since 2026-10-03 it diverges: email
+// Since 2026-10-03 email
 // is required (unique on the normalised address); a Telegram username and an X handle are each optional, and a
 // signup may give both (migration 0002).
 // Waitlist signup logic for the Cloudflare Pages Function functions/api/join.ts.
