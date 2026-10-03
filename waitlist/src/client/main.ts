@@ -9,6 +9,7 @@ import { mountSteps } from './steps.ts';
 import { mountToy } from './toy.ts';
 import { startLive, mountLedger } from './live.ts';
 import { mountJoin } from './join.ts';
+import { mountProof } from './proof.ts';
 import { mountJoinMark } from './joinmark.ts';
 import { mountPriceYou } from './price.ts';
 
@@ -83,6 +84,9 @@ export function boot(): void {
   if (price) guarded('price', () => mountPriceYou(price));
   const toy = $('[data-toy]');
   if (toy) guarded('toy', () => mountToy(toy));
+
+  const run = $('[data-run]');
+  if (run) guarded('proof', () => mountProof(run));
 
   const joinSection = $('#join');
   let join: ReturnType<typeof mountJoin> | null = null;

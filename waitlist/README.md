@@ -68,7 +68,7 @@ These variables are read by `src/lib/buildenv.mjs`, which is copied unchanged fr
 | Hero price path | SIM | A random path drawn in the browser, labelled SIM. It is not market data. |
 | Wick lanes (S2) | Scripted | One scripted wick, labelled "Scripted path, not market data." |
 | Reservation toy (S5) | SIM | A toy pool, not the live pool. It shows % and blocks only. |
-| Recorded run (S6) | Static record | `deployments/testnet-v2.json` `e2e_F9_2026-10-02_3`: a static block track and three receipt cards (block, call, status 1); no hashes are shown. |
+| Recorded run (S6) | Static record | `deployments/testnet-v2.json` `e2e_F9_2026-10-02_3`: a block track and three receipt cards (block, call, status 1). A playhead sweeps blocks 484-491, the three calls light up in turn, then the 3 s bracket draws; it holds and loops (`RUN_*` in `src/lib/timing.ts`), stops off screen, and shows the finished run with reduced motion. No hashes are shown. |
 | Figures (">$19B", "≈6,300", "≈$1.76B", the grid table, the evidence lines) | Static, with the source named on the page | README Problem and Evidence; `docs/pitch/business-plan.md`; `engine/reports/calibration.md` |
 
 - Live reads run on load, then every 25 s, and only while the tab is visible. The endpoint that answered is

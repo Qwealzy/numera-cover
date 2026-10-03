@@ -1,6 +1,6 @@
-// node --test: the Proof section shows the recorded run as a static block track and receipt cards only. No
-// transaction hash, no `cast receipt` line and no copy button reach the page, and no client code touches the
-// clipboard. The built page is checked when a build exists.
+// node --test: the Proof section shows the recorded run as a block track and receipt cards, animated by
+// src/client/proof.ts. No transaction hash, no `cast receipt` line and no copy button reach the page, and no
+// client code touches the clipboard. The built page is checked when a build exists.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -16,12 +16,21 @@ test('Proof markup: no hashes, no verify line, no copy button, no playhead', () 
     assert.doesNotMatch(t, re);
 });
 
-test('client code: proof.ts is gone and nothing uses the clipboard', () => {
-  assert.equal(existsSync(path.join(SITE, 'src/client/proof.ts')), false);
+test('client code: nothing uses the clipboard; the run animates through the shared scheduler', () => {
+  const run = read('src/client/proof.ts');
+  assert.match(run, /loop\('proof-run', run,/);
+  assert.match(run, /if \(motionOn\(\)\) \{[\s\S]*\} else end\(\);/, 'reduced motion: the finished run');
   for (const f of readdirSync(path.join(SITE, 'src/client'))) {
     const t = read(`src/client/${f}`);
     assert.doesNotMatch(t, /clipboard|execCommand/i, f);
   }
+});
+
+test('Proof markup is the finished run (no JS, reduced motion): every block and card reached, bracket on', () => {
+  const t = read('src/components/Proof.astro');
+  assert.match(t, /data-run data-bracket="on"/);
+  assert.match(t, /data-ev=\{ev \? 'y' : 'n'\} data-reached="y"/);
+  assert.match(t, /data-rc-block=\{e\.block\} data-reached="y"/);
 });
 
 test('built index: no 32-byte hex hash and no cast receipt command', () => {

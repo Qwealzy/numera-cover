@@ -26,3 +26,19 @@ test('wickU: base before the dive, exactly 1 on the touch, back near base after 
   assert.ok(wickU(INTRO_DIVE_S / 2, base) < 1);
   assert.ok(Math.abs(wickU(INTRO_DIVE_S + 2, base) - base) < 0.01);
 });
+
+test('proof run: the playhead sweeps the 8 blocks in order, then the bracket, then holds and loops', async () => {
+  const { runAt, runPeriod, RUN_STEP_S, RUN_BRACKET_S, RUN_HOLD_S } = await import('../src/lib/timing.ts');
+  const n = 8; // blocks 484-491 of the recorded run
+  assert.deepEqual(runAt(0, n), { head: 0, bracket: false });
+  const heads: number[] = [];
+  for (let k = 0; k < n; k++) heads.push(runAt(k * RUN_STEP_S + 0.01, n).head);
+  assert.deepEqual(heads, [0, 1, 2, 3, 4, 5, 6, 7]);
+  // the head reaches the trigger block before the bracket draws
+  assert.equal(runAt((n - 1) * RUN_STEP_S + 0.01, n).bracket, false);
+  assert.deepEqual(runAt((n - 1) * RUN_STEP_S + RUN_BRACKET_S + 0.01, n), { head: 7, bracket: true });
+  // held through the hold, then the loop restarts at block 0
+  assert.ok(RUN_HOLD_S >= 3);
+  assert.deepEqual(runAt(runPeriod(n) - 0.01, n), { head: 7, bracket: true });
+  assert.deepEqual(runAt(runPeriod(n) + 0.01, n), { head: 0, bracket: false });
+});

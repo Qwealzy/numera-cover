@@ -465,6 +465,7 @@ export const proof = {
   quote: 'BTC long · level 1 % below spot · payout 10 mUSDC · premium 0.434298 mUSDC · 1h',
   track: 'Block track',
   status: 'status 1',
+  pending: 'not reached yet',
   notYetHeading: 'Not yet',
   notYet: [
     'No mainnet, no real USDC, no real funds.',

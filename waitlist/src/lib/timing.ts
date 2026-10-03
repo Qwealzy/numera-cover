@@ -105,3 +105,25 @@ export function createAutoplay(fire: () => boolean, t = { period: AUTO_PERIOD_S,
     },
   };
 }
+
+// ---- proof run (seconds) -----------------------------------------------------------------------------------------
+/** The playhead moves one block per step along the recorded run's block track. */
+export const RUN_STEP_S = 0.33;
+/** After the last block, the "3 s by block timestamps" bracket draws in this long after the head arrives. */
+export const RUN_BRACKET_S = 0.4;
+/** The finished run stays on screen this long before the sweep starts again. */
+export const RUN_HOLD_S = 4.5;
+
+/** One sweep plus its hold, for a track of `n` blocks. */
+export const runPeriod = (n: number) => n * RUN_STEP_S + RUN_BRACKET_S + RUN_HOLD_S;
+
+/**
+ * The proof run at `t` seconds into its loop, for a track of `n` blocks: the playhead's block index (0..n-1) and
+ * whether the bracket is drawn. The loop restarts every runPeriod(n).
+ */
+export function runAt(t: number, n: number): { head: number; bracket: boolean } {
+  const p = runPeriod(n);
+  const u = ((t % p) + p) % p;
+  const head = Math.min(n - 1, Math.floor(u / RUN_STEP_S));
+  return { head, bracket: u >= (n - 1) * RUN_STEP_S + RUN_BRACKET_S };
+}

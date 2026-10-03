@@ -1,6 +1,7 @@
 ---
-// S6, proof: the recorded keeper run e2e_F9_2026-10-02_3 from deployments/testnet-v2.json, as a static block track
-// and three receipt cards (block, call, status). No transaction hashes and no explorer links (D22).
+// S6, proof: the recorded keeper run e2e_F9_2026-10-02_3 from deployments/testnet-v2.json, as a block track and
+// three receipt cards (block, call, status). src/client/proof.ts sweeps a playhead along it in a loop; the markup
+// is the finished run (no JS, reduced motion). No transaction hashes and no explorer links (D22).
 import { proof as Pf } from '../copy/en.ts';
 import { RECORDED_RUN as R } from '../config.ts';
 
@@ -27,14 +28,14 @@ const events = [
       <p class="quote mono">{Pf.quote}</p>
     </div>
 
-    <div class="run" data-reveal>
+    <div class="run" data-run data-bracket="on" data-reveal>
       <div class="track-wrap">
-        <ol class="blocks" aria-label={Pf.track}>
+        <ol class="blocks" aria-label={Pf.track} data-blocks>
           {
             blocks.map((b, i) => {
               const ev = events.find((e) => e.block === b);
               return (
-                <li data-b={b} data-ev={ev ? 'y' : 'n'} style={`--i:${i}`}>
+                <li data-b={b} data-ev={ev ? 'y' : 'n'} data-reached="y" style={`--i:${i}`}>
                   <span class="b-tick" aria-hidden="true" />
                   <span class="b-num mono">{String(b).slice(-3)}</span>
                   {ev && <span class="b-ev mono">{ev.name}</span>}
@@ -50,11 +51,11 @@ const events = [
       <ol class="receipts">
         {
           events.map((e) => (
-            <li class="rc">
+            <li class="rc" data-rc-block={e.block} data-reached="y">
               <p class="rc-line mono">
                 block {fmt(e.block)} · <b>{e.name}</b> · {Pf.status}
               </p>
-              <p class="rc-what">{e.what}</p>
+              <p class="rc-what">{e.what} <span class="rc-pending mono">· {Pf.pending}</span></p>
             </li>
           ))
         }
@@ -118,12 +119,27 @@ const events = [
     height: 32px;
     border-radius: 3px;
     border: 1px solid var(--line-strong);
-    background: rgb(248 242 239 / 0.2);
+    background: transparent;
+    transition: background-color var(--t-ui) var(--ease-out), border-color var(--t-ui) var(--ease-out);
   }
   .blocks li[data-ev='y'] .b-tick {
     width: 18px;
     border: 2px solid var(--green);
+  }
+  .blocks li[data-reached='y'] .b-tick {
+    background: rgb(248 242 239 / 0.2);
+  }
+  .blocks li[data-ev='y'][data-reached='y'] .b-tick {
     background: var(--green);
+  }
+  /* the playhead: a paper ring on the block it is on */
+  .blocks li[data-head='y'] .b-tick {
+    outline: 2px solid var(--paper);
+    outline-offset: 2px;
+  }
+  /* a call's name is drawn in label colour until the playhead reaches its block (no fading) */
+  .blocks li[data-reached='n'] .b-ev {
+    color: var(--text-label);
   }
   .b-num {
     font-size: 0.72rem;
@@ -142,6 +158,14 @@ const events = [
     border-top: 0;
     height: 12px;
     border-radius: 0 0 6px 6px;
+    transform-origin: left center;
+    transition: transform var(--t-travel) var(--ease-out);
+  }
+  .run[data-bracket='off'] .bracket {
+    transform: scaleX(0);
+  }
+  .run[data-bracket='off'] .bracket-label {
+    visibility: hidden;
   }
   .bracket-label {
     font-size: 0.76rem;
@@ -164,6 +188,28 @@ const events = [
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
     background: var(--surface);
+  }
+  /* not reached yet: dashed card, label-colour text and the words "not reached yet" (no fading). The note keeps
+     its box in both states (visibility), so nothing below moves while the run plays (CLS 0). */
+  .rc {
+    transition: border-color var(--t-ui) var(--ease-out);
+  }
+  .rc[data-reached='n'] {
+    border-style: dashed;
+    border-color: var(--line);
+    background: transparent;
+  }
+  .rc[data-reached='n'] :is(.rc-line, .rc-line b, .rc-what) {
+    color: var(--text-label);
+  }
+  .rc-pending {
+    display: block;
+    font-size: 0.74rem;
+    color: var(--text-label);
+    visibility: hidden;
+  }
+  .rc[data-reached='n'] .rc-pending {
+    visibility: visible;
   }
   .rc-line {
     font-size: 0.82rem;
