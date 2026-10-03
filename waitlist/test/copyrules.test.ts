@@ -14,7 +14,7 @@ const DIST = path.join(SITE, 'dist');
 
 // claims the brand never makes (protect*, risk-free, safe*, revolutionary, APY, "yield of")
 const EXTRA = /\bprotect(ed|s|ion|ing)?\b|\brisk-free\b|\bsafe(ly|ty)?\b|\brevolutionary\b|\bAPY\b|\byield of\b/i;
-// Insurance wording (legal-risk wording rule; decision 2026-10-03). The only allowed use of "insurance" is
+// Insurance wording (insurance-law risk, D28; founder decision 2026-10-03). The only allowed use of "insurance" is
 // the exact phrase "not insurance". Data that engine/deployment records name "premium" keeps its internal
 // identifiers, but nothing a visitor sees or a screen reader announces may use these words.
 const NOT_INSURANCE = /\bnot insurance\b/gi;
