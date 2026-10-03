@@ -93,14 +93,12 @@ export function boot(): void {
   if (joinSection) guarded('join', () => (join = mountJoin(joinSection)));
   if (joinSection) guarded('join-mark', () => mountJoinMark(joinSection));
 
-  // every Join CTA goes to the one form: scroll, focus the email field, nudge the ticket. On narrow screens the
-  // door toggle stays in view above the ticket, so the email field lands well inside the first screen.
+  // every Join CTA goes to the one form: scroll, focus the email field, nudge the ticket.
   for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-join]')) {
     a.addEventListener('click', (e) => {
       if (!join || !joinSection) return;
       e.preventDefault();
-      const narrow = window.innerWidth <= 900;
-      const target = narrow ? (joinSection.querySelector('[data-doors]') ?? joinSection) : (joinSection.querySelector('[data-ticket]') ?? joinSection);
+      const target = joinSection.querySelector('[data-ticket]') ?? joinSection;
       join.focusForm(); // focus first (without scrolling), then scroll: a focus call can cut a smooth scroll short
       target.scrollIntoView({ behavior: motionOn() ? 'smooth' : 'auto', block: 'start' });
     });

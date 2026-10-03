@@ -480,20 +480,8 @@ export const waitlist = {
   heading: 'Join the waitlist',
   intro:
     'Leave your email and we will write when the next testnet round opens. A Telegram or X handle is optional. No wallet, no keys.',
-  doors: {
-    label: 'I would',
-    trader: {
-      tab: 'Buy cover',
-      title: 'Waitlist · cover for traders',
-      line: 'For Hyperliquid perp traders who want to stay in a leveraged trade through a wick.',
-    },
-    underwriter: {
-      tab: 'Underwrite',
-      title: 'Waitlist · underwriting the pool',
-      line: 'For those who would supply USDC to the pool.',
-    },
-    note: 'Your choice only changes this wording; the form stores the same fields either way.',
-  },
+  ticketTitle: 'Waitlist · HyperEVM testnet',
+  ticketLine: 'For Hyperliquid perp traders who want to stay in a leveraged trade through a wick.',
   email: { label: 'Your email', hint: 'Used only to tell you when the next testnet round opens.' },
   handle: { label: 'Your handle (optional)', hint: 'Telegram (5-32 characters) or X (1-15 characters), with or without @' },
   channel: { label: 'Channel', options: [{ value: 'telegram', label: 'Telegram' }, { value: 'x', label: 'X' }] },
@@ -517,7 +505,6 @@ export const waitlist = {
     handle: 'Handle',
     none: '—',
     channel: 'Channel',
-    door: 'Ticket',
     again: 'Use a different handle',
     // what happens next, in the space the folded form keeps (nothing below moves). Sources: this section's
     // intro ("message you when the next testnet round opens"); the privacy notice "What we store and why"

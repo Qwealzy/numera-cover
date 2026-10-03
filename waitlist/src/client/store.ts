@@ -1,4 +1,4 @@
-// Tiny shared state: the hero setup (read by the readout, the purchase-check cascade and the waitlist door)
+// Tiny shared state: the hero setup (read by the readout and the purchase-check cascade)
 // and the live testnet reads. Plain pub/sub, no library.
 import { DEFAULT_SETUP, type Setup } from '../lib/pricing.ts';
 import type { Ledger } from '../lib/chain.ts';

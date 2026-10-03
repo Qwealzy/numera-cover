@@ -6,7 +6,7 @@
 import { normalizeEmail, normalizeHandle, type Channel } from '../server/waitlist.ts';
 import { waitlist as Wl } from '../copy/en.ts';
 import { motionOn } from './motion.ts';
-import { state, on, set } from './store.ts';
+import { set } from './store.ts';
 
 const TIMEOUT_MS = 15_000;
 
@@ -39,24 +39,9 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
   const again = section.querySelector<HTMLButtonElement>('[data-again]')!;
   const errors = JSON.parse(form.dataset.errors ?? '{}') as Record<string, string>;
   const valid = JSON.parse(form.dataset.valid ?? '{}') as Record<Channel, string>;
-  const doors = JSON.parse(form.dataset.doors ?? '{}') as Record<'trader' | 'underwriter', { title: string; line: string }>;
-  const doorTitle = section.querySelector<HTMLElement>('[data-door-title]')!;
-  const doorLine = section.querySelector<HTMLElement>('[data-door-line]')!;
-  const doorInputs = [...section.querySelectorAll<HTMLInputElement>('[data-door]')];
   let widgetId: string | undefined;
   let captchaRequested = false;
   let blurred = false;
-  let door_: 'trader' | 'underwriter' = 'trader';
-
-  // ---- doors (wording only) ----
-  function door(role: 'trader' | 'underwriter') {
-    door_ = role;
-    doorTitle.textContent = doors[role].title;
-    doorLine.textContent = doors[role].line;
-    for (const d of doorInputs) d.checked = d.value === role;
-  }
-  for (const d of doorInputs) d.addEventListener('change', () => d.checked && door(d.value as 'trader' | 'underwriter'));
-  on('role', (s) => door(s.role));
 
   // ---- Turnstile, lazily ----
   function loadCaptcha() {
@@ -166,7 +151,6 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     v('email').textContent = mail;
     v('handle').textContent = norm ?? Wl.issued.none;
     v('channel').textContent = ch ? (Wl.channel.options.find((o) => o.value === ch)?.label ?? ch) : Wl.issued.none;
-    v('door').textContent = doors[door_].title;
     issued.hidden = false;
     ticket.dataset.state = 'success';
     // the ticket's top (the stamp) comes into view on narrow screens
@@ -252,7 +236,6 @@ export function mountJoin(section: HTMLElement): { focusForm: () => void; loadCa
     if (submit.getAttribute('aria-disabled') === 'true') e.preventDefault();
   });
 
-  door(state.role);
   feedback();
 
   return {

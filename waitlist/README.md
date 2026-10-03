@@ -256,8 +256,8 @@ for the architect to see:
 
 ## Open decisions (for the architect or founder; not acted on here)
 
-1. **Role field.** The trader/underwriter "doors" change wording only, and the wire
-   format carries no role. Storing a role would take five changes:
+1. **Role field.** The form no longer asks whether a visitor trades or underwrites (the "I would" toggle was
+   removed), and the wire format carries no role. Storing a role would take five changes:
    - an optional request field `role`, one of `trader`, `underwriter` or `both`, validated after `channel`;
    - a new error, 400 `role`;
    - a migration, `0003_role.sql`:

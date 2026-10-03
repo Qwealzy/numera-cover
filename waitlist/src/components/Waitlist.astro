@@ -1,6 +1,6 @@
 ---
 // S7, the waitlist as a cover ticket. The /api/join body is site/'s plus `email` (required since 2026-10-03; the
-// handle and channel became optional). The door changes wording only; no role on the wire.
+// handle and channel became optional). No role on the wire.
 // On a 200 the fields fold into an issued ticket (shown in place, so nothing below moves).
 import { waitlist as Wl, footer as F, CONSENT_VERSION } from '../copy/en.ts';
 import { WAITLIST_ENDPOINT, TURNSTILE_SCRIPT } from '../config.ts';
@@ -10,7 +10,6 @@ interface Props {
   sitekey: string;
 }
 const { sitekey } = Astro.props;
-const D = Wl.doors;
 const poly = (pts: [number, number][]) => pts.map((p) => p.join(',')).join(' ');
 const Nx = Wl.issued.next;
 ---
@@ -29,20 +28,12 @@ const Nx = Wl.issued.next;
       <p class="kicker">{Wl.kicker}</p>
       <h2 id="join-title">{Wl.heading}</h2>
       <p class="intro">{Wl.intro}</p>
-      <fieldset class="doors" data-doors>
-        <legend class="label">{D.label}</legend>
-        <div class="seg">
-          <label><input type="radio" name="door" value="trader" checked data-door /><span>{D.trader.tab}</span></label>
-          <label><input type="radio" name="door" value="underwriter" data-door /><span>{D.underwriter.tab}</span></label>
-        </div>
-        <p class="door-note">{D.note}</p>
-      </fieldset>
     </div>
 
     <div class="ticket" data-ticket data-state="idle" data-reveal data-reveal-delay="1">
       <div class="ticket-body">
-        <p class="t-title" data-door-title>{D.trader.title}</p>
-        <p class="t-line" data-door-line>{D.trader.line}</p>
+        <p class="t-title">{Wl.ticketTitle}</p>
+        <p class="t-line">{Wl.ticketLine}</p>
 
         <div class="form-wrap">
           <form
@@ -58,7 +49,6 @@ const Nx = Wl.issued.next;
             data-sending={Wl.sending}
             data-success={Wl.success}
             data-valid={JSON.stringify(Wl.valid)}
-            data-doors={JSON.stringify({ trader: D.trader, underwriter: D.underwriter })}
           >
             <div class="field email-field">
               <label for="wl-email" class="label">{Wl.email.label}</label>
@@ -137,7 +127,6 @@ const Nx = Wl.issued.next;
               <div><dt>{Wl.issued.email}</dt><dd data-i="email"></dd></div>
               <div><dt>{Wl.issued.handle}</dt><dd data-i="handle"></dd></div>
               <div><dt>{Wl.issued.channel}</dt><dd data-i="channel"></dd></div>
-              <div><dt>{Wl.issued.door}</dt><dd data-i="door"></dd></div>
             </dl>
             <div class="i-next">
               <p class="label i-next-h">{Nx.heading}</p>
@@ -193,26 +182,8 @@ const Nx = Wl.issued.next;
     gap: clamp(2rem, 6vw, 5.5rem);
     align-items: start;
   }
-  .doors {
-    margin: 0.8rem 0 0;
-    padding: 0;
-    border: 0;
-    display: grid;
-    gap: 0.5rem;
-    scroll-margin-top: calc(var(--nav-h) + 12px);
-  }
-  .doors legend {
-    margin-bottom: 0.5rem;
-  }
-  .doors .seg {
-    justify-self: start;
-  }
-  .door-note {
-    font-size: 0.82rem;
-    color: var(--text-label);
-  }
-
   .ticket {
+    scroll-margin-top: calc(var(--nav-h) + 12px);
     position: relative;
     border: 1px solid var(--line-strong);
     border-radius: 18px;
