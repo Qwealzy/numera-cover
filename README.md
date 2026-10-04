@@ -122,8 +122,12 @@ python -m venv .venv
 pip install -e ".[dev]"
 python -m pytest -q tests
 
-# Quote API (signs quotes for one pool; use a fresh testnet-only key)
-NUMERA_ENV=testnet NUMERA_CHAIN_ID=998 NUMERA_POOL=0xda611e1a07260005ea5641e9fe633cd4d10c341e \
+# Quote API (on chain 998 it signs for v2 pools only; use a fresh testnet-only key). Without NUMERA_POOL it
+# signs for the v2 pools in deployments/testnet-v2.json; NUMERA_POOLS=<addr>,<addr> replaces that list.
+# NUMERA_BIND_HOST must equal uvicorn's --host (default 127.0.0.1). Bound beyond loopback with the rate limit
+# on, the engine refuses to start unless NUMERA_TRUSTED_PROXIES (reverse proxy address) or
+# NUMERA_PROXY_MODE=direct is set. It also refuses to start when NUMERA_CHAIN_ID differs from the RPC's chain id.
+NUMERA_ENV=testnet NUMERA_CHAIN_ID=998 \
 QUOTE_SIGNER_KEY=<testnet key> uvicorn numera_engine.quote_api:app --port 8000
 
 # Keeper (polls all pools in deployments/testnet.json every 3 s via one Multicall3 call and sends

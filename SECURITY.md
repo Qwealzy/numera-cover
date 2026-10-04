@@ -35,7 +35,8 @@ There is no sweep or rescue function, no upgrade proxy, and the price and positi
 |---|---|---|
 | **Owner** (deployer key on testnet) | Rotate the quote signer (`setQuoteSigner`); change limits (`setLimits`: max utilization, per-perp cap, max duration, max spot deviation, min payout); pause and unpause; transfer or renounce ownership. | Move USDC; change the price or position source; stop `trigger`, `expire` or withdrawals of free assets (pause does not cover them). Indirectly, by rotating the signer, it gains everything the quote signer can do (see H1). |
 | **Quote signer** (engine key) | Sign EIP-712 quotes. Any quote it signs that passes the contract's checks (signature, buyer, deadline, nonce, expiry window, min payout, spot deviation, level not already breached, buyer's position and margin cap, pool capacity) can be bought. | Move USDC; sign for another pool or chain (the domain binds both); let a quote be used twice or by another address; sell a cover the pool cannot fully reserve. |
-| **Keeper** (bot key) | Call `trigger` and `expire`, which anyone may call. | Anything else. A stolen keeper key costs only its gas balance. |
+| **Keeper** (bot key) | Call `trigger` and `expire`, which anyone may call. | Anything else. A stolen keeper key costs only its gas balance, provided it is not also the guardian (see below). |
+| **Guardian** (v2 pause key) | Pause new sales and deposits (`guardianPause`). | Unpause, cancel a queued change, move USDC. It must be a key of its own: the 2026-10-02 v2 deployments used the keeper key as guardian (audit L4), so a stolen keeper key could also have paused both pools. The redeploy script now requires a separate `GUARDIAN`, refuses one equal to the keeper, and prints it. |
 | **Anyone** | `trigger`, `expire`, `cachePerp` on the price source, deposit (when not paused), withdraw their own free share, request a quote from the engine. | Trigger a cover whose level is not breached, or expire one before expiry. |
 
 The engine (`engine/`) is the off-chain pricing service: it computes the premium and signs quotes with
@@ -151,11 +152,14 @@ which are unchanged. The on-chain mitigations in v2 are listed after this list.
 - **Clock:** quote deadline and expiry are computed from the latest block timestamp, with a fallback to
   the wall clock when the chain cannot be read or lags.
 
-### CoverPool v2 (in the repository, not deployed)
+### CoverPool v2 (deployed on testnet 2026-10-02; redeploy pending)
 
-A second version of the pool contract is merged into the repository but is **not deployed**. The pools
-running on testnet today are still v1, so everything in section 4 still describes the live testnet
-contracts. v2 implements:
+A second version of the pool contract is deployed on testnet (a HyperCore pool and a MOCK pool, commit
+`269abd4`, `deployments/testnet-v2.json`); v1 stays at its old addresses and the engine no longer signs for it
+on chain 998 (audit L5). Section 4 describes v1 and, for H1 and H2, the shape of the risk that v2 narrows. The
+security audit of 2026-10-04 led to fixes that need one more redeploy of the v2 pools (the contracts'
+license change alters their metadata hash too), so the addresses in `deployments/testnet-v2.json` are
+replaced after that run and not before. v2 implements:
 
 - on-chain `minPremiumBps` and `minLevelDistanceBps` floors, a sale-window throttle, and a payout circuit
   breaker that pauses sales when payouts in a window exceed a cap (an owner unpause also resets the
@@ -173,8 +177,8 @@ checks on the new guards were caught). That is still not an independent audit.
 
 ## 6. Mainnet blockers
 
-The v2 contract addresses blockers 1 to 6 below in code, but v2 is not deployed and has not been
-independently audited, so none of them is closed on a live deployment. All must hold on a deployment that
+The v2 contract addresses blockers 1 to 6 below in code. v2 is deployed on testnet only and has not been
+independently audited, so none of them is closed for real funds. All must hold on a deployment that
 has real funds:
 
 1. On-chain `minPremiumBps` and `minLevelDistanceBps`, and per-buyer (or per-block) caps, so a signer
@@ -205,6 +209,35 @@ Residual risks that remain even with v2 as written:
   sales and deposits meanwhile, but cannot cancel. The delay gives LPs and monitoring time to see a queued
   change (`ConfigQueued` is public); multisig custody of the owner is an operational requirement, not
   something the contract can enforce.
+
+## 5a. Audit of 2026-10-04: findings and fixes
+
+A second internal audit (read-only, after the v2 deployment) found no Critical or High issue. Fixes on
+branch `audit-fixes`, in the next redeploy of the v2 pools:
+
+- **M1 (engine rate limiter behind a proxy).** With no `NUMERA_TRUSTED_PROXIES`, the limiter keyed on the
+  proxy's address, so all clients shared one bucket. The engine now refuses to start when the limiter is on, the
+  bind host (`NUMERA_BIND_HOST`) is not loopback-only and no trusted proxy is set, unless
+  `NUMERA_PROXY_MODE=direct` says clients connect directly. It logs a WARNING when many distinct
+  `X-Forwarded-For` values arrive from one untrusted peer. Test: `test_rate_limit_requires_trusted_proxy_behind_proxy`.
+- **L1 (request / cancel could freeze a window snapshot).** `cancelRedeemRequest` works only after the
+  request's `withdrawDelay` has elapsed, so toggling escrow to shrink `capacityBase()` costs the delay. In strict
+  (mainnet) mode that is longer than any window; on testnet (10 minutes against a 1 hour window) it only
+  shortens the freeze. Test: `test_requestCancel_cannotShrinkWindowCap`.
+- **L2 (documented, no code change).** On testnet the short withdraw delay lets a late depositor capture part
+  of an expiring cover's price (premium earned at expiry accrues to everyone then in the pool). Strict
+  (mainnet) delays, longer than the longest cover, remove it: a late depositor must then stay exposed for
+  longer than any cover lasts before the exit opens, so there is no quick in-and-out around an expiry.
+- **L3 (thin live pools tripped the breaker).** The deploy script seeds at least 100,000 mUSDC per pool
+  (`SEED_USDC`) and, on chain 998 only, sets `maxPaidPerWindowBps` equal to `maxSoldPerWindowBps` (25 % instead of
+  15 %). Local deployments and the mainnet-style defaults keep the stricter value; 999 stays refused.
+- **L4 (guardian was the keeper key).** See the Guardian row in section 2.
+- **L5 (engine signed for v1 pools).** On chain 998 the engine signs only for pools the deployments file marks
+  v2, or for the addresses in `NUMERA_POOLS`. Test: `test_quote_refuses_v1_pool_on_testnet`.
+- **Info.** The engine compares `NUMERA_CHAIN_ID` with the RPC's `eth_chainId` at start-up and refuses on a
+  mismatch (as the keeper already does). The note on `HyperCorePositionSource` now says `entryNtl` (USD x 1e6) was
+  verified on testnet (one position, 2026-10-01), as ARCHITECTURE section 5.11 does. Invariant 11 (liveness)
+  is unchanged; its handler's `cancelRedeem` now only succeeds once the delay has elapsed.
 
 ## 7. Tests backing these claims
 
