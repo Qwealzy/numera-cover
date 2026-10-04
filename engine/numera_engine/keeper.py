@@ -940,7 +940,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="RPC URL, repeatable, in priority order (default: NUMERA_RPCS env, comma-separated; "
                          "else the deployments rpc, the official testnet RPC, chain.link)")  # fmt: skip
     ap.add_argument("--pool", action="append", default=None, help="pool address (repeatable; default: all)")
-    ap.add_argument("--pool-version", default=(os.environ.get("NUMERA_KEEPER_POOL_VERSION") or "").strip() or None,
+    pool_version = (os.environ.get("NUMERA_KEEPER_POOL_VERSION") or "").strip() or None
+    ap.add_argument("--pool-version", default=pool_version,
                     choices=["v2"], help="with no --pool: watch only the deployments file's pools of this "
                     "version (env NUMERA_KEEPER_POOL_VERSION; default: all)")  # fmt: skip
     ap.add_argument("--price-source", default=None, help="override pool.priceSource() (single pool only)")

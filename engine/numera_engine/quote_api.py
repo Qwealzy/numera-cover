@@ -372,8 +372,8 @@ def check_rate_limit_proxy(settings: Settings) -> None:
         return
     if settings.client_ip_header and not settings.trusted_proxies:
         raise RateLimitProxyError(
-            "NUMERA_CLIENT_IP_HEADER needs NUMERA_TRUSTED_PROXIES (the proxy that sets it, e.g. 127.0.0.1 for "
-            "cloudflared on this host); refusing to start"
+            "NUMERA_CLIENT_IP_HEADER needs NUMERA_TRUSTED_PROXIES (the proxy that sets it, e.g. 127.0.0.1 "
+            "for cloudflared on this host); refusing to start"
         )
     if settings.proxy_mode == "proxy" and not settings.trusted_proxies:
         raise RateLimitProxyError(
