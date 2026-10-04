@@ -154,9 +154,12 @@ set (§5.6) and is checked by the same function:
 | `saleWindow` | 60 s | 7 days | ≥ 3 600 | 3 600 |
 | `maxSoldPerWindowBps` | 1 | `maxUtilizationBps` | ≤ 2 500 | 2 500 |
 | `maxBuyerWindowShareBps` | 1 | 10 000 | | 2 500 |
-| `maxPaidPerWindowBps` | 1 | `maxSoldPerWindowBps` | ≤ `maxSoldPerWindowBps` | 1 500 |
+| `maxPaidPerWindowBps` | 1 | `maxSoldPerWindowBps` | ≤ `maxSoldPerWindowBps` | 1 500 (local 31337); 2 500 on 998 (audit L3) |
 
-The first five testnet values are today's deployed values. `minPremiumBps = 20`: the cheapest legitimate
+The first five testnet values are today's deployed values. On chain 998 the deploy script sets `maxPaidPerWindowBps`
+= `maxSoldPerWindowBps` (2 500; audit L3, 2026-10-04): a thin demo pool (~1 900 USDC) tripped the 15 % breaker on three
+judges' payouts in an hour, and the deploy now also seeds at least 100 000 mUSDC (`SEED_USDC`, §5.9). Local (31337)
+keeps 1 500, the stricter default. `minPremiumBps = 20`: the cheapest legitimate
 priced probability on the engine's grid is about 1.09 bps of payout, so far-from-spot quotes are raised to
 the floor by the engine (§6, `floorApplied`). 0 is never allowed for a floor or a cap: none of them can be
 switched off. Mainnet targets (documented only; mainnet is out of scope, §10): `maxSoldPerWindowBps ≤ 1000`,
@@ -353,9 +356,15 @@ first come, first served against free assets; every exiting LP has already waite
 no other exit: `redeem`/`withdraw` only burn escrowed shares of a Claimable slot. Plain share transfers
 between holders stay allowed (they move exposure, not USDC).
 
-`cancelRedeemRequest()`: any non-empty slot of `msg.sender` (any state) → shares go back from the escrow to
-`msg.sender`, slot deleted, `totalEscrowedShares −= shares`, emit `RedeemRequestCancelled`; `ZeroShares()` if
-empty. Requests, withdrawals and cancels all work while paused.
+`cancelRedeemRequest()`: a non-empty slot of `msg.sender` whose `withdrawDelay` has elapsed (state Claimable or
+Lapsed; `RequestPending()` while Pending, audit L1, 2026-10-04) → shares go back from the escrow to `msg.sender`,
+slot deleted, `totalEscrowedShares −= shares`, emit `RedeemRequestCancelled`; `ZeroShares()` if empty. Requests,
+withdrawals and cancels all work while paused. Why the gate: `capacityBase()` (§5.1) excludes escrowed shares, and the
+sale-window and breaker snapshots (`windowAssets`, `paidWindowAssets`) are taken from it. An instant cancel let a
+large LP request 99 %, open a window with a 1 USDC sale (snapshot = 1 % of the pool), then cancel and keep the frozen
+cap for the rest of the window. Now toggling costs a full `withdrawDelay` locked in the escrow; in strict mode that
+is longer than any window, so the snapshot has been renewed by the time a cancel is possible. On testnet
+(`withdrawDelay` 600 s < `saleWindow` 3 600 s) the freeze is only shortened to the rest of the window.
 
 ERC-7540 views: `pendingRedeemRequest(0, c)` = slot shares if Pending, `claimableRedeemRequest(0, c)` = slot
 shares if Claimable, both 0 for any other `requestId` or state (never revert). Lapsed shares appear in
@@ -527,7 +536,8 @@ Exits
     that was Claimable (ghost: request time + `withdrawDelay` ≤ withdraw time < request time + `withdrawDelay`
     + `claimWindow`); handler calls of `withdraw`/`redeem` without a Claimable slot always revert.
 11. Liveness: after `pause`, and a warp of `maxDuration + withdrawDelay` with every cover expired or
-    triggered, every requested slot (re-queued if lapsed) can withdraw in full.
+    triggered, every requested slot (re-queued if lapsed) can withdraw in full. (Audit info d, 2026-10-04: left as is;
+    note that the handler's `cancelRedeem` now only succeeds once `withdrawDelay` has elapsed, §5.4.)
 12. Rounding: no LP action (deposit, mint, request, cancel, withdraw) lowers `convertToAssets(1e12)` (one
     share) for the other holders.
 
@@ -568,6 +578,9 @@ Plan:
    `cachePerp` for each perp in `deployments/<env>.json` → pool (its constructor validates those perps).
    Txs land in big blocks (~1 min each); keep ≤ 8 pending nonces.
 4. Deployer sends `usingBigBlocks=false` so seeding and admin txs go back to 1 s blocks.
+   (Audit L3/L4, 2026-10-04: `Deploy.s.sol` itself seeds the pool after creation, `SEED_USDC` whole mUSDC, default
+   100 000 on 998, minted from the public-mint mock token and deposited for the owner; on 998 it requires a
+   separate `GUARDIAN` (non-zero, not the owner, not `KEEPER`) and prints it.)
 5. Record addresses, tx hashes and the measured deploy gas in `deployments/testnet-v2.json` (v1's
    `deployments/testnet.json` stays as it is).
 
@@ -637,7 +650,8 @@ uint64 maxDuration, uint16 maxSpotDevBps, uint256 minPayout)`, event with five f
 - Capacity is checked against `totalAssets` before the cover price arrives (conservative).
 - Compiled with `via_ir`, `evm_version = shanghai`.
 - Verified on testnet [RUN]: `perpAssetInfo(3)` decodes as one tuple → `("BTC", 54, 5, 40, false)`;
-  position `entryNtl` = USD × 1e6 (research doc).
+  position `entryNtl` = USD × 1e6 (research doc: precompile `entryNtl=99526050` vs Info API `0.00117 × 85065 = 99.526`
+  on 2026-10-01; one position, one perp, testnet; `HyperCorePositionSource.sol` carries the same statement).
 - Mainnet lock: deploy scripts `require(block.chainid == 998 || block.chainid == 31337)`.
 
 ## 6. Quote API (engine → app)
@@ -676,6 +690,20 @@ Added 2026-10-02 (security audit M1, M2, M4, L6; engine-side only, contracts unc
   `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header. Behind a reverse
   proxy listed in `NUMERA_TRUSTED_PROXIES` (default empty) the client is the right-most untrusted
   `X-Forwarded-For` entry; otherwise the direct peer.
+
+Added 2026-10-04 (security audit M1, L5, info b; engine-side only, contracts and the quote format unchanged):
+- Rate-limit start-up guard (M1): with the limiter on (`NUMERA_RATE_PER_MIN` > 0), a bind host that is not
+  loopback-only (`NUMERA_BIND_HOST`, default `127.0.0.1`, must match uvicorn's `--host`) and no
+  `NUMERA_TRUSTED_PROXIES`, the engine refuses to start (`RateLimitProxyError`) unless `NUMERA_PROXY_MODE=direct`
+  (the operator asserts that clients reach the engine without a proxy). Without it every client behind a proxy
+  would share one bucket (the proxy's address). A WARNING is logged when many distinct `X-Forwarded-For` values
+  arrive from one untrusted peer (a spoofing or misconfiguration signal).
+- Pools on chain 998 (L5): the engine signs only for pools whose deployments entry is v2. v1 pools in
+  `deployments/testnet.json` are refused with 400 `unknown_pool` unless listed in `NUMERA_POOLS` (comma-separated
+  addresses; the explicit allowlist, which then replaces the file's pool list on any chain).
+- `NUMERA_CHAIN_ID` must equal the RPC's `eth_chainId` (info b): checked once at start-up over the first answering
+  RPC; a mismatch refuses to start (`ChainIdMismatchError`). An unreachable RPC does not block start-up (quotes
+  already degrade to the Info API), it logs a WARNING.
 
 v2 contract follow-up (specified 2026-10-02, §5.10; applies once a v2 pool is in `deployments/<env>.json`):
 - The engine reads, per pool, `limits()`, `perpAllowed(perp)`, `capacityBase()` and the sale window state
