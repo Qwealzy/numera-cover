@@ -84,6 +84,8 @@ DEFAULT_TAIL_PATH = Path(__file__).resolve().parent.parent / "reports" / "tail_m
 JS_SAFE_INT = 2**53 - 1
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 DEFAULT_POOL_NAME = "hypercore"  # deployments/<env>.json pool used when no pool is configured
+PROXY_MODES = ("", "direct", "proxy")
+TESTNET_CHAIN_ID = 998
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # Vite dev server (app/)
 DEFAULT_QUOTE_TTL_S = 30  # deadline - issue time (audit M1: was 60 s)
@@ -132,10 +134,22 @@ class Settings:
     rate_per_min: float = DEFAULT_RATE_PER_MIN  # POST /quote per client IP; 0 disables the limit
     rate_burst: int = DEFAULT_RATE_BURST
     trusted_proxies: tuple[str, ...] = ()  # NUMERA_TRUSTED_PROXIES: peers whose X-Forwarded-For is believed
+    # NUMERA_BIND_HOST: the address uvicorn binds (--host); it must match, the engine cannot see it.
+    # Default is uvicorn's own default. NUMERA_PROXY_MODE: "direct" = clients reach the engine without a
+    # proxy (opt-out of the start-up guard, audit M1), "proxy" = a reverse proxy sits in front (needs
+    # NUMERA_TRUSTED_PROXIES), "" = unset.
+    bind_host: str = "127.0.0.1"
+    proxy_mode: str = ""
+    # NUMERA_POOLS: explicit pool allowlist (addresses); when set it replaces the deployments file's pools.
+    # Unset on chain 998 = only pools the deployments file marks v2 (audit L5: v1 pools are not signed for).
+    pools: tuple[str, ...] = ()
     spot_cache_s: float = DEFAULT_SPOT_CACHE_S  # pool spot reused per (pool, perp) for this long
     v2_cache_s: float = DEFAULT_STATE_CACHE_S  # v2 pool state reused per (pool, perp, buyer) for this long
 
     def __post_init__(self) -> None:
+        if self.proxy_mode not in PROXY_MODES:
+            modes = sorted(m for m in PROXY_MODES if m)
+            raise ValueError(f"NUMERA_PROXY_MODE must be one of {modes} or unset")
         if self.signer_key:
             from eth_account import Account
 
@@ -177,21 +191,26 @@ class Settings:
             trusted_proxies=tuple(
                 x.strip() for x in (e.get("NUMERA_TRUSTED_PROXIES") or "").split(",") if x.strip()
             ),
+            bind_host=(e.get("NUMERA_BIND_HOST") or "127.0.0.1").strip(),
+            proxy_mode=(e.get("NUMERA_PROXY_MODE") or "").strip().lower(),
+            pools=tuple(x.strip() for x in (e.get("NUMERA_POOLS") or "").split(",") if x.strip()),
             spot_cache_s=float(e.get("NUMERA_SPOT_CACHE_S", str(DEFAULT_SPOT_CACHE_S))),
             v2_cache_s=float(e.get("NUMERA_V2_CACHE_S", str(DEFAULT_STATE_CACHE_S))),
         )
 
 
-def resolve_default_pool(configured: str | None, deployment: Deployment | None) -> str:
+def resolve_default_pool(configured: str | None, deployment: Deployment | None, v2_only: bool = False) -> str:
     """Pool a request without `pool` is signed for. A configured address (NUMERA_POOL, else POOL_ADDRESS)
     wins; if it is empty/unset or not an address, the deployment's HyperCore pool (`pools.hypercore`, else the
     first listed pool); the zero address only when there is no deployment file at all (local dev).
-    Never ""."""
+    ``v2_only`` (chain 998, audit L5): only v2 pools are candidates, preferring ``hypercore-v2``; when
+    there is none the default is the zero address, which is never in the allowlist. Never ""."""
     c = (configured or "").strip()
     if _ADDRESS_RE.match(c):
         return c
-    if deployment and deployment.pools:
-        named = next((p for p in deployment.pools if p.name == DEFAULT_POOL_NAME), deployment.pools[0])
+    pools = tuple(p for p in (deployment.pools if deployment else ()) if p.version == "v2" or not v2_only)
+    if pools:
+        named = next((p for p in pools if p.name in (DEFAULT_POOL_NAME, f"{DEFAULT_POOL_NAME}-v2")), pools[0])
         return named.pool
     return ZERO_ADDRESS
 
@@ -320,6 +339,120 @@ def check_allowlists(chain_id: int, deployment: Deployment | None) -> None:
     if not deployment.pools or not deployment.perps:
         missing = "pools" if not deployment.pools else "perps"
         raise AllowlistMissingError(f"chain {chain_id}: deployments file lists no {missing}; not starting")
+
+
+class RateLimitProxyError(RuntimeError):
+    """The rate limiter would key every client on the proxy's address (audit M1): refuse to start."""
+
+
+def is_loopback_host(host_: str) -> bool:
+    """True when a bind address is reachable from this machine only (127.0.0.0/8, ::1, localhost)."""
+    h = host_.strip().strip("[]").lower()
+    if h == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False  # "", 0.0.0.0, ::, a hostname or interface name: assume reachable from outside
+
+
+def check_rate_limit_proxy(settings: Settings) -> None:
+    """Fail closed (audit M1). With the rate limiter on and no NUMERA_TRUSTED_PROXIES, the limiter keys on the
+    direct peer. Bound beyond loopback that is only right when clients connect directly; behind a reverse
+    proxy every client shares the proxy's bucket (or, with a spoofable header, none does). So refuse to start
+    unless the operator says which: trusted proxies, or NUMERA_PROXY_MODE=direct."""
+    if settings.rate_per_min <= 0:
+        return
+    if settings.proxy_mode == "proxy" and not settings.trusted_proxies:
+        raise RateLimitProxyError(
+            "NUMERA_PROXY_MODE=proxy needs NUMERA_TRUSTED_PROXIES (the proxy's address) so the rate "
+            "limiter can tell clients apart; refusing to start"
+        )
+    if settings.trusted_proxies or settings.proxy_mode == "direct" or is_loopback_host(settings.bind_host):
+        return
+    raise RateLimitProxyError(
+        f"rate limiting is on and the engine is bound to {settings.bind_host!r} (not loopback-only) with no "
+        "NUMERA_TRUSTED_PROXIES: behind a reverse proxy every client would share the proxy's rate-limit "
+        "bucket. Set NUMERA_TRUSTED_PROXIES to the proxy's address, or NUMERA_PROXY_MODE=direct if clients "
+        "connect to the engine directly (NUMERA_BIND_HOST must match uvicorn's --host); refusing to start"
+    )
+
+
+class PoolNotAllowedError(RuntimeError):
+    """A configured pool the engine would refuse to sign for (audit L5)."""
+
+
+class ChainIdMismatchError(RuntimeError):
+    """NUMERA_CHAIN_ID differs from the RPC's eth_chainId (audit info b)."""
+
+
+def build_pool_allowlist(
+    settings: Settings, deployment: Deployment | None, default_pool: str
+) -> tuple[set[str], str]:
+    """(allowlist, default pool). NUMERA_POOLS, when set, is the whole allowlist (any chain). Otherwise the
+    configured/default pool plus every pool in the deployments file, except on chain 998 (audit L5), where
+    v1 pools in deployments/testnet.json have no on-chain floors and are not signed for: only v2 count."""
+    explicit = [a for a in settings.pools if _ADDRESS_RE.match(a)]
+    if settings.pools and len(explicit) != len(settings.pools):
+        raise PoolNotAllowedError("NUMERA_POOLS must be a comma-separated list of 0x addresses")
+    if explicit:
+        allow = {a.lower() for a in explicit}
+        return allow, (default_pool if default_pool.lower() in allow else explicit[0])
+    listed = deployment.pools if deployment else ()
+    on_998 = settings.chain_id == TESTNET_CHAIN_ID
+    if on_998:
+        listed = tuple(p for p in listed if p.version == "v2")
+        configured = _ADDRESS_RE.match(default_pool or "") and default_pool != ZERO_ADDRESS
+        if configured and default_pool.lower() not in {p.pool for p in listed}:
+            raise PoolNotAllowedError(
+                f"pool {default_pool} is not a v2 pool of the deployments file; on chain 998 the engine "
+                "refuses v1 pools (list it in NUMERA_POOLS to override)"
+            )
+    allow = {a.lower() for a in (default_pool, *(p.pool for p in listed)) if _ADDRESS_RE.match(a or "")}
+    if on_998:
+        allow.discard(ZERO_ADDRESS)
+    return allow, default_pool
+
+
+def verify_rpc_chain(rpc: FailoverRpc, chain_id: int) -> None:
+    """Refuse to start when an RPC answers another chain than NUMERA_CHAIN_ID (audit info b). An RPC that does
+    not answer at all only logs a WARNING: quotes degrade to the Info API as before."""
+    try:
+        rpc.verify_chain({chain_id}, attempts=1)
+    except RuntimeError as exc:
+        if str(exc).startswith("no RPC endpoint answered"):
+            log.warning("[engine] chain id of the RPC not verified: %s", exc)
+            return
+        raise ChainIdMismatchError(f"NUMERA_CHAIN_ID is {chain_id} but {exc}") from exc
+
+
+class XffWatch:
+    """Counts distinct X-Forwarded-For values per untrusted peer in a sliding window (audit M1). A peer
+    that is not a trusted proxy has no business sending many different values: it is either spoofing the
+    header to dodge the limiter (ignored, the limiter keys on the peer) or it is a proxy missing from
+    NUMERA_TRUSTED_PROXIES (then every client shares its bucket). Either way the operator should know."""
+
+    def __init__(self, threshold: int = 10, window_s: float = 60.0, max_peers: int = 1_000,
+                 clock: Callable[[], float] = time.monotonic) -> None:  # fmt: skip
+        self.threshold, self.window_s, self.max_peers, self.clock = threshold, window_s, max_peers, clock
+        self._seen: OrderedDict[str, dict[str, float]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def note(self, peer: str, xff: str | None) -> int:
+        """Record one request; returns the distinct values seen from ``peer`` inside the window."""
+        if not xff:
+            return 0
+        now = self.clock()
+        with self._lock:
+            vals = self._seen.pop(peer, {})
+            vals = {v: t for v, t in vals.items() if now - t <= self.window_s}
+            vals[xff.strip()[:256]] = now
+            while len(vals) > 4 * self.threshold:
+                vals.pop(min(vals, key=vals.__getitem__))
+            self._seen[peer] = vals
+            while len(self._seen) > self.max_peers:
+                self._seen.popitem(last=False)
+            return len(vals)
 
 
 def engine_rpc_urls(settings: Settings, deployment: Deployment | None) -> list[str]:
@@ -578,17 +711,15 @@ def create_app(
     nonce_fn = nonce_fn or (lambda: secrets.randbelow(JS_SAFE_INT) + 1)  # JSON-number safe for JS clients
     if deployment is None and settings.deployments_path is not None:
         deployment = load_deployment(settings.deployments_path)
-    default_pool = resolve_default_pool(settings.pool, deployment)
-    allowlist = {
-        a.lower()
-        for a in (default_pool, *(p.pool for p in (deployment.pools if deployment else ())))
-        if _ADDRESS_RE.match(a or "")
-    }
+    check_allowlists(settings.chain_id, deployment)
+    check_rate_limit_proxy(settings)  # audit M1: fail closed behind an unconfigured proxy
+    v2_only = settings.chain_id == TESTNET_CHAIN_ID and not settings.pools
+    default_pool = resolve_default_pool(settings.pool, deployment, v2_only=v2_only)
+    allowlist, default_pool = build_pool_allowlist(settings, deployment, default_pool)
     # Perps the engine quotes (audit M2): those cached for the pools in deployments/<env>.json `perps`. Only
     # local dev (31337) may run without one (check_allowlists fails closed elsewhere); the universe check
     # applies either way.
     allowed_perps = set(deployment.perps.values()) if deployment and deployment.perps else None
-    check_allowlists(settings.chain_id, deployment)
     perps_desc = dict(sorted(deployment.perps.items())) if allowed_perps is not None else "any (local dev)"
     log.info("[engine] chain %d allowlist: pools %s, perps %s", settings.chain_id, sorted(allowlist),
              perps_desc)  # fmt: skip
@@ -596,6 +727,7 @@ def create_app(
         urls = engine_rpc_urls(settings, deployment)
         if urls:
             rpc = FailoverRpc(urls, timeout_s=5.0, max_wait_s=ENGINE_RPC_MAX_WAIT_S, label="engine")
+            verify_rpc_chain(rpc, settings.chain_id)  # audit info b
             live = PoolSpotReader(rpc, deployment)
             spot_reader = live
             if v2_reader is None:
@@ -611,6 +743,7 @@ def create_app(
     signer_addr = settings.signer_address
     warn_once = ThrottledWarning(60.0)
     trusted = frozenset(_norm_ip(p) for p in settings.trusted_proxies)
+    xff_watch = XffWatch()
 
     def now_s() -> int:
         """Latest block timestamp; the wall clock when the chain cannot be read, or when the latest block
@@ -636,7 +769,17 @@ def create_app(
     async def _rate_limit(request: Request, call_next):  # added before CORS: CORS wraps it (429 readable)
         if rate_limiter is not None and request.method == "POST" and request.url.path == "/quote":
             peer = request.client.host if request.client else "unknown"
-            ip = client_ip(peer, request.headers.get("x-forwarded-for"), trusted)
+            xff = request.headers.get("x-forwarded-for")
+            ip = client_ip(peer, xff, trusted)
+            if xff and _norm_ip(peer) not in trusted:
+                n = xff_watch.note(_norm_ip(peer), xff)
+                if n >= xff_watch.threshold:
+                    warn_once(
+                        f"xff:{peer}",
+                        "[engine] %d distinct X-Forwarded-For values from %s, which is not in "
+                        "NUMERA_TRUSTED_PROXIES: header spoofing, or an unlisted proxy (all its clients "
+                        "share one rate-limit bucket)", n, peer,
+                    )  # fmt: skip
             wait = rate_limiter.take(rate_key(ip))
             if wait > 0:
                 retry = max(1, math.ceil(wait))

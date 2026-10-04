@@ -58,7 +58,8 @@ class StubReader:
 
 def client(reader=None, market=None, tail=None, deployment=DEPLOYMENT):
     reader = reader or StubReader(fail=True)  # never the network: spot falls back to the stub Info API
-    s = Settings(env="testnet", chain_id=998, pool=POOL_A, signer_key=KEY)
+    s = Settings(env="testnet", chain_id=998, pool=POOL_A, signer_key=KEY,
+                 pools=tuple(p.pool for p in deployment.pools) if deployment else ())  # fmt: skip
     app = create_app(
         s,
         market or StubMarket(),
@@ -177,9 +178,11 @@ def test_empty_pool_env_falls_back_to_the_hypercore_pool(monkeypatch, env_pool):
     monkeypatch.setenv("NUMERA_ENV", "testnet")
     monkeypatch.setenv("NUMERA_CHAIN_ID", "998")
     monkeypatch.setenv("QUOTE_SIGNER_KEY", KEY)
-    s = Settings.from_env()
     deployment = load_deployment(default_path("testnet"))  # the real deployments/testnet.json
     hypercore = next(p.pool for p in deployment.pools if p.name == "hypercore")
+    # v1 pools are refused on 998 unless NUMERA_POOLS lists them (audit L5): this test is about the v1 default
+    monkeypatch.setenv("NUMERA_POOLS", ",".join(p.pool for p in deployment.pools))
+    s = Settings.from_env()
     assert resolve_default_pool(s.pool, deployment) == hypercore
     reader = StubReader({p.pool: 84_500_000_000 for p in deployment.pools})
     tail = ZTailTable((0.0, math.inf), {"down": [None], "up": [None]})

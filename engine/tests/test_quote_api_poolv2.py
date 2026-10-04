@@ -75,7 +75,8 @@ class StubV2:
 
 
 def client(v2=None, deployment=DEP, **kw):
-    base = {"env": "testnet", "chain_id": 998, "pool": POOL_V1, "signer_key": KEY, "rate_per_min": 0}
+    base = {"env": "testnet", "chain_id": 998, "pool": POOL_V1, "signer_key": KEY, "rate_per_min": 0,
+            "pools": tuple(p.pool for p in deployment.pools)}  # fmt: skip
     s = Settings(**base | kw)
     app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
                      spot_reader=StubSpot(), deployment=deployment, v2_reader=v2)  # fmt: skip
@@ -167,7 +168,8 @@ def test_reviewer_repro_window_reset_inside_the_quote_lifetime():
     a quote issued at 4590 with a 30 s TTL can still be used after it, so it must be refused already."""
     st = state(capacity_base=400 * 10**6, window_start=1000, window_assets=1000 * 10**6, sold_in_window=0)
     for t, ok in ((4569, True), (4570, False), (4590, False), (4600, False)):
-        app = create_app(Settings(env="testnet", chain_id=998, pool=POOL_V1, signer_key=KEY, rate_per_min=0),
+        app = create_app(Settings(env="testnet", chain_id=998, pool=POOL_V1, signer_key=KEY, rate_per_min=0,
+                                  pools=tuple(p.pool for p in DEP.pools)),  # fmt: skip
                          StubMarket(), TailTable(coins={}), clock=lambda t=t: t, nonce_fn=lambda: 7,
                          spot_reader=StubSpot(), deployment=DEP, v2_reader=StubV2(st))  # fmt: skip
         r = TestClient(app).post("/quote", json=body(payout=50 * 10**6))
