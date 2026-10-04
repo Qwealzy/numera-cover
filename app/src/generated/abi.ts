@@ -3392,6 +3392,17 @@ export const coverPoolAbi = [
   },
   {
     "type": "error",
+    "name": "RequestPending",
+    "inputs": [
+      {
+        "name": "claimableAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "SafeCastOverflowedUintDowncast",
     "inputs": [
       {
