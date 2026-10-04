@@ -1,0 +1,32 @@
+[Unit]
+Description=Cloudflare Tunnel for the Numera Quote API (api.numeralabs.xyz -> 127.0.0.1:8000)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target numera-engine.service
+Wants=network-online.target
+ConditionPathExists=/etc/numera/cloudflared.yml
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=numera
+Group=numera
+# credentials JSON and config are in /etc/numera (created by numera-tunnel-config); no outbound-only tunnel needs more
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --config /etc/numera/cloudflared.yml run
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=numera-tunnel
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

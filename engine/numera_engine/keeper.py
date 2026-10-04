@@ -311,12 +311,16 @@ class PoolPlan:
     deploy_tx: str | None = None  # pool creation tx (deployments file): bounds the v2 alert catch-up
 
 
-def plan_pools(deployment: Any, pools: list[str] | None) -> list[PoolPlan]:
-    """Which pools to watch: every pool in the deployment, or the given addresses (labelled if known)."""
+def plan_pools(deployment: Any, pools: list[str] | None, version: str | None = None) -> list[PoolPlan]:
+    """Which pools to watch: every pool in the deployment, or the given addresses (labelled if known).
+    ``version`` ("v2") keeps only the deployment pools of that version when no address is given: addresses
+    come from the deployments file at start-up, never from the command line or the source."""
     if pools is None:
         if deployment is None or not deployment.pools:
             raise ValueError("no --pool given and no pools in the deployments file")
-        pools = [p.pool for p in deployment.pools]
+        pools = [p.pool for p in deployment.pools if version is None or p.version == version]
+        if not pools:
+            raise ValueError(f"the deployments file lists no {version} pool")
     out = []
     for addr in pools:
         info = deployment.find(addr) if deployment is not None else None
@@ -936,6 +940,10 @@ def main(argv: list[str] | None = None) -> None:
                     help="RPC URL, repeatable, in priority order (default: NUMERA_RPCS env, comma-separated; "
                          "else the deployments rpc, the official testnet RPC, chain.link)")  # fmt: skip
     ap.add_argument("--pool", action="append", default=None, help="pool address (repeatable; default: all)")
+    pool_version = (os.environ.get("NUMERA_KEEPER_POOL_VERSION") or "").strip() or None
+    ap.add_argument("--pool-version", default=pool_version,
+                    choices=["v2"], help="with no --pool: watch only the deployments file's pools of this "
+                    "version (env NUMERA_KEEPER_POOL_VERSION; default: all)")  # fmt: skip
     ap.add_argument("--price-source", default=None, help="override pool.priceSource() (single pool only)")
     ap.add_argument("--poll", type=float, default=DEFAULT_POLL_S,
                     help=f"seconds between polls (default {DEFAULT_POLL_S:g})")  # fmt: skip
@@ -1009,7 +1017,7 @@ def main(argv: list[str] | None = None) -> None:
     urls = resolve_rpcs(args.rpc, os.environ.get("NUMERA_RPCS"), dep.rpc if dep else None)
     rpc = FailoverRpc(urls, max_head_lag=args.max_head_lag)
     log.info("[keeper] rpcs: %s%s", " > ".join(host(u) for u in urls), " (dry run)" if args.dry_run else "")
-    plans = plan_pools(dep, args.pool)
+    plans = plan_pools(dep, args.pool, args.pool_version)
     sender = None if args.dry_run else Sender(rpc, key, max_fee_wei=int(args.max_fee_gwei * GWEI))
     if sender is not None:
         balance_addr = sender.address

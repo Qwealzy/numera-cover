@@ -1,0 +1,40 @@
+[Unit]
+Description=Numera keeper (trigger/expire watcher, testnet only)
+Documentation=https://github.com/Qwealzy/numera-cover
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=numera
+Group=numera
+WorkingDirectory=/opt/numera/engine
+EnvironmentFile=/etc/numera/numera.env
+# the keeper never needs the quote signer's key
+UnsetEnvironment=QUOTE_SIGNER_KEY
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/local/lib/numera/preflight.sh keeper
+# Pools come from deployments/testnet.json + testnet-v2.json in the checkout at start; NUMERA_KEEPER_POOL_VERSION=v2
+# (numera.env) keeps the v2 pools only. RPC list: NUMERA_RPCS. A pool redeploy needs: numera-update (restarts it).
+ExecStart=/opt/numera/engine/.venv/bin/python -m numera_engine.keeper
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=numera-keeper
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=800M
+
+[Install]
+WantedBy=multi-user.target

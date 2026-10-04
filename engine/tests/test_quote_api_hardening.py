@@ -19,6 +19,7 @@ from numera_engine.quote_api import (
     CachedSpotReader,
     PoolSpotReader,
     RateLimiter,
+    RateLimitProxyError,
     Settings,
     ThrottledWarning,
     client_ip,
@@ -445,3 +446,63 @@ def test_block_clock_caches_and_advances_with_the_local_clock():
     assert bc() == NOW + 1 and len(calls) == 1
     mono.t = 102.0
     assert bc() == NOW and len(calls) == 2  # re-read from the chain
+
+
+def test_client_ip_header_from_a_trusted_peer_wins_over_xff():
+    trusted = frozenset({"127.0.0.1"})
+    assert client_ip("127.0.0.1", "6.6.6.6", trusted, "1.2.3.4") == "1.2.3.4"
+    assert client_ip("127.0.0.1", "6.6.6.6", trusted, "not-an-ip") == "6.6.6.6"  # invalid: XFF rules
+    assert client_ip("127.0.0.1", None, trusted, None) == "127.0.0.1"
+    assert client_ip("203.0.113.9", None, trusted, "1.2.3.4") == "203.0.113.9"  # untrusted peer: ignored
+
+
+def tunnel_client(peer, header="CF-Connecting-IP", trusted=("127.0.0.1",), burst=2):
+    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, trusted_proxies=trusted,
+                 proxy_mode="proxy", client_ip_header=header, pools=all_pools(DEPLOYMENT))  # fmt: skip
+    app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
+                     spot_reader=StubReader(), deployment=DEPLOYMENT,
+                     rate_limiter=RateLimiter(per_min=10, burst=burst, clock=Clock()))  # fmt: skip
+    return TestClient(app, client=(peer, 50000))
+
+
+def test_cloudflare_tunnel_topology_rate_limits_per_real_client():
+    c = tunnel_client("127.0.0.1")
+    def hit(ip):
+        return c.post("/quote", json=body(), headers={"CF-Connecting-IP": ip}).status_code
+    assert [hit("1.1.1.1"), hit("1.1.1.1"), hit("1.1.1.1")] == [200, 200, 429]
+    assert hit("2.2.2.2") == 200  # another client keeps its own bucket
+
+
+def test_client_ip_header_is_ignored_from_an_untrusted_peer():
+    c = tunnel_client("203.0.113.9")
+    codes_ = [c.post("/quote", json=body(), headers={"CF-Connecting-IP": f"9.9.9.{i}"}).status_code
+              for i in range(3)]
+    assert codes_ == [200, 200, 429]  # spoofing the header does not buy fresh buckets
+
+
+def test_client_ip_header_without_trusted_proxies_refuses_to_start():
+    with pytest.raises(RateLimitProxyError):
+        tunnel_client("127.0.0.1", trusted=())
+    with pytest.raises(ValueError):
+        Settings(client_ip_header="Bad Header")
+
+
+def test_client_ip_header_from_env(monkeypatch):
+    monkeypatch.setenv("NUMERA_CLIENT_IP_HEADER", " CF-Connecting-IP ")
+    assert Settings.from_env().client_ip_header == "CF-Connecting-IP"
+    monkeypatch.delenv("NUMERA_CLIENT_IP_HEADER")
+    assert Settings.from_env().client_ip_header == ""
+
+
+def test_cors_only_the_app_origin_when_configured():
+    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, pools=all_pools(DEPLOYMENT),
+                 cors_origins=("https://app.numeralabs.xyz",))
+    app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
+                     spot_reader=StubReader(), deployment=DEPLOYMENT)
+    c = TestClient(app)
+    ok = c.options("/quote", headers={"Origin": "https://app.numeralabs.xyz",
+                                      "Access-Control-Request-Method": "POST"})
+    assert ok.headers.get("access-control-allow-origin") == "https://app.numeralabs.xyz"
+    bad = c.options("/quote", headers={"Origin": "https://evil.example",
+                                       "Access-Control-Request-Method": "POST"})
+    assert "access-control-allow-origin" not in bad.headers

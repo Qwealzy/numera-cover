@@ -690,6 +690,10 @@ Added 2026-10-02 (security audit M1, M2, M4, L6; engine-side only, contracts unc
   `NUMERA_RATE_PER_MIN`, `NUMERA_RATE_BURST`). The response carries a `Retry-After` header. Behind a reverse
   proxy listed in `NUMERA_TRUSTED_PROXIES` (default empty) the client is the right-most untrusted
   `X-Forwarded-For` entry; otherwise the direct peer.
+  `NUMERA_CLIENT_IP_HEADER` (default empty; Cloudflare Tunnel: `CF-Connecting-IP`) names a header that a trusted peer
+  sets to the real client address; it wins over `X-Forwarded-For` from a trusted peer only, is ignored from any other
+  peer, and without `NUMERA_TRUSTED_PROXIES` the engine refuses to start. Keeper: `NUMERA_KEEPER_POOL_VERSION=v2`
+  (or `--pool-version v2`) watches only the deployments file's v2 pools. Deploy kit: `deploy/vps/`.
 
 Added 2026-10-04 (security audit M1, L5, info b; engine-side only, contracts and the quote format unchanged):
 - Rate-limit start-up guard (M1): with the limiter on (`NUMERA_RATE_PER_MIN` > 0), a bind host that is not
