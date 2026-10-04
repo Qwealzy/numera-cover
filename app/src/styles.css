@@ -648,6 +648,11 @@ main {
   border-radius: var(--radius);
   overflow: hidden;
 }
+@media (min-width: 1000px) {
+  .stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
 .stat {
   padding: 16px 18px;
   min-width: 0;
@@ -723,12 +728,12 @@ th {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-label);
-  padding: 6px 12px 8px 0;
+  padding: 6px 6px 8px 0;
   border-bottom: 1px solid var(--line-strong);
   white-space: nowrap;
 }
 td {
-  padding: 10px 12px 10px 0;
+  padding: 10px 6px 10px 0;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   vertical-align: middle;
@@ -756,6 +761,18 @@ tr.selected td:first-child {
 tr.breached td {
   font-weight: 600;
   color: var(--text-strong);
+}
+table.covers td:not(.r) {
+  white-space: normal;
+}
+table.covers .ref {
+  flex-wrap: wrap;
+  white-space: normal;
+  gap: 2px 5px;
+}
+td.started {
+  white-space: normal;
+  min-width: 5rem;
 }
 tr:last-child td {
   border-bottom-color: transparent;
