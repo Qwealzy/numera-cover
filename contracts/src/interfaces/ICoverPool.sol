@@ -156,6 +156,8 @@ interface ICoverPool {
     error ControllerMustBeOwner(address controller, address owner);
     error NotController(address sender, address controller);
     error RequestClaimable();
+    /// @notice `cancelRedeemRequest` before the request's `withdrawDelay` has elapsed (audit L1).
+    error RequestPending(uint64 claimableAt);
     error RequestNotClaimable(RequestState state);
     error ZeroShares();
     error ExceedsClaimable(uint256 shares, uint256 claimable);
@@ -190,6 +192,8 @@ interface ICoverPool {
     // ================================================================ queued redeem (§5.4)
 
     function requestRedeem(uint256 shares, address controller, address owner) external returns (uint256 requestId);
+    /// @notice Returns the escrowed shares of the caller's slot. Reverts `RequestPending` until `withdrawDelay` has
+    ///         elapsed (audit L1), `ZeroShares` when the slot is empty.
     function cancelRedeemRequest() external returns (uint256 shares);
     function redeemRequestOf(address controller)
         external

@@ -7,8 +7,9 @@ import {IPositionSource} from "../interfaces/IPositionSource.sol";
 /// @notice `position(address user, uint16 perp)` → `(int64 szi, uint64 entryNtl, int64 isolatedRawUsd,
 ///         uint32 leverage, bool isIsolated)` (HyperEVM read precompile).
 /// @dev The precompile takes the perp index as uint16; larger indices are rejected with a named error.
-///      Scaling of `entryNtl` is UNVERIFIED (assumed USD x 1e6); it is passed through unchanged and
-///      interpreted only in CoverPool._marginCap.
+///      `entryNtl` is USD x 1e6, verified on testnet 2026-10-01 (docs/research/hyperliquid.md: precompile
+///      `entryNtl = 99526050` vs Info API 0.00117 x 85065 = 99.526 USD; ARCHITECTURE section 5.11). One position on
+///      one perp was compared; it is passed through unchanged and interpreted only in CoverPool._marginCap.
 contract HyperCorePositionSource is IPositionSource {
     address public constant POSITION_PRECOMPILE = 0x0000000000000000000000000000000000000800;
 

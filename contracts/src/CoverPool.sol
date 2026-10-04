@@ -412,9 +412,14 @@ contract CoverPool is ICoverPool, ERC4626, EIP712, Ownable2Step, Pausable, Reent
     }
 
     /// @inheritdoc ICoverPool
+    /// @dev Only once the request's `withdrawDelay` has elapsed (audit L1): the escrow lowers `capacityBase()`, which
+    ///      the sale-window and breaker snapshots are taken from, so an instant cancel would let a large LP freeze a
+    ///      small snapshot (request, sell a 1 USDC cover, cancel). Toggling now costs the delay.
     function cancelRedeemRequest() external nonReentrant returns (uint256 shares) {
-        shares = _redeemSlots[msg.sender].shares;
+        RedeemSlot storage s = _redeemSlots[msg.sender];
+        shares = s.shares;
         if (shares == 0) revert ZeroShares();
+        if (_stateOf(shares, s.claimableAt) == RequestState.Pending) revert RequestPending(s.claimableAt);
         delete _redeemSlots[msg.sender];
         totalEscrowedShares -= shares;
         super._update(address(this), msg.sender, shares);
