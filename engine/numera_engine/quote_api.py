@@ -140,6 +140,9 @@ class Settings:
     # NUMERA_TRUSTED_PROXIES), "" = unset.
     bind_host: str = "127.0.0.1"
     proxy_mode: str = ""
+    # NUMERA_CLIENT_IP_HEADER: header a trusted proxy sets to the real client address (Cloudflare Tunnel:
+    # "CF-Connecting-IP"). Believed only when the direct peer is in trusted_proxies, and needs them.
+    client_ip_header: str = ""
     # NUMERA_POOLS: explicit pool allowlist (addresses); when set it replaces the deployments file's pools.
     # Unset on chain 998 = only pools the deployments file marks v2 (audit L5: v1 pools are not signed for).
     pools: tuple[str, ...] = ()
@@ -150,6 +153,9 @@ class Settings:
         if self.proxy_mode not in PROXY_MODES:
             modes = sorted(m for m in PROXY_MODES if m)
             raise ValueError(f"NUMERA_PROXY_MODE must be one of {modes} or unset")
+        self.client_ip_header = self.client_ip_header.strip()
+        if self.client_ip_header and not re.fullmatch(r"[A-Za-z0-9-]+", self.client_ip_header):
+            raise ValueError("NUMERA_CLIENT_IP_HEADER must be a plain header name such as CF-Connecting-IP")
         if self.signer_key:
             from eth_account import Account
 
@@ -193,6 +199,7 @@ class Settings:
             ),
             bind_host=(e.get("NUMERA_BIND_HOST") or "127.0.0.1").strip(),
             proxy_mode=(e.get("NUMERA_PROXY_MODE") or "").strip().lower(),
+            client_ip_header=(e.get("NUMERA_CLIENT_IP_HEADER") or "").strip(),
             pools=tuple(x.strip() for x in (e.get("NUMERA_POOLS") or "").split(",") if x.strip()),
             spot_cache_s=float(e.get("NUMERA_SPOT_CACHE_S", str(DEFAULT_SPOT_CACHE_S))),
             v2_cache_s=float(e.get("NUMERA_V2_CACHE_S", str(DEFAULT_STATE_CACHE_S))),
@@ -363,6 +370,11 @@ def check_rate_limit_proxy(settings: Settings) -> None:
     unless the operator says which: trusted proxies, or NUMERA_PROXY_MODE=direct."""
     if settings.rate_per_min <= 0:
         return
+    if settings.client_ip_header and not settings.trusted_proxies:
+        raise RateLimitProxyError(
+            "NUMERA_CLIENT_IP_HEADER needs NUMERA_TRUSTED_PROXIES (the proxy that sets it, e.g. 127.0.0.1 for "
+            "cloudflared on this host); refusing to start"
+        )
     if settings.proxy_mode == "proxy" and not settings.trusted_proxies:
         raise RateLimitProxyError(
             "NUMERA_PROXY_MODE=proxy needs NUMERA_TRUSTED_PROXIES (the proxy's address) so the rate "
@@ -540,13 +552,23 @@ def _norm_ip(s: str) -> str:
         return s
 
 
-def client_ip(peer: str, xff: str | None, trusted: frozenset[str] | set[str]) -> str:
+def client_ip(peer: str, xff: str | None, trusted: frozenset[str] | set[str],
+              real_ip: str | None = None) -> str:
     """Rate-limit key for a request. The direct peer, unless the peer is a trusted proxy (e.g. Caddy on the
     same host): then the right-most X-Forwarded-For entry that is not itself a trusted proxy, i.e. the
     address the first trusted hop actually saw. Entries left of it are client-supplied and can be spoofed,
-    so they are never used. Explicit on purpose: no reliance on uvicorn's --proxy-headers."""
+    so they are never used. Explicit on purpose: no reliance on uvicorn's --proxy-headers.
+    ``real_ip`` is the value of NUMERA_CLIENT_IP_HEADER (e.g. Cloudflare's CF-Connecting-IP). From a trusted
+    peer a valid IP there wins over X-Forwarded-For; from any other peer it is ignored (client-supplied)."""
     peer = _norm_ip(peer)
-    if peer not in trusted or not xff:
+    if peer not in trusted:
+        return peer
+    if real_ip:
+        try:
+            return str(ipaddress.ip_address(real_ip.strip()))
+        except ValueError:
+            pass  # not an address: fall back to X-Forwarded-For
+    if not xff:
         return peer
     hops = [_norm_ip(h) for h in xff.split(",") if h.strip()]
     for hop in reversed(hops):
@@ -770,7 +792,8 @@ def create_app(
         if rate_limiter is not None and request.method == "POST" and request.url.path == "/quote":
             peer = request.client.host if request.client else "unknown"
             xff = request.headers.get("x-forwarded-for")
-            ip = client_ip(peer, xff, trusted)
+            real = request.headers.get(settings.client_ip_header) if settings.client_ip_header else None
+            ip = client_ip(peer, xff, trusted, real)
             if xff and _norm_ip(peer) not in trusted:
                 n = xff_watch.note(_norm_ip(peer), xff)
                 if n >= xff_watch.threshold:

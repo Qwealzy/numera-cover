@@ -45,3 +45,22 @@ def test_rpc_list_precedence_cli_then_env_then_default():
         OFFICIAL_TESTNET_RPC,
         CHAINLINK_TESTNET_RPC,
     ]
+
+
+def test_version_filter_keeps_only_v2_pools_from_the_file():
+    dep = parse(
+        {
+            "pools": {
+                "old": {"pool": "0x" + "11" * 20},
+            }
+        }
+    )
+    from numera_engine.deployments import merge_v2
+
+    dep = merge_v2(dep, {"chainId": None, "pools": {"mock": {"pool": "0x" + "22" * 20},
+                                                    "hypercore": {"pool": "0x" + "33" * 20}}})
+    names = [p.label for p in plan_pools(dep, None, "v2")]
+    assert names == ["mock-v2", "hypercore-v2"]
+    assert len(plan_pools(dep, None)) == 3  # default unchanged
+    with pytest.raises(ValueError):
+        plan_pools(DEP, None, "v2")  # no v2 pool in this file: refuse rather than watch nothing
