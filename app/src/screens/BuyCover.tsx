@@ -55,6 +55,7 @@ export function BuyCover() {
     <>
       <div className="page-head">
         <div>
+          <p className="kicker">Hyperliquid perps · HyperEVM testnet</p>
           <h1>Cover a position {poolKind === 'mock' && <MockTag inline />}</h1>
           <p>
             Pick a perp position and buy cover that pays a fixed amount if the oracle price touches your level before expiry. The

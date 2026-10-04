@@ -31,6 +31,7 @@ export function Pool() {
     <>
       <div className="page-head">
         <div>
+          <p className="kicker">Underwriters</p>
           <h1>
             Underwriter pool {poolKind === 'mock' && <MockTag inline />} {s && <span className="chip">{s.version}</span>}
           </h1>
@@ -428,7 +429,7 @@ function RecentCovers({
         )
       ) : (
         <div className="table-wrap">
-          <table>
+          <table className="covers">
             <thead>
               <tr>
                 <th>#</th>
@@ -469,7 +470,7 @@ function RecentCovers({
                         <span className="chip chip--green">active</span>
                       )}
                     </td>
-                    <td className="small soft">{fmtTime(c.start)}</td>
+                    <td className="small soft started">{fmtTime(c.start).split(/ (.+)/).filter(Boolean).map((part, k) => <div key={k}>{part}</div>)}</td>
                   </tr>
                 );
               })}

@@ -27,6 +27,10 @@ function Shell() {
       </main>
       <footer>
         <div className="wrap">
+          <span className="footer__brand">
+            <img src="/numera-mark.svg" alt="" width={24} height={24} />
+            Numera
+          </span>
           <span>
             {hyperEvmTestnet.name} ({hyperEvmTestnet.id}) · testnet only, no real funds
           </span>
