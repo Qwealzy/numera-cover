@@ -18,6 +18,7 @@ export const ANVIL_ACCOUNT0 = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 export const USAGE = `usage: node scripts/deploy-v2.mjs [--dry-run | --fork] [--yes] [--mode hypercore|mock] [--rpc <url>]
                                    [--standin-px <px6,...>] [--gas-price <wei>] [--replace]
+                                   [--record-only [--run <broadcast run file>]]
   default      deploy to testnet (998) with DEPLOYER_KEY from .env; writes deployments/testnet-v2.json
   --dry-run    same steps against a local anvil (31337) this script starts (or --rpc to an existing one);
                broadcasts with anvil's unlocked account 0, never with DEPLOYER_KEY; writes a temp file
@@ -28,10 +29,15 @@ export const USAGE = `usage: node scripts/deploy-v2.mjs [--dry-run | --fork] [--
   --mode       hypercore (default: HyperCore precompile sources) | mock (MOCK demo pool)
   --standin-px px6 per perp for the local stand-ins / mock prices (default: fetched from the testnet Info API)
   --gas-price  passed to forge as --with-gas-price (big-block gas price is NOT VERIFIED, ARCHITECTURE §5.9)
-  --replace    overwrite an existing entry for this mode in deployments/testnet-v2.json`;
+  --replace    overwrite an existing entry for this mode in deployments/testnet-v2.json (the old entry is kept
+               under "previous")
+  --record-only  sends nothing, uses no key: reads a broadcast run (default
+               contracts/broadcast/Deploy.s.sol/998/run-latest.json, or --run <file>), checks it matches --mode and
+               that every tx has a status-1 receipt on 998, then writes the block into deployments/testnet-v2.json
+               (replacing, and keeping under "previous", an existing entry for the mode)`;
 
 export function parseDeployArgs(argv) {
-  const a = { dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false };
+  const a = { dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false, recordOnly: false, run: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const val = () => {
@@ -43,6 +49,8 @@ export function parseDeployArgs(argv) {
     else if (k === '--fork') a.fork = true;
     else if (k === '--yes') a.yes = true;
     else if (k === '--replace') a.replace = true;
+    else if (k === '--record-only') a.recordOnly = true;
+    else if (k === '--run') a.run = val();
     else if (k === '--help' || k === '-h') a.help = true;
     else if (k === '--mode') a.mode = val();
     else if (k === '--rpc') a.rpc = val();
@@ -50,6 +58,8 @@ export function parseDeployArgs(argv) {
     else if (k === '--gas-price') a.gasPrice = val();
     else throw new Error(`unknown argument ${k}`);
   }
+  if (a.recordOnly && (a.dryRun || a.fork)) throw new Error('--record-only cannot be combined with --dry-run or --fork');
+  if (a.run && !a.recordOnly) throw new Error('--run needs --record-only');
   if (a.dryRun && a.fork) throw new Error('--dry-run and --fork are exclusive');
   if (!['hypercore', 'mock'].includes(a.mode)) throw new Error('--mode must be hypercore or mock');
   if (a.gasPrice !== null && !/^\d+$/.test(a.gasPrice)) throw new Error('--gas-price must be an integer (wei)');
@@ -196,6 +206,47 @@ export function mergeV2(existing, mode, block, { replace }) {
   const out = existing ? JSON.parse(JSON.stringify(existing)) : { env: 'testnet', chainId: TESTNET_CHAIN_ID, contract: 'CoverPool v2', pools: {} };
   out.pools ??= {};
   if (out.pools[mode] && !replace) throw new Error(`deployments/testnet-v2.json already has a ${mode} pool; pass --replace to overwrite`);
+  if (out.pools[mode]) {
+    // The replaced entry is kept (F13/F18 evidence), newest last.
+    out.previous ??= {};
+    out.previous[mode] ??= [];
+    out.previous[mode].push(out.pools[mode]);
+  }
   out.pools[mode] = block;
   return out;
+}
+
+// --record-only: the run's contents must match the mode (mock pools use Mock* sources, hypercore pools HyperCore*).
+// Returns a problem string or null.
+export function modeProblem(mode, contracts) {
+  const mock = ['MockPriceSource', 'MockPositionSource'].filter((n) => contracts[n]).length;
+  const hc = ['HyperCorePriceSource', 'HyperCorePositionSource'].filter((n) => contracts[n]).length;
+  if (!contracts.CoverPool) return 'the run has no CoverPool creation';
+  if (mode === 'mock' && !(mock === 2 && hc === 0)) return 'the run is not a mock deploy (needs MockPriceSource + MockPositionSource, no HyperCore sources); pass the right --mode';
+  if (mode === 'hypercore' && !(hc === 2 && mock === 0)) return 'the run is not a hypercore deploy (needs HyperCorePriceSource + HyperCorePositionSource, no Mock sources); pass the right --mode';
+  return null;
+}
+
+// --record-only, read-only: rpcCall(method, params) is any JSON-RPC caller. Requires chain 998, a run matching the
+// mode, and a status-1 on-chain receipt for every transaction. Returns the run summary with the receipts' gasUsed
+// and status; throws with the reason otherwise.
+export async function verifyRun(run, mode, rpcCall) {
+  const id = Number(BigInt(await rpcCall('eth_chainId', [])));
+  if (id !== TESTNET_CHAIN_ID) throw new Error(`RPC answers chain ${id}; --record-only needs ${TESTNET_CHAIN_ID}`);
+  const sum = summarizeBroadcast(run);
+  if (!sum.txs.length) throw new Error('the run has no transactions');
+  if (sum.precompileTxs.length) throw new Error(`run contains transactions to precompile addresses: ${sum.precompileTxs.join(', ')}`);
+  const bad = modeProblem(mode, sum.contracts);
+  if (bad) throw new Error(bad);
+  const failed = [];
+  for (const t of sum.txs) {
+    const r = await rpcCall('eth_getTransactionReceipt', [t.hash]);
+    if (!r || Number(BigInt(r.status)) !== 1) failed.push(t.hash);
+    else {
+      t.status = 1;
+      t.gasUsed = Number(BigInt(r.gasUsed));
+    }
+  }
+  if (failed.length) throw new Error(`transactions without a status-1 receipt on chain: ${failed.join(', ')}`);
+  return sum;
 }
