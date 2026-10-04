@@ -1,0 +1,41 @@
+[Unit]
+Description=Numera Quote API (engine, testnet only)
+Documentation=https://github.com/Qwealzy/numera-cover
+After=network-online.target
+Wants=network-online.target
+# keep retrying forever instead of giving up after a burst of failures (e.g. RPC down at boot)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=numera
+Group=numera
+WorkingDirectory=/opt/numera/engine
+EnvironmentFile=/etc/numera/numera.env
+# the engine never needs the keeper's key
+UnsetEnvironment=KEEPER_KEY
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/local/lib/numera/preflight.sh engine
+# --no-proxy-headers: the engine reads CF-Connecting-IP / X-Forwarded-For itself, only from trusted peers
+# (NUMERA_TRUSTED_PROXIES); uvicorn must not rewrite the peer address first. One worker: the rate limiter is in memory.
+ExecStart=/opt/numera/engine/.venv/bin/python -m uvicorn numera_engine.quote_api:app --host 127.0.0.1 --port 8000 --no-proxy-headers --no-server-header --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=numera-engine
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target
