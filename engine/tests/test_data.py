@@ -119,3 +119,26 @@ def test_meta_and_ctxs(monkeypatch):
     monkeypatch.setattr("numera_engine.data.time.sleep", lambda s: None)
     uni, ctxs = _client(FakeSession()).meta_and_ctxs()
     assert uni[0]["name"] == "BTC" and ctxs[0]["oraclePx"] == "1.5"
+
+
+def test_cache_dir_env_override(monkeypatch, tmp_path):
+    from numera_engine.data import DEFAULT_CACHE_DIR, default_cache_dir
+
+    monkeypatch.delenv("NUMERA_CACHE_DIR", raising=False)
+    assert default_cache_dir() == DEFAULT_CACHE_DIR
+    assert InfoClient("http://fake/info").cache_dir == DEFAULT_CACHE_DIR
+    monkeypatch.setenv("NUMERA_CACHE_DIR", str(tmp_path / "c"))
+    assert InfoClient("http://fake/info").cache_dir == tmp_path / "c"
+    assert InfoClient("http://fake/info", cache_dir=None).cache_dir is None
+
+
+def test_cache_write_failure_is_not_fatal_and_warns_once(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr("numera_engine.data.time.sleep", lambda s: None)
+    blocker = tmp_path / "file"
+    blocker.write_text("x")  # a file where the cache dir should be: mkdir raises OSError
+    c = _client(FakeSession(n=5), blocker / "sub")
+    with caplog.at_level("WARNING", logger="numera.engine"):
+        assert len(c.candles("BTC", "1h", 0, 4 * H)) == 5
+        assert len(c.candles("BTC", "1h", 0, 3 * H)) == 4
+    warns = [r for r in caplog.records if "candle cache disabled" in r.getMessage()]
+    assert len(warns) == 1

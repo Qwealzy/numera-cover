@@ -103,6 +103,15 @@ the file with `nano`.
   means an RPC answers another chain.
 - **The app says the quote failed with a CORS error.** The origin in the browser address bar must equal
   `NUMERA_CORS_ORIGINS` exactly (no trailing slash, https). Restart the engine after editing.
+- **`/quote` answers 500 and the browser says "Failed to fetch"; the log says `Read-only file system ... .cache`.** The
+  units run with `ProtectSystem=strict`, so `/opt` is read-only and the candle cache cannot live in the checkout.
+  Fixed: the units set `CacheDirectory=numera` (systemd creates `/var/cache/numera`, writable) and
+  `NUMERA_CACHE_DIR=/var/cache/numera`. A cache write failure is now only a log WARNING (`candle cache disabled`),
+  and any unhandled error returns a JSON 500 with the CORS header. On a server hot-fixed earlier with a drop-in
+  (`ReadWritePaths=/opt/numera/engine/.cache` under `/etc/systemd/system/numera-*.service.d/`), `sudo numera-update`
+  reinstalls the units and removes `cache.conf` / `cache-rw.conf` from those folders; a drop-in with another file
+  name is harmless (an extra writable path) and can be deleted by hand, then `sudo systemctl daemon-reload`.
+  The old `/opt/numera/engine/.cache` directory is unused and may be removed.
 - **Quotes work but `buyCover` reverts.** The signer address in `/health` is not the pool's `quoteSigner`, or the pools
   were redeployed and the engine still holds the old file: `sudo numera-update`.
 - **Everyone gets 429.** The real client address is not recognised: check the engine log for the

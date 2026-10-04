@@ -14,6 +14,9 @@ EnvironmentFile=/etc/numera/numera.env
 # the keeper never needs the quote signer's key
 UnsetEnvironment=QUOTE_SIGNER_KEY
 Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# /var/cache/numera: created by systemd for User=numera, writable despite ProtectSystem=strict (candle cache)
+CacheDirectory=numera
+Environment=NUMERA_CACHE_DIR=/var/cache/numera
 ExecStartPre=/usr/local/lib/numera/preflight.sh keeper
 # Pools come from deployments/testnet.json + testnet-v2.json in the checkout at start; NUMERA_KEEPER_POOL_VERSION=v2
 # (numera.env) keeps the v2 pools only. RPC list: NUMERA_RPCS. A pool redeploy needs: numera-update (restarts it).

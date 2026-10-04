@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -24,7 +26,17 @@ import requests
 MAINNET_INFO_URL = "https://api.hyperliquid.xyz/info"
 TESTNET_INFO_URL = "https://api.hyperliquid-testnet.xyz/info"
 
-DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+log = logging.getLogger("numera.engine")
+
+DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"  # local dev: engine/.cache
+CACHE_DIR_ENV = "NUMERA_CACHE_DIR"
+_UNSET: Any = object()
+
+
+def default_cache_dir() -> Path:
+    """``NUMERA_CACHE_DIR`` when set (the VPS units point it at /var/cache/numera), else engine/.cache."""
+    env = os.environ.get(CACHE_DIR_ENV, "").strip()
+    return Path(env) if env else DEFAULT_CACHE_DIR
 
 INTERVAL_MS = {
     "1m": 60_000,
@@ -73,13 +85,16 @@ class InfoClient:
     def __init__(
         self,
         base_url: str = MAINNET_INFO_URL,
-        cache_dir: Path | None = DEFAULT_CACHE_DIR,
+        cache_dir: Path | None = _UNSET,
         timeout_s: float = 30.0,
         max_retries: int = 5,
         session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url
+        if cache_dir is _UNSET:
+            cache_dir = default_cache_dir()
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self._cache_warned = False
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.session = session or requests.Session()
@@ -136,8 +151,14 @@ class InfoClient:
     def _cache_put(self, path: Path | None, data: Any) -> None:
         if path is None:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"fetched_at_ms": int(time.time() * 1000), "data": data}))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"fetched_at_ms": int(time.time() * 1000), "data": data}))
+        except OSError as exc:  # read-only fs, disk full, permissions: cache is optional
+            if not self._cache_warned:
+                self._cache_warned = True
+                log.warning("[engine] candle cache disabled, cannot write %s (%s); continuing without it. "
+                            "Set %s to a writable directory.", path.parent, exc, CACHE_DIR_ENV)
 
     # -- endpoints ---------------------------------------------------------------------------------
     def candles(

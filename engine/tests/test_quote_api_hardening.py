@@ -506,3 +506,29 @@ def test_cors_only_the_app_origin_when_configured():
     bad = c.options("/quote", headers={"Origin": "https://evil.example",
                                        "Access-Control-Request-Method": "POST"})
     assert "access-control-allow-origin" not in bad.headers
+
+
+# -- unhandled exceptions: JSON 500 that the browser can read (2026-10-04 VPS incident) -----------------
+
+
+class BoomMarket(StubMarket):
+    def sigma(self, coin):
+        raise OSError(30, "Read-only file system: '/secret/path'")
+
+
+def test_unhandled_exception_in_quote_is_json_500_with_cors_and_no_leak(caplog):
+    origin = "https://app.numeralabs.xyz"
+    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, rate_per_min=0,
+                 pools=all_pools(DEPLOYMENT), cors_origins=(origin,))  # fmt: skip
+    app = create_app(s, BoomMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
+                     spot_reader=StubReader(), deployment=DEPLOYMENT)  # fmt: skip
+    c = TestClient(app)
+    with caplog.at_level(logging.ERROR, logger="numera.engine"):
+        r = c.post("/quote", json=body(), headers={"Origin": origin})
+    assert r.status_code == 500
+    assert r.json()["error"] == "internal"
+    assert "secret" not in r.text and "Traceback" not in r.text and "OSError" not in r.text
+    assert r.headers["access-control-allow-origin"] == origin
+    assert any(rec.exc_info and "Read-only" in str(rec.exc_info[1]) for rec in caplog.records)
+    bad = c.post("/quote", json=body(), headers={"Origin": "https://evil.example"})
+    assert bad.status_code == 500 and "access-control-allow-origin" not in bad.headers
