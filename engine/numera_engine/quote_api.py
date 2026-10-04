@@ -809,7 +809,20 @@ def create_app(
                 resp = _err(429, "rate_limited", f"too many quote requests; retry in {retry} s")
                 resp.headers["Retry-After"] = str(retry)
                 return resp
-        return await call_next(request)
+        try:
+            return await call_next(request)
+        except Exception as exc:  # inside CORS: the 500 keeps its Access-Control-Allow-Origin header
+            return _internal_error(request, exc)
+
+    def _internal_error(request: Request, exc: Exception) -> JSONResponse:
+        log.error("[engine] unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path,
+                  exc_info=(type(exc), exc, exc.__traceback__))  # traceback server-side only
+        resp = _err(500, "internal", "internal error; see the engine log")  # never the exception text
+        origin = request.headers.get("origin")
+        if origin and origin in settings.cors_origins:  # fallback for errors raised outside the CORS layer
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Vary"] = "Origin"
+        return resp
 
     app.add_middleware(
         CORSMiddleware,
@@ -827,6 +840,10 @@ def create_app(
         first = exc.errors()[0] if exc.errors() else {}
         loc = ".".join(str(x) for x in first.get("loc", ()) if x != "body")
         return _err(400, "invalid_request", f"{loc}: {first.get('msg', 'invalid body')}")
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        return _internal_error(request, exc)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:

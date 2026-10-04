@@ -15,6 +15,9 @@ EnvironmentFile=/etc/numera/numera.env
 # the engine never needs the keeper's key
 UnsetEnvironment=KEEPER_KEY
 Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# /var/cache/numera: created by systemd for User=numera, writable despite ProtectSystem=strict (candle cache)
+CacheDirectory=numera
+Environment=NUMERA_CACHE_DIR=/var/cache/numera
 ExecStartPre=/usr/local/lib/numera/preflight.sh engine
 # --no-proxy-headers: the engine reads CF-Connecting-IP / X-Forwarded-For itself, only from trusted peers
 # (NUMERA_TRUSTED_PROXIES); uvicorn must not rewrite the peer address first. One worker: the rate limiter is in memory.
