@@ -20,6 +20,7 @@ export function Model() {
     <>
       <div className="page-head">
         <div>
+          <p className="kicker">Pricing</p>
           <h1>Pricing model and evidence</h1>
           <p>
             The cover price is a probability times the payout. This page shows the formula, and the backtest that checks the probability against what

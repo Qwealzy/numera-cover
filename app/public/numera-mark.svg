@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="numera-mark-title">
+  <title id="numera-mark-title">Numera</title>
+  <polygon id="green" fill="#23b779" points="508,0 508,389 345,489 110,326 110,184 163,152 333,272 333,351 180,244 180,296 346,412 441,354 443,116 389,148 330,108"/>
+  <polygon id="navy" fill="#435c7a" points="164,24 397,184 397,331 347,362 333,352 333,221 162,101 67,160 67,396 120,364 180,403 2,510 2,122"/>
+</svg>

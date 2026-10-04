@@ -31,6 +31,7 @@ export function Pool() {
     <>
       <div className="page-head">
         <div>
+          <p className="kicker">Underwriters</p>
           <h1>
             Underwriter pool {poolKind === 'mock' && <MockTag inline />} {s && <span className="chip">{s.version}</span>}
           </h1>

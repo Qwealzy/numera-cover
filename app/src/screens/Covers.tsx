@@ -23,6 +23,7 @@ export function Covers() {
     <>
       <div className="page-head">
         <div>
+          <p className="kicker">Register</p>
           <h1>My covers {poolKind === 'mock' && <MockTag inline />}</h1>
           <p>
             Each cover is a record on the pool: level, payout, expiry. When the oracle crosses the level before expiry, anyone can call trigger and the

@@ -29,9 +29,9 @@ export function Header() {
       <header className="header">
         <div className="wrap header__inner">
           <a className="brand" href="#/about" onClick={(e) => (e.preventDefault(), setTab('about'))}>
-            <img src="/numera-mark-60.png" alt="" width={28} height={28} />
-            <span>Numera</span>
-            <small>liquidation cover · testnet</small>
+            <img src="/numera-mark.svg" alt="" width={28} height={28} />
+            <span className="brand__name">Numera</span>
+            <small>Liquidation Cover · testnet</small>
           </a>
           <nav className="nav" aria-label="Main">
             {NAV.map((n) => (
