@@ -2,6 +2,7 @@
 // (deployments/testnet-v2.json); nothing chain-specific is hardcoded here. Build-time only (Astro frontmatter):
 // the client reads these values from data- attributes in the HTML.
 import testnetV2 from '../../deployments/testnet-v2.json';
+import { findRecordedRun } from './lib/recorded.ts';
 
 /** HyperEVM testnet: chain id and read-only RPC endpoints, tried in order (both send CORS *). */
 export const TESTNET_CHAIN_ID = 998;
@@ -32,13 +33,18 @@ export const CLAIM_WINDOW_S = mock.config.claimWindow;
 export const CONFIG_DELAY_S = mock.config.configDelay;
 
 /** The recorded keeper run shown in Proof (build spec 2.2 S6). */
-const run = mock['e2e_F9_2026-10-02_3'];
+// The record may sit under the current pool or, after a redeploy, under previous.mock (the earlier pool).
+const hit = findRecordedRun(testnetV2, 'mock', 'e2e_F9_2026-10-02_3');
+const run = hit.run as any;
 const tx = (purpose: RegExp) => {
-  const t = run.txs.find((x) => purpose.test(x.purpose));
+  const t = run.txs.find((x: { purpose: string }) => purpose.test(x.purpose));
   if (!t || !/^0x[0-9a-f]{64}$/.test(t.hash)) throw new Error(`recorded run: no tx for ${purpose}`);
   return { block: t.block, status: t.status };
 };
 export const RECORDED_RUN = {
+  /** The pool the run was made on; `earlier` when it is not the current MOCK pool. */
+  pool: hit.pool,
+  earlier: hit.earlier,
   coverId: run.coverId,
   buy: tx(/^buyCover/),
   drop: tx(/^setPrice BTC \d+ \(breach/),
