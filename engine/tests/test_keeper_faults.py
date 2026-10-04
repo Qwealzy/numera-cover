@@ -31,7 +31,7 @@ BASE = GWEI // 10
 A, B = "https://a.example/evm", "https://b.example/evm"
 
 
-def NO_JITTER():  # fixed backoff jitter (rand=0.5 -> factor 1.0): no real randomness in the RPC pool
+def no_jitter():  # fixed backoff jitter (rand=0.5 -> factor 1.0): no real randomness in the RPC pool
     return 0.5
 
 
@@ -116,7 +116,7 @@ class Net:
 def one_node(schedule=((0, BREACH),), **kw):
     clock = Clock()
     node = FaultNode(clock, list(schedule), **kw)
-    rpc = FailoverRpc([A], post=Net({A: node}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A], post=Net({A: node}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     return clock, node, rpc
 
 
@@ -134,7 +134,7 @@ def test_send_uses_the_endpoint_of_the_decision_read_not_a_lagging_priority_one(
     clock = Clock()
     a = FaultNode(clock, [(0, NEAR)], head=995)  # 5 blocks behind, breach not there yet
     b = FaultNode(clock, [(0, NEAR), (0.5, BREACH)], head=1000)
-    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     k, _ = keeper(rpc, clock)
     a.buy(POOL_A, level=LEVEL)
     b.buy(POOL_A, level=LEVEL)
@@ -150,7 +150,7 @@ def test_send_uses_the_endpoint_of_the_decision_read_not_a_lagging_priority_one(
 def test_pinned_call_falls_back_to_a_fresh_endpoint_when_the_pinned_one_is_cooling():
     clock = Clock()
     a, b = FaultNode(clock, [(0, NEAR)]), FaultNode(clock, [(0, NEAR)])
-    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     assert rpc.call("eth_chainId", ep=rpc.endpoints[1]) == "0x3e6" and b.log == ["eth_chainId"]
     rpc.endpoints[1].cool_until = 30.0
     rpc.batch([("eth_chainId", [])], ep=rpc.endpoints[1])
@@ -263,22 +263,27 @@ def test_nonce_floor_yields_to_the_node_and_expires_when_a_tx_was_dropped():
 def test_keeper_refuses_to_start_if_any_endpoint_is_not_testnet_or_local(bad):
     clock = Clock()
     a, b = FaultNode(clock, [(0, NEAR)]), FaultNode(clock, [(0, NEAR)], chain_id=bad)
-    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     k = Keeper(rpc, [PoolPlan(POOL_A, "a")], watch_perps=[3], dry_run=True, clock=clock)
     with pytest.raises(RuntimeError, match=str(bad)):
         k.start()
     with pytest.raises(RuntimeError, match=str(bad)):
-        Sender(FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER), ANVIL_KEY1)
+        Sender(
+            FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter),
+            ANVIL_KEY1,
+        )
 
 
 def test_local_chain_is_allowed_and_endpoints_must_agree():
     clock = Clock()
     a, b = FaultNode(clock, [(0, NEAR)], chain_id=31337), FaultNode(clock, [(0, NEAR)], chain_id=31337)
-    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     assert Sender(rpc, ANVIL_KEY1).chain_id == 31337
     b.chain_id = 998
     with pytest.raises(RuntimeError, match="differ"):
-        FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER).verify_chain({998, 31337})
+        FailoverRpc(
+            [A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter
+        ).verify_chain({998, 31337})
 
 
 class Flaky:
@@ -301,7 +306,7 @@ class Flaky:
 def flaky_pair(b_chain=998):
     clock = Clock()
     net = Flaky(FaultNode(clock, [(0, NEAR)]), FaultNode(clock, [(0, NEAR)], chain_id=b_chain))
-    return clock, net, FailoverRpc([A, B], post=net, clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    return clock, net, FailoverRpc([A, B], post=net, clock=clock, sleep=clock.sleep, rand=no_jitter)
 
 
 @pytest.mark.parametrize("mode", ["429", "down"])
@@ -342,7 +347,9 @@ def test_refuses_to_start_when_no_endpoint_answers_chain_id():
         return 429, None
 
     with pytest.raises(RuntimeError, match="no RPC endpoint answered"):
-        FailoverRpc([A, B], post=post, clock=clock, sleep=clock.sleep, rand=NO_JITTER).verify_chain({998, 31337})
+        FailoverRpc([A, B], post=post, clock=clock, sleep=clock.sleep, rand=no_jitter).verify_chain(
+            {998, 31337}
+        )
 
 
 # -- review follow-up M2: a cover whose attempts broadcast nothing backs off 1, 2, 4 ... 30 s ---------------
@@ -394,7 +401,7 @@ def test_backoff_resets_when_the_decision_changes():
 def test_nonce_too_low_after_a_send_timeout_counts_as_sent():
     clock = Clock()
     a, b = FaultNode(clock, [(0, BREACH)]), FaultNode(clock, [(0, BREACH)])
-    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=NO_JITTER)
+    rpc = FailoverRpc([A, B], post=Net({A: a, B: b}), clock=clock, sleep=clock.sleep, rand=no_jitter)
     k, _ = keeper(rpc, clock)
     a.buy(POOL_A, level=LEVEL)
     b.buy(POOL_A, level=LEVEL)
@@ -410,8 +417,14 @@ def test_nonce_too_low_after_a_send_timeout_counts_as_sent():
 # -- 5. empty env values and a zero fee ------------------------------------------------------------------
 
 
-ENV_FLAGS = ["NUMERA_KEEPER_FAST_POLL", "NUMERA_KEEPER_NEAR_PCT", "NUMERA_KEEPER_FAST_MAX_MIN",
-             "NUMERA_KEEPER_MAX_FEE_GWEI", "NUMERA_KEEPER_MAX_TX_PER_POLL", "NUMERA_KEEPER_MIN_BALANCE_HYPE"]
+ENV_FLAGS = [
+    "NUMERA_KEEPER_FAST_POLL",
+    "NUMERA_KEEPER_NEAR_PCT",
+    "NUMERA_KEEPER_FAST_MAX_MIN",
+    "NUMERA_KEEPER_MAX_FEE_GWEI",
+    "NUMERA_KEEPER_MAX_TX_PER_POLL",
+    "NUMERA_KEEPER_MIN_BALANCE_HYPE",
+]
 
 
 @pytest.mark.parametrize("name", ENV_FLAGS)
