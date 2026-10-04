@@ -188,8 +188,16 @@ node scripts/dev.mjs --keeper-only  # only the keeper; add --keeper-dry-run for 
 
 ## License
 
-AGPL-3.0-only — see [`LICENSE`](LICENSE). Third-party dependencies and their licenses:
-[`THIRD_PARTY.md`](THIRD_PARTY.md).
+Split license (decision D30):
+
+- [`contracts/`](contracts/) (Solidity sources, interfaces, tests, deploy scripts): **Apache-2.0**, see
+  [`contracts/LICENSE`](contracts/LICENSE).
+- Everything else (engine, app, waitlist site, scripts, docs): **Business Source License 1.1**, see
+  [`LICENSE`](LICENSE). Non-production use (testing, research, evaluation, education, public test networks) is
+  granted; production use, including on a mainnet or as a service for third parties, needs a commercial license.
+  On 2030-10-12 these files become available under the GNU AGPL v3.0.
+
+Third-party dependencies and their licenses: [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
 ## Notes
 

@@ -1,8 +1,10 @@
 # Third-party code and licenses
 
-Numera's own code is licensed under **AGPL-3.0-only** (see [`LICENSE`](LICENSE), decision D14).
+Numera's own code is licensed under a split (decision D30): `contracts/` under **Apache-2.0**
+(see [`contracts/LICENSE`](contracts/LICENSE)), everything else under **Business Source License 1.1** (see
+[`LICENSE`](LICENSE); it converts to AGPL-3.0 on 2030-10-12).
 This file lists every direct dependency, the license read from the installed copy (2026-10-01), and
-whether it can be combined with AGPL-3.0. Transitive dependencies are not listed; lockfiles
+whether it can be combined with these licenses (the compatibility column checks against the AGPL-3.0 change license, the strictest of them). Transitive dependencies are not listed; lockfiles
 (`app/package-lock.json`) and the installed metadata are the source of truth for those.
 
 Compatibility rule used: permissive licenses (MIT, BSD, ISC, Apache-2.0, 0BSD, Zlib, CC0, PSF) and

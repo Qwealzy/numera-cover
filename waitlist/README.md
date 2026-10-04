@@ -51,7 +51,7 @@ These variables are read by `src/lib/buildenv.mjs`, which reads the build variab
 | `SITE_CONTROLLER_NAME` | Fills `{{CONTROLLER_NAME}}` on `/privacy` |
 | `SITE_DELETE_BY` | A `YYYY-MM-DD` date; fills `{{DELETE_BY}}` |
 | `SITE_GOVERNING_LAW` | The law that governs the terms of use; fills `{{GOVERNING_LAW}}` on `/terms` |
-| `SITE_SOURCE_URL` | The PUBLIC source repository (https URL); the footer "Source" link (AGPL-3.0 section 13). The deploy script refuses the private origin repository. |
+| `SITE_SOURCE_URL` | The PUBLIC source repository (https URL); the footer "Source" link (source offer). The deploy script refuses the private origin repository. |
 | `PUBLIC_TURNSTILE_SITEKEY` | Required in production, and a Cloudflare test key is refused there. Dev builds fall back to the always-pass test key. |
 | `SITE_LEGAL_REVIEWED=1` | Hides the "Pending legal review" badge |
 
@@ -284,4 +284,4 @@ for the architect to see:
 4. **Email delivery.** The page now collects email addresses for one launch email. Which service sends it is not
    decided; once it is, the privacy notice's Recipients section must name it (and the notice version moves on).
 
-License: AGPL-3.0-only (repo). Fonts: SIL OFL 1.1.
+License: BUSL-1.1 (repo; contracts/ Apache-2.0). Fonts: SIL OFL 1.1.

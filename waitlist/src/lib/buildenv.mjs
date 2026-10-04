@@ -5,7 +5,7 @@
 //   SITE_ENV=production      production build: every check below must pass or the build fails
 //   SITE_CONTROLLER_NAME     controller identity on /privacy            -> {{CONTROLLER_NAME}}
 //   SITE_DELETE_BY           waitlist deletion date, YYYY-MM-DD         -> {{DELETE_BY}}
-//   SITE_SOURCE_URL          public source repository (https URL)        -> footer "Source" link (AGPL-3.0 section 13)
+//   SITE_SOURCE_URL          public source repository (https URL)        -> footer "Source" link (source offer to network users)
 //   SITE_GOVERNING_LAW       law governing the terms of use (a place)    -> {{GOVERNING_LAW}} on /terms
 //   SITE_LEGAL_REVIEWED=1    hides the "Pending legal review" note
 //   PUBLIC_TURNSTILE_SITEKEY Turnstile site key (public by design); dev builds fall back to the always-pass test key

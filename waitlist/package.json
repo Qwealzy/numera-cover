@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "BUSL-1.1",
   "scripts": {
     "dev": "astro dev --host 127.0.0.1 --port 4471",
     "build": "astro build",
