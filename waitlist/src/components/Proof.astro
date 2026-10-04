@@ -46,6 +46,7 @@ const events = [
         </ol>
         <div class="bracket" style={`--a:${blocks.indexOf(R.drop.block)};--b:${blocks.indexOf(R.trigger.block)};--n:${blocks.length}`} aria-hidden="true"></div>
         <p class="bracket-label mono">{Pf.bracket}</p>
+        {R.earlier && <p class="bracket-label mono">Recorded on an earlier MOCK pool, {R.pool}</p>}
       </div>
 
       <ol class="receipts">

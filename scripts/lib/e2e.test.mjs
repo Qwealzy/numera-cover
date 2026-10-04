@@ -216,7 +216,16 @@ test('record: key naming, merge under pools.mock, BigInt JSON', () => {
   assert.equal(e2eKey('2026-10-02', false, {}), 'e2e_F9_2026-10-02');
   assert.equal(e2eKey('2026-10-02', false, { 'e2e_F9_2026-10-02': {} }), 'e2e_F9_2026-10-02_2');
   assert.equal(e2eKey('2026-10-02', true, {}), 'e2e_F9_selftrigger_2026-10-02');
-  const doc = JSON.parse(readFileSync(path.join(repoRoot, 'deployments', 'testnet-v2.json'), 'utf8'));
+  // A fixture shaped like deployments/testnet-v2.json (never the live file: a pool redeploy changes it).
+  const doc = {
+    env: 'testnet',
+    chainId: 998,
+    pools: {
+      mock: { mode: 'mock', pool: POOL, usdc: USDC, 'e2e_F9_old': { b: 2 } },
+      hypercore: { mode: 'hypercore', pool: '0x1111111111111111111111111111111111111111', usdc: USDC },
+    },
+    previous: { mock: [{ mode: 'mock', pool: '0x2222222222222222222222222222222222222222' }] },
+  };
   const out = mergeE2e(doc, POOL.toUpperCase().replace('0X', '0x'), 'e2e_F9_x', { a: 1 });
   assert.deepEqual(out.pools.mock.e2e_F9_x, { a: 1 });
   assert.equal(doc.pools.mock.e2e_F9_x, undefined); // input untouched
