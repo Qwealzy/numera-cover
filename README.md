@@ -53,18 +53,19 @@ that cannot read the perp exchange's state.
 ## Live testnet deployment
 
 HyperEVM testnet, chain 998, RPC `https://rpc.hyperliquid-testnet.xyz/evm`. Source of truth:
-[`deployments/testnet.json`](deployments/testnet.json). All 7 contracts are verified on Sourcify
-(exact runtime match).
+[`deployments/testnet-v2.json`](deployments/testnet-v2.json) (CoverPool v2, redeployed 2026-10-04 after an internal
+security review; the earlier v1 pools are kept in [`deployments/testnet.json`](deployments/testnet.json) and under
+`previous` in the v2 file). Sourcify verification of the v2 contracts has not been re-checked.
 
-| Contract | Address | Sourcify |
-|---|---|---|
-| MockUSDC (6 decimals, public mint, testnet only) | `0x8675c05f2403f220e19057f3f60c6c91bb14462a` | [link](https://repo.sourcify.dev/998/0x8675c05f2403f220e19057f3f60c6c91bb14462a) |
-| CoverPool — real HyperCore sources (Demo A) | `0xda611e1a07260005ea5641e9fe633cd4d10c341e` | [link](https://repo.sourcify.dev/998/0xda611e1a07260005ea5641e9fe633cd4d10c341e) |
-| HyperCorePriceSource | `0xf8323c267ef0516651c1cc2f94f984d50f597f44` | [link](https://repo.sourcify.dev/998/0xf8323c267ef0516651c1cc2f94f984d50f597f44) |
-| HyperCorePositionSource | `0xcd44735b5640ab54777d31caf88d8ebb19730645` | [link](https://repo.sourcify.dev/998/0xcd44735b5640ab54777d31caf88d8ebb19730645) |
-| CoverPool — **MOCK sources, staged demo only** (Demo B) | `0x1b1bfb83f2100c95a7460ed1a746170cbdeccbae` | [link](https://repo.sourcify.dev/998/0x1b1bfb83f2100c95a7460ed1a746170cbdeccbae) |
-| MockPriceSource (**MOCK**: price set by the operator) | `0x08d24f21bcd9fdf690499456e90b9712b31bbc13` | [link](https://repo.sourcify.dev/998/0x08d24f21bcd9fdf690499456e90b9712b31bbc13) |
-| MockPositionSource (**MOCK**: position set by the operator) | `0x728159ab10146beffdc15ec8fbb4ce4bb44a3425` | [link](https://repo.sourcify.dev/998/0x728159ab10146beffdc15ec8fbb4ce4bb44a3425) |
+| Contract | Address |
+|---|---|
+| MockUSDC (6 decimals, public mint, testnet only) | `0x8675c05f2403f220e19057f3f60c6c91bb14462a` |
+| CoverPool v2, real HyperCore sources | `0xe9a1957170ad16e7ba12673f7acd8e68abf9618a` |
+| HyperCorePriceSource | `0x0071b70b0a73279b5ad45aefad9c5fbfd4454482` |
+| HyperCorePositionSource | `0x7cca2c51df3573a5f7397ab4e8bd7c09d776ff6c` |
+| CoverPool v2, **MOCK sources, staged demo only** | `0x690d8a8499974bea8d655948034aaf981dc30214` |
+| MockPriceSource (**MOCK**: price set by the operator) | `0x5f429cdacf9efc51861809190a798f66d2083084` |
+| MockPositionSource (**MOCK**: position set by the operator) | `0x10c62d16e047ba48dd5550306f79cfc40110c72c` |
 
 The MOCK pool exists so a trigger and payout can be shown on demand: its price and positions are set by the
 operator, not read from HyperCore. Nothing it does is evidence of a real market event.
@@ -85,7 +86,7 @@ daily candles since 2023):
   the open on 2.46 % of days (Oct 2024 – Sep 2026).
 - Failing buckets and limitations are listed in the report.
 
-**End-to-end on testnet** (MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
+**End-to-end on testnet** (previous v1 MOCK pool, 2026-10-01; engine quote → buy → staged price drop → keeper
 trigger → payout, 5 s from price drop to trigger). No working HyperEVM testnet explorer exists as of
 2026-10-02 (the hyperpc indexer is stale), so the hashes below are not links. Verify any of them with
 `cast receipt <hash> --rpc-url https://rpcs.chain.link/hyperevm/testnet`. Inside the app, the transactions it
