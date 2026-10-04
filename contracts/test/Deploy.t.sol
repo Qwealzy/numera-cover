@@ -115,6 +115,68 @@ contract DeployTest is Test {
         assertEq(l.maxPaidPerWindowBps, 1_500);
     }
 
+    /// @dev Audit L3: 998 (judges' demo) raises the breaker to the sale cap; local keeps the stricter 15 %.
+    function test_limitsFor_998_breakerEqualsSaleCap() public view {
+        ICoverPool.Limits memory l998 = script.limitsFor(998);
+        assertEq(l998.maxPaidPerWindowBps, l998.maxSoldPerWindowBps);
+        assertEq(l998.maxPaidPerWindowBps, 2_500);
+        assertEq(script.limitsFor(31337).maxPaidPerWindowBps, 1_500);
+        // everything else is the spec table
+        l998.maxPaidPerWindowBps = 1_500;
+        assertEq(abi.encode(l998), abi.encode(script.testnetLimits()));
+    }
+
+    function test_deploy_998_poolCarriesBreakerAtSaleCap() public {
+        vm.chainId(998);
+        Deploy.Config memory c = _cfg("mock");
+        c.guardian = makeAddr("guardian");
+        c.keeper = makeAddr("keeper");
+        CoverPool pool = CoverPool(script.deploy(c).pool);
+        assertEq(pool.maxPaidPerWindowBps(), 2_500);
+        assertEq(pool.guardian(), c.guardian);
+    }
+
+    /// @dev Audit L4: a guardian that is also the keeper is refused; on 998 both must be given.
+    function test_revert_guardianEqualsKeeper() public {
+        Deploy.Config memory c = _cfg("mock");
+        c.guardian = makeAddr("same");
+        c.keeper = c.guardian;
+        vm.expectRevert(bytes("Deploy: GUARDIAN must not equal KEEPER"));
+        script.deploy(c);
+        vm.chainId(998);
+        vm.expectRevert(bytes("Deploy: GUARDIAN must not equal KEEPER"));
+        script.deploy(c);
+    }
+
+    function test_revert_998_needsGuardianAndKeeper() public {
+        vm.chainId(998);
+        Deploy.Config memory c = _cfg("mock");
+        c.keeper = makeAddr("keeper");
+        vm.expectRevert(bytes("Deploy: GUARDIAN required on testnet (a key of its own, not the keeper)"));
+        script.deploy(c);
+        c.guardian = makeAddr("guardian");
+        c.keeper = address(0);
+        vm.expectRevert(bytes("Deploy: KEEPER required on testnet (to check GUARDIAN != KEEPER)"));
+        script.deploy(c);
+    }
+
+    /// @dev Audit L3: the deploy seeds the pool for the owner (mint + approve + deposit inside the broadcast).
+    function test_deploy_seedsThePool() public {
+        Deploy.Config memory c = _cfg("mock");
+        c.seedAssets = 100_000e6;
+        Deploy.Deployment memory d = script.deploy(c);
+        CoverPool pool = CoverPool(d.pool);
+        assertEq(pool.totalAssets(), 100_000e6);
+        assertEq(pool.capacityBase(), 100_000e6);
+        assertGt(pool.balanceOf(c.owner), 0, "shares go to the owner");
+        assertEq(script.DEFAULT_SEED_USDC_998(), 100_000);
+    }
+
+    function test_deploy_noSeedByDefault() public {
+        Deploy.Deployment memory d = script.deploy(_cfg("mock"));
+        assertEq(CoverPool(d.pool).totalAssets(), 0);
+    }
+
     /// @dev HyperCore precompiles are stood in by vm.etch'd mocks; on chain the real ones answer.
     function test_deploy_hypercore_testnet_existingUsdc() public {
         vm.chainId(998);
@@ -128,6 +190,7 @@ contract DeployTest is Test {
         Deploy.Config memory c = _cfg("hypercore");
         c.usdc = address(0x2B3370eE501B4a559b57D449569354196457D8Ab); // testnet USDC (research table)
         c.guardian = makeAddr("guardian");
+        c.keeper = makeAddr("keeper");
         Deploy.Deployment memory d = script.deploy(c);
         assertFalse(d.mock);
         CoverPool pool = CoverPool(d.pool);
@@ -162,6 +225,8 @@ contract DeployTest is Test {
     function test_hypercore_standIns_noBroadcastTxToPrecompiles() public {
         vm.chainId(998);
         Deploy.Config memory c = _cfg("hypercore");
+        c.guardian = makeAddr("guardian");
+        c.keeper = makeAddr("keeper");
         script.installStandIns(c.perps, c.mockPx6); // stand-in px6 (the wrapper passes STANDIN_PX6)
 
         vm.startStateDiffRecording();

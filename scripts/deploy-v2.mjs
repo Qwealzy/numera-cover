@@ -38,10 +38,12 @@ import {
   TESTNET_CHAIN_ID,
   childEnv,
   forgeArgs,
+  guardianProblem,
   hasCode,
   mergeV2,
   parseDeployArgs,
   parseLimits,
+  parseSeed,
   perpList,
   standinFromInfo,
   summarizeBroadcast,
@@ -164,6 +166,14 @@ function readBack(rpc, pool, perps) {
   };
 }
 
+function parseSeedOrDie(v) {
+  try {
+    return parseSeed(v);
+  } catch (e) {
+    return die(e.message);
+  }
+}
+
 async function main() {
   const args = parseDeployArgs(process.argv.slice(2));
   if (args.help) {
@@ -222,8 +232,12 @@ async function main() {
     MOCK_PX6: args.mode === 'mock' ? px.join(',') : undefined,
     USDC: args.dryRun ? undefined : deployments.usdc?.address,
     GUARDIAN: dotenv.GUARDIAN,
+    KEEPER: deployments.keeper,
+    SEED_USDC: parseSeedOrDie(dotenv.SEED_USDC),
     OWNER: dotenv.OWNER,
   };
+  const roleProblem = guardianProblem(want, vars.GUARDIAN, vars.KEEPER);
+  if (roleProblem) die(`${roleProblem}. Nothing was sent.`);
   const outLabel = local ? `${tmpdir()}${path.sep}numera-v2-*${path.sep}${args.fork ? 'fork' : 'local'}-v2.json (temp)` : path.join(repoRoot, 'deployments', 'testnet-v2.json');
 
   say('PLAN');
@@ -235,6 +249,9 @@ async function main() {
   say(`  usdc         ${vars.USDC ?? 'new MockUSDC'}`);
   say(`  owner        ${vars.OWNER ?? 'the broadcaster'}`);
   say(`  guardian     ${vars.GUARDIAN ?? 'none (address 0)'}`);
+  say(`  keeper       ${vars.KEEPER} (must differ from the guardian)`);
+  say(`  seed         ${vars.SEED_USDC ?? (want === TESTNET_CHAIN_ID ? '100000 (default on 998)' : '0')} mUSDC minted and deposited for the owner`);
+  say(`  breaker      maxPaidPerWindowBps ${want === TESTNET_CHAIN_ID ? '2500 = maxSoldPerWindowBps (998)' : '1500 (local)'}`);
   say('  delays       configDelay 600 s, withdrawDelay 600 s, claimWindow 3600 s, strict=false (testnet values)');
   const who = args.fork
     ? `${sender} (deployer, impersonated on the fork)`
@@ -331,7 +348,7 @@ async function main() {
     : path.join(repoRoot, 'deployments', 'testnet-v2.json');
   const existing = !local && existsSync(outFile) ? JSON.parse(readFileSync(outFile, 'utf8')) : null;
   writeFileSync(outFile, `${JSON.stringify(mergeV2(existing, args.mode, block, { replace: args.replace }), null, 2)}\n`);
-  say(`pool ${pool}: owner ${state.owner}, signer ${state.quoteSigner}, guardian ${state.guardian}`);
+  say(`pool ${pool}: owner ${state.owner}, signer ${state.quoteSigner}, guardian ${state.guardian} (keeper ${vars.KEEPER})`);
   say(`limits ${JSON.stringify(state.limits)}`);
   say(`perps ${JSON.stringify(state.perps)}`);
   say(`wrote ${outFile}`);
