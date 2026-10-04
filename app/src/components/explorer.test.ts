@@ -11,12 +11,14 @@ async function load(explorer: string | undefined) {
   const ui = await import('./ui');
   return { config, ui };
 }
+// Each case cold-imports wagmi/viem via config/ui; under CPU contention that can exceed vitest's 5 s default.
+const COLD_IMPORT_TIMEOUT = 30_000;
 const HASH = '0x3fb5c7073c2b9add2005ac541ac6626bb8b147c68c9ef1e0a35739df86166d44';
 const ADDR = '0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7';
 
 afterEach(() => vi.unstubAllEnvs());
 
-describe('no explorer configured (default)', () => {
+describe('no explorer configured (default)', { timeout: COLD_IMPORT_TIMEOUT }, () => {
   it('builds no URL, no viem blockExplorers, and renders no external link', async () => {
     const { config, ui } = await load(undefined);
     expect(config.EXPLORER_URL).toBe('');
@@ -41,7 +43,7 @@ describe('no explorer configured (default)', () => {
   });
 });
 
-describe('explorer configured', () => {
+describe('explorer configured', { timeout: COLD_IMPORT_TIMEOUT }, () => {
   it('keeps the explorer link path working (trailing slash trimmed)', async () => {
     const { config, ui } = await load('https://explorer.example/');
     expect(config.txUrl(HASH)).toBe(`https://explorer.example/tx/${HASH}`);
