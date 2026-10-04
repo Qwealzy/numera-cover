@@ -69,8 +69,14 @@ class Clock:
         return self.t
 
 
+def all_pools(deployment):
+    """These tests exercise the engine on the v1 fixture pool: NUMERA_POOLS lists it explicitly (audit L5)."""
+    return tuple(p.pool for p in deployment.pools) if deployment else ()
+
+
 def client(reader=None, deployment=DEPLOYMENT, block_time=None, rate_limiter=None, **kw):
-    base = {"env": "testnet", "chain_id": 998, "pool": POOL, "signer_key": KEY, "rate_per_min": 0}
+    base = {"env": "testnet", "chain_id": 998, "pool": POOL, "signer_key": KEY, "rate_per_min": 0,
+            "pools": all_pools(deployment)}  # fmt: skip
     s = Settings(**base | kw)
     app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
                      spot_reader=reader or StubReader(), deployment=deployment, block_time=block_time,
@@ -220,7 +226,8 @@ def test_quote_endpoint_answers_429_after_the_burst_with_cors_and_retry_after():
 
 
 def proxied_client(peer, trusted=(), burst=2):
-    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, trusted_proxies=trusted)
+    s = Settings(env="testnet", chain_id=998, pool=POOL, signer_key=KEY, trusted_proxies=trusted,
+                 pools=all_pools(DEPLOYMENT))  # fmt: skip
     app = create_app(s, StubMarket(), TailTable(coins={}), clock=lambda: NOW, nonce_fn=lambda: 7,
                      spot_reader=StubReader(), deployment=DEPLOYMENT,
                      rate_limiter=RateLimiter(per_min=10, burst=burst, clock=Clock()))  # fmt: skip

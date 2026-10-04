@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
@@ -31,7 +31,13 @@ import {OraclePxStandIn, PerpAssetInfoStandIn, PositionStandIn} from "./HyperCor
 ///                  sender (--sender / --unlocked on anvil)
 ///   USDC           (optional) existing USDC token; unset -> deploys MockUSDC
 ///   OWNER          (optional) pool/mock owner; default the broadcaster
-///   GUARDIAN       (optional) guardian pause key; default none (address 0)
+///   GUARDIAN       (required on 998; optional on 31337, default none) guardian pause key. Audit L4: it must be a key
+///                  of its own: never the keeper (a stolen keeper key must not also hold the pause), never zero on 998
+///   KEEPER         (required on 998) the keeper bot's address, used only to refuse GUARDIAN == KEEPER; the wrapper
+///                  passes deployments/<env>.json `keeper`
+///   SEED_USDC      (optional) whole USDC to mint (public-mint mock token) and deposit for the owner after the pool
+///                  exists; default 100000 on 998 (audit L3: a ~1,900 USDC pool tripped the payout breaker on three
+///                  judges' payouts), 0 elsewhere. The pool must be funded for the breaker to be meaningful
 ///   CONFIG_DELAY / WITHDRAW_DELAY / CLAIM_WINDOW (optional) seconds; default the testnet values 600/600/3600
 ///   STRICT         (optional) default false; false is accepted only on 998/31337 (the pool enforces it too)
 /// @dev Deploy order (ARCHITECTURE §5.9): price and position sources -> cachePerp for each perp (hypercore) or
@@ -50,6 +56,8 @@ contract Deploy is Script {
     ///         --block-gas-limit; only --disable-block-gas-limit lifts it (2026-10-02 testnet run: the pool
     ///         creation ran out of gas and forge only said "Failed to decode return value: 0x").
     uint256 public constant BIG_BLOCK_GAS_LIMIT = 30_000_000;
+    /// @notice Default seed on 998, whole mUSDC (audit L3).
+    uint256 public constant DEFAULT_SEED_USDC_998 = 100_000;
 
     struct Deployment {
         address pool;
@@ -71,6 +79,8 @@ contract Deploy is Script {
         uint64 withdrawDelay;
         uint64 claimWindow;
         bool strict;
+        address keeper; // only compared with the guardian (audit L4)
+        uint256 seedAssets; // USDC base units (6 decimals) minted and deposited for the owner; 0 = none
         uint256 deployerKey; // 0 = forge's sender; never logged
     }
 
@@ -93,6 +103,8 @@ contract Deploy is Script {
             withdrawDelay: uint64(vm.envOr("WITHDRAW_DELAY", uint256(600))),
             claimWindow: uint64(vm.envOr("CLAIM_WINDOW", uint256(3_600))),
             strict: vm.envOr("STRICT", false),
+            keeper: vm.envOr("KEEPER", address(0)),
+            seedAssets: vm.envOr("SEED_USDC", block.chainid == 998 ? DEFAULT_SEED_USDC_998 : uint256(0)) * 1e6,
             deployerKey: key
         });
         if (keccak256(bytes(c.mode)) == keccak256("hypercore")) {
@@ -148,11 +160,25 @@ contract Deploy is Script {
         });
     }
 
+    /// @notice Limits for `chainId`. 998 (the judges' demo) sets `maxPaidPerWindowBps` = `maxSoldPerWindowBps` (audit L3:
+    ///         the 15 % breaker is tuned for a deep pool; three judges' payouts in an hour tripped it on a thin one).
+    ///         Local (31337) keeps the stricter 15 %. 999 is refused before this is reached.
+    function limitsFor(uint256 chainId) public pure returns (ICoverPool.Limits memory l) {
+        l = testnetLimits();
+        if (chainId == 998) l.maxPaidPerWindowBps = l.maxSoldPerWindowBps;
+    }
+
     function deploy(Config memory c) public returns (Deployment memory d) {
         // Mainnet lock: never 999.
         require(block.chainid == 998 || block.chainid == 31337, "Deploy: only testnet (998) or local (31337)");
         require(c.quoteSigner != address(0), "Deploy: QUOTE_SIGNER required");
         require(c.perps.length > 0, "Deploy: PERPS required (from deployments/<env>.json)");
+        // Audit L4: the pause key and the keeper bot key must differ; on 998 both must be given so the check cannot be skipped.
+        if (block.chainid == 998) {
+            require(c.guardian != address(0), "Deploy: GUARDIAN required on testnet (a key of its own, not the keeper)");
+            require(c.keeper != address(0), "Deploy: KEEPER required on testnet (to check GUARDIAN != KEEPER)");
+        }
+        require(c.guardian == address(0) || c.guardian != c.keeper, "Deploy: GUARDIAN must not equal KEEPER");
 
         bytes32 m = keccak256(bytes(c.mode));
         require(m == keccak256("hypercore") || m == keccak256("mock"), "Deploy: MODE must be hypercore or mock");
@@ -188,7 +214,7 @@ contract Deploy is Script {
                 c.guardian,
                 IPriceSource(d.priceSource),
                 IPositionSource(d.positionSource),
-                testnetLimits(),
+                limitsFor(block.chainid),
                 c.perps,
                 c.configDelay,
                 c.withdrawDelay,
@@ -196,6 +222,7 @@ contract Deploy is Script {
                 c.strict
             )
         );
+        if (c.seedAssets > 0) _seed(d, c, sender);
         vm.stopBroadcast();
 
         console2.log("chainId       ", block.chainid);
@@ -207,6 +234,21 @@ contract Deploy is Script {
         console2.log("owner         ", c.owner);
         console2.log("quoteSigner   ", c.quoteSigner);
         console2.log("guardian      ", c.guardian);
+        console2.log("keeper        ", c.keeper);
+        console2.log("seed (6 dec)  ", c.seedAssets);
+        console2.log("maxPaidBps    ", limitsFor(block.chainid).maxPaidPerWindowBps);
         console2.log("perps         ", c.perps.length);
+    }
+
+    /// @dev Audit L3: fund the pool right after creation (inside the broadcast). The token must be a public-mint mock;
+    ///      with a real USDC the mint reverts and the balance check below stops the deploy.
+    function _seed(Deployment memory d, Config memory c, address sender) internal {
+        IERC20 token = IERC20(d.usdc);
+        if (token.balanceOf(sender) < c.seedAssets) {
+            MockUSDC(d.usdc).mint(sender, c.seedAssets); // reverts on a token without a public mint
+        }
+        require(token.balanceOf(sender) >= c.seedAssets, "Deploy: cannot fund SEED_USDC");
+        token.approve(d.pool, c.seedAssets);
+        CoverPool(d.pool).deposit(c.seedAssets, c.owner);
     }
 }

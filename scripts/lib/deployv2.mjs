@@ -114,6 +114,33 @@ export function forgeArgs({ rpc, unlockedSender = null, gasPrice = null, broadca
   return a;
 }
 
+const ADDR = /^0x[0-9a-fA-F]{40}$/;
+
+// Audit L4: the guardian (pause key) must be a key of its own, never the keeper bot's. Returns a problem string or
+// null. On chain 998 (also the fork) both addresses are mandatory, as in Deploy.s.sol; on local 31337 the guardian
+// may be absent. Pure, so node --test covers it.
+export function guardianProblem(chainId, guardian, keeper) {
+  const g = (guardian ?? '').trim();
+  const k = (keeper ?? '').trim();
+  if (g && !ADDR.test(g)) return `GUARDIAN is not an address: ${g}`;
+  if (k && !ADDR.test(k)) return `keeper in deployments/testnet.json is not an address: ${k}`;
+  if (chainId === TESTNET_CHAIN_ID) {
+    if (!g) return 'GUARDIAN is not set in .env: the pause key must be a key of its own (not the keeper, audit L4)';
+    if (!k) return 'deployments/testnet.json has no keeper address to check GUARDIAN against';
+  }
+  if (g && k && g.toLowerCase() === k.toLowerCase()) return 'GUARDIAN equals the keeper address: use a separate key (audit L4)';
+  return null;
+}
+
+// SEED_USDC (.env, whole mUSDC) -> normalised string, undefined when unset (Deploy.s.sol then defaults to 100000 on
+// 998). Throws on anything but a non-negative integer. Audit L3.
+export function parseSeed(v) {
+  if (v === undefined || v === null || String(v).trim() === '') return undefined;
+  const s = String(v).trim();
+  if (!/^\d+$/.test(s)) throw new Error(`SEED_USDC must be a whole number of mUSDC, got "${s}"`);
+  return s;
+}
+
 // eth_getCode result -> true when the address has code ("0x" / "0x0" / empty = no code).
 export function hasCode(code) {
   return typeof code === 'string' && /^0x[0-9a-f]*$/i.test(code) && /[1-9a-f]/i.test(code.slice(2));

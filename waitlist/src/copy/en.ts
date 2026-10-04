@@ -601,7 +601,7 @@ export const footer = {
   // the footer shows these as icon-only links; `aria` is their accessible name
   telegram: { label: 'Telegram', handle: '@godsonits', href: 'https://t.me/godsonits', aria: 'Numera on Telegram' },
   x: { label: 'X', handle: '@ggodsonits', href: 'https://x.com/ggodsonits', aria: 'Numera on X' },
-  license: 'AGPL-3.0',
+  license: 'BUSL-1.1 (contracts: Apache-2.0)',
   source: 'Source',
   fonts: 'Fonts under the SIL Open Font License:',
   // the licence texts ship with the build (src/pages/licenses/)

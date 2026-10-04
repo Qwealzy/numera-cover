@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
@@ -366,6 +366,7 @@ contract BuyCoverTest is BaseTest {
         _request(lp, pool.balanceOf(lp) * 4 / 10);
         assertEq(pool.capacityBase(), LP_DEPOSIT * 6 / 10);
         assertEq(pool.totalAssets(), LP_DEPOSIT);
+        vm.warp(vm.getBlockTimestamp() + 600); // cancel is possible only once the withdraw delay has elapsed (L1)
         vm.prank(lp);
         pool.cancelRedeemRequest();
         assertEq(pool.capacityBase(), LP_DEPOSIT);

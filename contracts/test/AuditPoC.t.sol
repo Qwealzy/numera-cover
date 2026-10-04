@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import {console2} from "forge-std/console2.sol";
@@ -257,6 +257,46 @@ contract AuditPoCTest is BaseTest {
         vm.prank(owner);
         vm.expectRevert(ICoverPool.InvalidLimits.selector);
         pool.queueSetLimits(l);
+    }
+
+    // ================================================================ L1 (2026-10-04): request / cancel cannot shrink a window
+
+    /// Audit L1: `capacityBase()` excludes escrowed shares and the window snapshot is taken from it, so an LP who
+    /// requested 99 %, sold a 1 USDC cover (snapshot 1,000) and cancelled used to freeze the sale cap at 25 % of
+    /// 1,000 for the rest of the window. Cancel now needs the withdraw delay to have elapsed; in a strict pool that
+    /// is longer than any window, so the snapshot is renewed by then and an honest 1,000 USDC buy fits.
+    function test_requestCancel_cannotShrinkWindowCap() public {
+        pool = _strictPool(7 days + 1);
+        _deposit(lp, LP_DEPOSIT); // B: 100,000
+        _fund(buyer);
+
+        _request(lp, pool.balanceOf(lp) * 99 / 100); // B -> 1,000
+        assertEq(pool.capacityBase(), LP_DEPOSIT / 100);
+        ICoverPool.Quote memory tiny = _quote();
+        tiny.payout = 1e6; // 1 USDC; premium 0.1 USDC clears the 20 bps floor
+        tiny.premium = 1e5;
+        tiny.expiry = uint64(vm.getBlockTimestamp() + 1 hours);
+        uint256 tinyId = _buy(tiny); // opens the window with the 1,000 USDC snapshot
+        assertEq(pool.windowAssets(), LP_DEPOSIT / 100);
+
+        (, uint64 claimableAt,,) = pool.redeemRequestOf(lp);
+        vm.prank(lp);
+        vm.expectRevert(abi.encodeWithSelector(ICoverPool.RequestPending.selector, claimableAt));
+        pool.cancelRedeemRequest(); // the toggle is closed while the request is Pending
+
+        vm.warp(claimableAt); // the delay has been paid; far past the 1 h window
+        pool.expire(tinyId);
+        vm.prank(lp);
+        pool.cancelRedeemRequest();
+        uint256 base = pool.capacityBase(); // the full pool again (plus the expired cover's earned premium)
+        assertEq(base, pool.totalAssets());
+        assertGt(base, LP_DEPOSIT);
+
+        ICoverPool.Quote memory honest = _quote(); // 1,000 USDC payout: fits the renewed 25,000 cap
+        uint256 id = _buy(honest);
+        assertEq(pool.windowAssets(), base, "snapshot renewed from the full pool");
+        assertEq(pool.soldInWindow(), honest.payout);
+        assertGt(id, tinyId);
     }
 
     // ================================================================ v1 PoC 4 and 5 (M-level), for completeness

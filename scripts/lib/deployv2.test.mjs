@@ -6,6 +6,8 @@ import {
   BIG_BLOCK_GAS_LIMIT,
   childEnv,
   decimalToPx6,
+  guardianProblem,
+  parseSeed,
   forgeArgs,
   hasCode,
   mergeV2,
@@ -115,4 +117,24 @@ test('parseLimits and mergeV2', () => {
   assert.throws(() => mergeV2(a, 'mock', { pool: '0x2' }, { replace: false }), /--replace/);
   assert.equal(mergeV2(a, 'mock', { pool: '0x2' }, { replace: true }).pools.mock.pool, '0x2');
   assert.equal(mergeV2(a, 'hypercore', { pool: '0x3' }, { replace: false }).pools.mock.pool, '0x1');
+});
+
+test('guardianProblem: separate key required (audit L4)', () => {
+  const k = '0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B';
+  const g = '0x1111111111111111111111111111111111111111';
+  assert.equal(guardianProblem(998, g, k), null);
+  assert.match(guardianProblem(998, k.toLowerCase(), k), /equals the keeper/);
+  assert.match(guardianProblem(998, '', k), /GUARDIAN is not set/);
+  assert.match(guardianProblem(998, g, ''), /no keeper address/);
+  assert.match(guardianProblem(998, 'nope', k), /not an address/);
+  assert.equal(guardianProblem(31337, '', k), null, 'local dry run may omit the guardian');
+  assert.match(guardianProblem(31337, k, k), /equals the keeper/);
+});
+
+test('parseSeed: whole mUSDC or unset (audit L3)', () => {
+  assert.equal(parseSeed(undefined), undefined);
+  assert.equal(parseSeed(' '), undefined);
+  assert.equal(parseSeed('250000'), '250000');
+  assert.throws(() => parseSeed('1e5'), /whole number/);
+  assert.throws(() => parseSeed('-1'), /whole number/);
 });

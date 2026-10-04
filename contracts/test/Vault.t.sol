@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.24;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
@@ -142,6 +142,7 @@ contract VaultTest is BaseTest {
         vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxMint.selector, lp, 1e12, 0));
         pool.mint(1e12, lp);
         pool.requestRedeem(1e12, lp, lp); // requests work while paused (adds to the Pending slot)
+        vm.warp(vm.getBlockTimestamp() + DELAY); // a cancel needs the delay to have elapsed (L1)
         pool.cancelRedeemRequest(); // cancels too
         pool.requestRedeem(1_000e6 * 1e6, lp, lp);
         vm.warp(vm.getBlockTimestamp() + DELAY);
@@ -293,6 +294,22 @@ contract VaultTest is BaseTest {
         assertEq(pool.balanceOf(lp), bal);
         assertEq(pool.totalEscrowedShares(), 0);
         assertEq(uint8(_state(lp)), uint8(ICoverPool.RequestState.None));
+    }
+
+    /// @dev Audit L1: a Pending request cannot be cancelled; it can from the moment it is Claimable.
+    function test_revert_cancel_whilePending_thenClaimable() public {
+        _request(lp, 5e12);
+        uint64 at = uint64(vm.getBlockTimestamp() + DELAY);
+        vm.prank(lp);
+        vm.expectRevert(abi.encodeWithSelector(ICoverPool.RequestPending.selector, at));
+        pool.cancelRedeemRequest();
+        vm.warp(vm.getBlockTimestamp() + DELAY - 1);
+        vm.prank(lp);
+        vm.expectRevert(abi.encodeWithSelector(ICoverPool.RequestPending.selector, at));
+        pool.cancelRedeemRequest();
+        vm.warp(vm.getBlockTimestamp() + 1); // Claimable
+        vm.prank(lp);
+        assertEq(pool.cancelRedeemRequest(), 5e12);
     }
 
     function test_revert_cancel_empty() public {
