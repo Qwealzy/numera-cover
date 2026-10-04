@@ -11,6 +11,7 @@ import {
   forgeArgs,
   hasCode,
   mergeV2,
+  verifyRun,
   parseDeployArgs,
   parseLimits,
   perpList,
@@ -20,7 +21,7 @@ import {
 
 test('parseDeployArgs: defaults, flags, validation', () => {
   assert.deepEqual(parseDeployArgs([]), {
-    dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false,
+    dryRun: false, fork: false, yes: false, mode: 'hypercore', rpc: null, standinPx: null, gasPrice: null, replace: false, help: false, recordOnly: false, run: null,
   });
   const a = parseDeployArgs(['--dry-run', '--yes', '--mode', 'mock', '--standin-px', '1,2', '--gas-price', '100']);
   assert.equal(a.dryRun, true);
@@ -137,4 +138,53 @@ test('parseSeed: whole mUSDC or unset (audit L3)', () => {
   assert.equal(parseSeed('250000'), '250000');
   assert.throws(() => parseSeed('1e5'), /whole number/);
   assert.throws(() => parseSeed('-1'), /whole number/);
+});
+
+test('mergeV2 --replace keeps the old entry under previous', () => {
+  const a = mergeV2(null, 'mock', { pool: '0x1', txs: [1] }, { replace: false });
+  const b = mergeV2(a, 'mock', { pool: '0x2' }, { replace: true });
+  assert.equal(b.pools.mock.pool, '0x2');
+  assert.deepEqual(b.previous.mock, [{ pool: '0x1', txs: [1] }]);
+  const c = mergeV2(b, 'mock', { pool: '0x3' }, { replace: true });
+  assert.deepEqual(c.previous.mock.map((p) => p.pool), ['0x1', '0x2']);
+  assert.equal(mergeV2(null, 'mock', { pool: '0x1' }, { replace: false }).previous, undefined);
+});
+
+const H = (n) => `0x${String(n).repeat(64)}`;
+const mockRun = () => ({
+  transactions: [
+    { hash: H(1), transactionType: 'CREATE', contractName: 'MockPriceSource', contractAddress: '0xa1', transaction: { to: null } },
+    { hash: H(2), transactionType: 'CREATE', contractName: 'MockPositionSource', contractAddress: '0xa2', transaction: { to: null } },
+    { hash: H(3), transactionType: 'CREATE', contractName: 'CoverPool', contractAddress: '0xa3', transaction: { to: null } },
+  ],
+});
+const fakeRpc = ({ chain = '0x3e6', status = '0x1', missing = null } = {}) => async (method, params) => {
+  if (method === 'eth_chainId') return chain;
+  if (method === 'eth_getTransactionReceipt') return params[0] === missing ? null : { status: params[0] === H(3) ? status : '0x1', gasUsed: '0x10' };
+  throw new Error(`unexpected ${method}`);
+};
+
+test('verifyRun: accepts an all-status-1 mock run on 998', async () => {
+  const sum = await verifyRun(mockRun(), 'mock', fakeRpc());
+  assert.equal(sum.contracts.CoverPool, '0xa3');
+  assert.ok(sum.txs.every((t) => t.status === 1 && t.gasUsed === 16));
+});
+
+test('verifyRun: refuses a run with a failed or missing receipt', async () => {
+  await assert.rejects(verifyRun(mockRun(), 'mock', fakeRpc({ status: '0x0' })), /status-1/);
+  await assert.rejects(verifyRun(mockRun(), 'mock', fakeRpc({ missing: H(1) })), /status-1/);
+});
+
+test('verifyRun: refuses chain id != 998 and a mode mismatch', async () => {
+  await assert.rejects(verifyRun(mockRun(), 'mock', fakeRpc({ chain: '0x3e7' })), /chain 999/);
+  await assert.rejects(verifyRun(mockRun(), 'mock', fakeRpc({ chain: '0x7a69' })), /chain 31337/);
+  await assert.rejects(verifyRun(mockRun(), 'hypercore', fakeRpc()), /not a hypercore deploy/);
+});
+
+test('parseDeployArgs: --record-only and --run', () => {
+  const a = parseDeployArgs(['--record-only', '--mode', 'mock', '--run', 'x.json']);
+  assert.equal(a.recordOnly, true);
+  assert.equal(a.run, 'x.json');
+  assert.throws(() => parseDeployArgs(['--run', 'x.json']), /--record-only/);
+  assert.throws(() => parseDeployArgs(['--record-only', '--fork']), /cannot be combined/);
 });

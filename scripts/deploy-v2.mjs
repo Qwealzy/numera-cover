@@ -47,6 +47,7 @@ import {
   perpList,
   standinFromInfo,
   summarizeBroadcast,
+  verifyRun,
 } from './lib/deployv2.mjs';
 
 const say = (m) => console.log(`[deploy-v2] ${m}`);
@@ -174,6 +175,42 @@ function parseSeedOrDie(v) {
   }
 }
 
+// --record-only: sends nothing, uses no key. Verifies a finished broadcast run on chain 998 with read-only RPC calls
+// and merges the same block the normal path builds (replacing, and keeping under "previous", an old entry).
+async function recordOnly(args, deployments) {
+  const runFile = path.resolve(args.run ?? path.join(contractsDir, 'broadcast', 'Deploy.s.sol', String(TESTNET_CHAIN_ID), 'run-latest.json'));
+  if (!existsSync(runFile)) die(`no broadcast run at ${runFile}`);
+  const run = JSON.parse(readFileSync(runFile, 'utf8'));
+  const rpc = args.rpc ?? deployments.rpc;
+  await requireChain(rpc, TESTNET_CHAIN_ID);
+  let sum;
+  try {
+    sum = await verifyRun(run, args.mode, (m, p) => rpcCall(rpc, m, p));
+  } catch (e) {
+    die(`${e.message}. Nothing was written.`);
+  }
+  const pool = sum.contracts.CoverPool;
+  for (const t of sum.txs) say(`  tx ${t.name ?? '-'} ${t.function ?? ''} gas ${t.gasUsed} ${t.hash}`);
+  const state = readBack(rpc, pool, perpList(deployments.perps));
+  const block = {
+    deployedAt: new Date().toISOString().slice(0, 10),
+    commit: git(['rev-parse', '--short', 'HEAD']).out,
+    chainId: TESTNET_CHAIN_ID,
+    mode: args.mode,
+    pool,
+    priceSource: state.priceSource,
+    positionSource: state.positionSource,
+    usdc: state.asset,
+    config: { ...state, priceSource: undefined, positionSource: undefined, asset: undefined },
+    txs: sum.txs,
+  };
+  const outFile = path.join(repoRoot, 'deployments', 'testnet-v2.json');
+  const existing = existsSync(outFile) ? JSON.parse(readFileSync(outFile, 'utf8')) : null;
+  writeFileSync(outFile, `${JSON.stringify(mergeV2(existing, args.mode, block, { replace: true }), null, 2)}\n`);
+  say(`recorded ${args.mode} pool ${pool} from ${runFile}`);
+  say(`wrote ${outFile}`);
+}
+
 async function main() {
   const args = parseDeployArgs(process.argv.slice(2));
   if (args.help) {
@@ -181,6 +218,7 @@ async function main() {
     return;
   }
   const deployments = JSON.parse(readFileSync(path.join(repoRoot, 'deployments', 'testnet.json'), 'utf8'));
+  if (args.recordOnly) return recordOnly(args, deployments);
   const perps = perpList(deployments.perps);
   const dotenv = readDotenv(path.join(repoRoot, '.env')) ?? {};
   const want = args.dryRun ? LOCAL_CHAIN_ID : TESTNET_CHAIN_ID;
