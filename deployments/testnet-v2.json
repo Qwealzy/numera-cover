@@ -4,18 +4,18 @@
   "contract": "CoverPool v2",
   "pools": {
     "mock": {
-      "deployedAt": "2026-10-02",
-      "commit": "269abd4",
+      "deployedAt": "2026-10-04",
+      "commit": "9da4f35",
       "chainId": 998,
       "mode": "mock",
-      "pool": "0x493c14a92da0905b06a91a1e87a75d4bff75e4a6",
-      "priceSource": "0x0c1Daf9Bb701A6c57dE7D55BA054117329D8821b",
-      "positionSource": "0xC2f3893B413f46FeF5345079c06fec9A8489E7C8",
+      "pool": "0x690d8a8499974bea8d655948034aaf981dc30214",
+      "priceSource": "0x5f429CdaCF9EFC51861809190A798f66D2083084",
+      "positionSource": "0x10c62D16e047ba48dd5550306F79Cfc40110C72c",
       "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
       "config": {
         "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
         "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
-        "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "guardian": "0x05D4EdE93953049578153DA98dFa72556ee6ff5b",
         "configDelay": 600,
         "withdrawDelay": 600,
         "claimWindow": 3600,
@@ -33,7 +33,7 @@
           "saleWindow": "3600",
           "maxSoldPerWindowBps": "2500",
           "maxBuyerWindowShareBps": "2500",
-          "maxPaidPerWindowBps": "1500"
+          "maxPaidPerWindowBps": "2500"
         },
         "perps": {
           "BTC": {
@@ -58,329 +58,88 @@
         {
           "name": "MockPriceSource",
           "function": "create",
-          "hash": "0x48a8518982674366d674928855b420ba4b7629262c11a321efe780e3f01d0542",
+          "hash": "0xc85eb82b7a44146805c74209a1f797d2344be9cf1e654e16327a69105fd06cc9",
           "gasUsed": 244071,
           "status": 1
         },
         {
           "name": "MockPriceSource",
           "function": "setPrice(uint32,uint64)",
-          "hash": "0x4c83f74e760e5d4adf5dec32e62ed1c507046ed9492bc9e841c2c6160094a796",
+          "hash": "0xf5853a355a50a131537dd3de7ee6f62835e4739dcd8c3c1dadbe7affb19eccdf",
+          "gasUsed": 47426,
+          "status": 1
+        },
+        {
+          "name": "MockPriceSource",
+          "function": "setPrice(uint32,uint64)",
+          "hash": "0x1d540b325b1438e8b569934925a009d2180143c28c5d4013d44fa9bdaa9f5404",
           "gasUsed": 47414,
           "status": 1
         },
         {
           "name": "MockPriceSource",
           "function": "setPrice(uint32,uint64)",
-          "hash": "0xb63791faf9257aaebb7be0b95f98e05e95d8021b320d6d99d902f6686bc2679f",
-          "gasUsed": 47414,
-          "status": 1
-        },
-        {
-          "name": "MockPriceSource",
-          "function": "setPrice(uint32,uint64)",
-          "hash": "0x2d6a25ef0949de951a90a98b3ba512cf8c9ad3b4c9a3cb24ac125ce5b143d341",
+          "hash": "0xc972842184fc74e4c5495446ec65c7010df3f611411f48d62439eaa8527811e7",
           "gasUsed": 47402,
           "status": 1
         },
         {
           "name": "MockPriceSource",
           "function": "setPrice(uint32,uint64)",
-          "hash": "0xd5686579b0479b50306d74b7e7fa72b04b41c658f8ad102dd22296a05bbbe349",
+          "hash": "0x08d54f72b5a81751bface9559f12cee93a417c860c5596926ec4554a51d39154",
           "gasUsed": 47414,
           "status": 1
         },
         {
           "name": "MockPositionSource",
           "function": "create",
-          "hash": "0xf4e119da8872a322c186dc445d39ff86fd7c20b2140a7840ad0ff35ca0145e1b",
+          "hash": "0x252b91fab71e45cab7faacf80df407a14a444e3597671d27e3258180517b99c0",
           "gasUsed": 299504,
           "status": 1
         },
         {
           "name": "CoverPool",
           "function": "create",
-          "hash": "0xc014748279f15cf5c66539e51ae64d7dc867b56924e14fde5dbae204fe1d3bed",
-          "gasUsed": 4866173,
+          "hash": "0x2d785232f9f977996b52e786c7a4f8879fa06b8bd2228589746fb8bcc03e91c4",
+          "gasUsed": 4879563,
+          "status": 1
+        },
+        {
+          "name": null,
+          "function": "mint(address,uint256)",
+          "hash": "0x0eefa5df60bcdd369f535398beed2c10114e527af04a0fbf424dcf3d5a93bea4",
+          "gasUsed": 33873,
+          "status": 1
+        },
+        {
+          "name": null,
+          "function": "approve(address,uint256)",
+          "hash": "0x35ab782cae2a3cb3fe90f8a4ce2d3a74a9308ee22dda2f01824805261eb9a206",
+          "gasUsed": 45933,
+          "status": 1
+        },
+        {
+          "name": "CoverPool",
+          "function": "deposit(uint256,address)",
+          "hash": "0x06c23a49e712d2790d4ec05196a1c90e9e833cdf76a22b6a47d0bc496d65e810",
+          "gasUsed": 114615,
           "status": 1
         }
-      ],
-      "e2e_2026-10-02": {
-        "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
-        "note": "LP deposit and exit on MOCK v2 by the founder wallet; receipts read with cast on 2026-10-02",
-        "txs": [
-          {
-            "purpose": "deposit 2000 mUSDC",
-            "hash": "0xf82489568debf759909329af626c8c266705c28a56a62fa02f7e63ba7702aad6",
-            "block": 65825557,
-            "gasUsed": 114603,
-            "status": 1
-          },
-          {
-            "purpose": "requestRedeem 2000 shares (ready at 1790941831, deadline 1790945431, reported)",
-            "hash": "0x9ea37c8c58ae2756e0269810422faca9308ddc7e30ddf30c4ea45ea9efee1bfb",
-            "block": 65825616,
-            "gasUsed": 119380,
-            "status": 1
-          },
-          {
-            "purpose": "withdraw: 2000 assets for 2000 shares after the delay; pool totalAssets back to 0",
-            "hash": "0x4d7000d7f53316997ed53648e2414e9817a3b4e2d6bcefb9514935c8d86c0099",
-            "block": 65827849,
-            "gasUsed": 67270,
-            "status": 1
-          }
-        ]
-      },
-      "e2e_F9_2026-10-02": {
-        "proof": "F9: the keeper triggered the breached cover",
-        "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
-        "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
-        "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
-        "coverId": 1,
-        "quote": {
-          "spotRef": 86642900000,
-          "level": 85776471000,
-          "payout": 10000000,
-          "premium": 332772,
-          "durationSec": 3600,
-          "expiry": 1790953194,
-          "nonce": 3550234802362,
-          "touchProb": 0.01358829771928952,
-          "floorApplied": false,
-          "spotSource": "pool"
-        },
-        "trigger": {
-          "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
-          "oraclePx": 85347588645,
-          "payoutTransfer": 10000000
-        },
-        "timing": {
-          "priceBlock": 65834128,
-          "triggerBlock": 65834135,
-          "blocks": 7,
-          "blockTimestampDeltaS": 7,
-          "wallClockToPaidSeenS": 7.8
-        },
-        "txs": [
-          {
-            "purpose": "setPosition BTC long szi 230 entryNtl 200000000 lev 10",
-            "hash": "0xf84f5805ac3a3dfa8deaf46d1d03a229e33e497c8f3eee62a289f41cce4739db",
-            "block": 65834109,
-            "status": 1,
-            "gasUsed": 49523
-          },
-          {
-            "purpose": "setPrice BTC 86642900000 (live oracle)",
-            "hash": "0x4457e33be0e2fec2cce3eb6d984c1e011c4d7ff8c5a38fc492749ca8f3fa86ea",
-            "block": 65834112,
-            "status": 1,
-            "gasUsed": 30326
-          },
-          {
-            "purpose": "approve 0.332772 mUSDC (exact cover price)",
-            "hash": "0x873ebe12af03ca9c0f45439d2b4791e578498f285494c304cd6c7488f7accbdb",
-            "block": 65834121,
-            "status": 1,
-            "gasUsed": 45921
-          },
-          {
-            "purpose": "buyCover payout 10.000000 cover price 0.332772",
-            "hash": "0x18a764fe09d6977896416482ded7090ec449f14f72267e25976127392a132da4",
-            "block": 65834124,
-            "status": 1,
-            "gasUsed": 402769
-          },
-          {
-            "purpose": "setPrice BTC 85347588645 (breach: 50 bps below level 85776471000)",
-            "hash": "0x9fb5d5734ee6576344d32d1bbafd23d08dbbb309b601941dc4e1b51cdade5dd6",
-            "block": 65834128,
-            "status": 1,
-            "gasUsed": 30326
-          },
-          {
-            "purpose": "trigger(1) by the keeper",
-            "hash": "0x8617e3d1323e3768fa667301509c6a773c211f6afdb2a0f37cecd53beb6c5477",
-            "block": 65834135,
-            "status": 1,
-            "gasUsed": 161468,
-            "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
-          },
-          {
-            "purpose": "setPrice BTC 86563600000 (reset to the live oracle)",
-            "hash": "0x564673a51b9b1c3622a0f7d80433f31e09934069f4784002ee47648afe6daeb1",
-            "block": 65834142,
-            "status": 1,
-            "gasUsed": 30326
-          }
-        ]
-      },
-      "e2e_F9_2026-10-02_2": {
-        "proof": "F9: the keeper triggered the breached cover",
-        "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
-        "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
-        "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
-        "coverId": 2,
-        "quote": {
-          "spotRef": 86356000000,
-          "level": 85492440000,
-          "payout": 10000000,
-          "premium": 475606,
-          "durationSec": 3600,
-          "expiry": 1790954124,
-          "nonce": 6425089851002421,
-          "touchProb": 0.012342354191994266,
-          "floorApplied": false,
-          "spotSource": "pool"
-        },
-        "trigger": {
-          "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
-          "oraclePx": 85064977800,
-          "payoutTransfer": 10000000
-        },
-        "timing": {
-          "priceBlock": 65835073,
-          "triggerBlock": 65835079,
-          "blocks": 6,
-          "blockTimestampDeltaS": 6,
-          "wallClockToPaidSeenS": 6.4
-        },
-        "txs": [
-          {
-            "purpose": "setPrice BTC 86356000000 (live oracle)",
-            "hash": "0xeffa713fe006b7948eb5088172bad323b66d7a487b03af083dafbef21fada37e",
-            "block": 65835056,
-            "status": 1,
-            "gasUsed": 30314
-          },
-          {
-            "purpose": "approve 0.475606 mUSDC (exact cover price)",
-            "hash": "0x763607869d2149a5b27d5239124ba8ce856f1ff6097881bcdce7ace0f3764066",
-            "block": 65835067,
-            "status": 1,
-            "gasUsed": 45921
-          },
-          {
-            "purpose": "buyCover payout 10.000000 cover price 0.475606",
-            "hash": "0xb980543db25486f65f42bb587e4f03b2c8b2be290243e169eb7498f2c041774c",
-            "block": 65835070,
-            "status": 1,
-            "gasUsed": 311329
-          },
-          {
-            "purpose": "setPrice BTC 85064977800 (breach: 50 bps below level 85492440000)",
-            "hash": "0xb150bbe9e2badb7ea8d931619df0ec2f8047d4f845b73c55bb40a51a82adcd22",
-            "block": 65835073,
-            "status": 1,
-            "gasUsed": 30326
-          },
-          {
-            "purpose": "trigger(2) by the keeper",
-            "hash": "0xc63d624cae0aad9a6cf599298affa7f4df0cdb659dcb669e915d3031a0d8a0d2",
-            "block": 65835079,
-            "status": 1,
-            "gasUsed": 115744,
-            "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
-          },
-          {
-            "purpose": "setPrice BTC 86295400000 (reset to the live oracle)",
-            "hash": "0x7d80ac2b98e3e755931c97c2b7206c410b0b8705661f46c2b60162e9e16d8335",
-            "block": 65835085,
-            "status": 1,
-            "gasUsed": 30326
-          }
-        ]
-      },
-      "e2e_F9_2026-10-02_3": {
-        "proof": "F9: the keeper triggered the breached cover",
-        "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e31dfca",
-        "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
-        "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
-        "coverId": 3,
-        "quote": {
-          "spotRef": 85386000000,
-          "level": 84532140000,
-          "payout": 10000000,
-          "premium": 434298,
-          "durationSec": 3600,
-          "expiry": 1790959449,
-          "nonce": 7792123772943889,
-          "touchProb": 0.029569209053433153,
-          "floorApplied": false,
-          "spotSource": "pool"
-        },
-        "trigger": {
-          "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
-          "oraclePx": 84109479300,
-          "payoutTransfer": 10000000
-        },
-        "timing": {
-          "priceBlock": 65840488,
-          "triggerBlock": 65840491,
-          "blocks": 3,
-          "blockTimestampDeltaS": 3,
-          "wallClockToPaidSeenS": 3.9
-        },
-        "txs": [
-          {
-            "purpose": "setPrice BTC 85386000000 (live oracle)",
-            "hash": "0xb274ae9dda410dbfbd642b9582956807f73d4c467adf73f7c1cb7c46642f090a",
-            "block": 65840470,
-            "status": 1,
-            "gasUsed": 30326
-          },
-          {
-            "purpose": "approve 0.434298 mUSDC (exact cover price)",
-            "hash": "0x717fa65ed1782ca80ea1a885dafb20093a60f4b107b550774d486a854703a6df",
-            "block": 65840481,
-            "status": 1,
-            "gasUsed": 45921
-          },
-          {
-            "purpose": "buyCover payout 10.000000 cover price 0.434298",
-            "hash": "0x622f124ec9967fbdb638a466558811833d12a05a17a876e8106a9ccdb87557a5",
-            "block": 65840484,
-            "status": 1,
-            "gasUsed": 317281
-          },
-          {
-            "purpose": "setPrice BTC 84109479300 (breach: 50 bps below level 84532140000)",
-            "hash": "0x62443d410f7d5c85c7da2ab479fbacc59b8ab009b99d9c34be9b829c00547035",
-            "block": 65840488,
-            "status": 1,
-            "gasUsed": 30326
-          },
-          {
-            "purpose": "trigger(3) by the keeper",
-            "hash": "0x84ef09ef47dd2ce87e77da512fd5623b99eb50060a5b820eb644bf2d697e7ac0",
-            "block": 65840491,
-            "status": 1,
-            "gasUsed": 120428,
-            "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
-          },
-          {
-            "purpose": "setPrice BTC 85344000000 (reset to the live oracle)",
-            "hash": "0x09bbe3e0fc3c831af6690490ce2cd648af88847bbeaeca2a778a851637aac4f3",
-            "block": 65840497,
-            "status": 1,
-            "gasUsed": 30314
-          }
-        ]
-      }
+      ]
     },
     "hypercore": {
-      "deployedAt": "2026-10-02",
-      "commit": "269abd4",
+      "deployedAt": "2026-10-04",
+      "commit": "9da4f35",
       "chainId": 998,
       "mode": "hypercore",
-      "pool": "0xcb909999bc241b6970134a440001c7b758df2b00",
-      "priceSource": "0xBae5a5175698EaBe85703f1676bA598f96caA5FF",
-      "positionSource": "0x6DB11839fc8CDe5779638e477f26E77d6b1c01e6",
+      "pool": "0xe9a1957170ad16e7ba12673f7acd8e68abf9618a",
+      "priceSource": "0x0071B70b0A73279B5aD45AEFAD9C5fbFd4454482",
+      "positionSource": "0x7cCa2C51Df3573a5f7397ab4E8Bd7c09d776FF6c",
       "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
       "config": {
         "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
         "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
-        "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+        "guardian": "0x05D4EdE93953049578153DA98dFa72556ee6ff5b",
         "configDelay": 600,
         "withdrawDelay": 600,
         "claimWindow": 3600,
@@ -398,7 +157,7 @@
           "saleWindow": "3600",
           "maxSoldPerWindowBps": "2500",
           "maxBuyerWindowShareBps": "2500",
-          "maxPaidPerWindowBps": "1500"
+          "maxPaidPerWindowBps": "2500"
         },
         "perps": {
           "BTC": {
@@ -423,66 +182,561 @@
         {
           "name": "HyperCorePriceSource",
           "function": "create",
-          "hash": "0x5d50f5cf6d72045c25d8ab7b72229173bd7456dcd60b2993e450736dfba8efbe",
-          "gasUsed": 439814,
+          "hash": "0x619e7ae37ef389ea81b3c7bfd57bcd40f4ec98ead0dff0e31e94793b1513c017",
+          "gasUsed": 439802,
           "status": 1
         },
         {
           "name": "HyperCorePriceSource",
           "function": "cachePerp(uint32)",
-          "hash": "0xe7330a4cd269fc5749e935f17ed4432d3d228bdf27a9732719e4e4cbb4fa1374",
+          "hash": "0xec1da0bf5e1c1968e64d76a8fc001de2cff9146fdaa64c3b5da75acd23839cc9",
           "gasUsed": 58613,
           "status": 1
         },
         {
           "name": "HyperCorePriceSource",
           "function": "cachePerp(uint32)",
-          "hash": "0xeb4503e03cea3d4a5093a621a8d32e85b8737587043aee41f3422099362836fa",
+          "hash": "0x7648521f3f847408d6cf98de14aef978f2ac21f1b3d654ac74f7a7fe2f50fce7",
           "gasUsed": 58613,
           "status": 1
         },
         {
           "name": "HyperCorePriceSource",
           "function": "cachePerp(uint32)",
-          "hash": "0x2c83222ea6f05909b6785c7ebe7533bfd880c2abbf6e81c0d1c226babfe6086a",
+          "hash": "0x8ae47bd81fe428de6139bef304b13ba0a9352ba5eba8137efe4faf6ba7809dca",
           "gasUsed": 58601,
           "status": 1
         },
         {
           "name": "HyperCorePriceSource",
           "function": "cachePerp(uint32)",
-          "hash": "0x3be148b98f1e404478f5b24dba40a9e800b74ef9dbddd73c1fdee26320675456",
+          "hash": "0xee258e079ec893fa490162eadf8a8a449d36e0e9d438b32e00144a7e72126fd6",
           "gasUsed": 58613,
           "status": 1
         },
         {
           "name": "HyperCorePositionSource",
           "function": "create",
-          "hash": "0x4dc68d3a0c7ee2a9e2458f39fa69ec34ee8d47fff26832643572a349af3b895d",
+          "hash": "0xcfc001d12932a0424c4a86d6d0e59ab4a755fe1f2779655f810606371bd3c266",
           "gasUsed": 241921,
           "status": 1
         },
         {
           "name": "CoverPool",
           "function": "create",
-          "hash": "0x2e2d7a146ffab847c49b41e4b54440bcdddcb99e8c91768788f306a52d14acda",
-          "gasUsed": 4883053,
+          "hash": "0x2accbf1d36b8c2dfa92f651946b9cb34f7e8c57b27dd6b21ab52a0dadbf00509",
+          "gasUsed": 4896431,
+          "status": 1
+        },
+        {
+          "name": null,
+          "function": "mint(address,uint256)",
+          "hash": "0xa0676734f45b4de9083f5dd0844faa516c4e62e14db4d140f97800ba96d3f2a8",
+          "gasUsed": 33873,
+          "status": 1
+        },
+        {
+          "name": null,
+          "function": "approve(address,uint256)",
+          "hash": "0x647c7653e5ae7a3ee612d484b97b3f50b0d6ae5d9756dcaed24014546b9a69e0",
+          "gasUsed": 45933,
+          "status": 1
+        },
+        {
+          "name": "CoverPool",
+          "function": "deposit(uint256,address)",
+          "hash": "0x9c5a5728442e8320e89f2975e0100431508956aa487c5ad8599ea69aa973d4d3",
+          "gasUsed": 114615,
           "status": 1
         }
-      ],
-      "e2e_2026-10-02": {
-        "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
-        "note": "LP deposit on Real v2 from a testnet wallet; totalAssets 1900 mUSDC after. A reverted deposit (insufficient wallet balance) and duplicate approvals in the v2 deposit path came from app bugs and are not listed here",
+      ]
+    }
+  },
+  "previous": {
+    "mock": [
+      {
+        "deployedAt": "2026-10-02",
+        "commit": "269abd4",
+        "chainId": 998,
+        "mode": "mock",
+        "pool": "0x493c14a92da0905b06a91a1e87a75d4bff75e4a6",
+        "priceSource": "0x0c1Daf9Bb701A6c57dE7D55BA054117329D8821b",
+        "positionSource": "0xC2f3893B413f46FeF5345079c06fec9A8489E7C8",
+        "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
+        "config": {
+          "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+          "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
+          "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+          "configDelay": 600,
+          "withdrawDelay": 600,
+          "claimWindow": 3600,
+          "configGrace": 259200,
+          "strict": false,
+          "paused": false,
+          "limits": {
+            "maxUtilizationBps": "8000",
+            "perPerpCapBps": "5000",
+            "maxDuration": "604800",
+            "maxSpotDeviationBps": "30",
+            "minPayout": "1000000",
+            "minPremiumBps": "20",
+            "minLevelDistanceBps": "25",
+            "saleWindow": "3600",
+            "maxSoldPerWindowBps": "2500",
+            "maxBuyerWindowShareBps": "2500",
+            "maxPaidPerWindowBps": "1500"
+          },
+          "perps": {
+            "BTC": {
+              "index": 3,
+              "allowed": true
+            },
+            "ETH": {
+              "index": 4,
+              "allowed": true
+            },
+            "SOL": {
+              "index": 0,
+              "allowed": true
+            },
+            "HYPE": {
+              "index": 135,
+              "allowed": true
+            }
+          }
+        },
         "txs": [
           {
-            "purpose": "deposit 1900 mUSDC",
-            "hash": "0xa6ee4511c734e6134fb24ee4674d5fb3b0049016ecabe84d4444e45db0198986",
-            "block": 65825665,
-            "gasUsed": 114603,
+            "name": "MockPriceSource",
+            "function": "create",
+            "hash": "0x48a8518982674366d674928855b420ba4b7629262c11a321efe780e3f01d0542",
+            "gasUsed": 244071,
+            "status": 1
+          },
+          {
+            "name": "MockPriceSource",
+            "function": "setPrice(uint32,uint64)",
+            "hash": "0x4c83f74e760e5d4adf5dec32e62ed1c507046ed9492bc9e841c2c6160094a796",
+            "gasUsed": 47414,
+            "status": 1
+          },
+          {
+            "name": "MockPriceSource",
+            "function": "setPrice(uint32,uint64)",
+            "hash": "0xb63791faf9257aaebb7be0b95f98e05e95d8021b320d6d99d902f6686bc2679f",
+            "gasUsed": 47414,
+            "status": 1
+          },
+          {
+            "name": "MockPriceSource",
+            "function": "setPrice(uint32,uint64)",
+            "hash": "0x2d6a25ef0949de951a90a98b3ba512cf8c9ad3b4c9a3cb24ac125ce5b143d341",
+            "gasUsed": 47402,
+            "status": 1
+          },
+          {
+            "name": "MockPriceSource",
+            "function": "setPrice(uint32,uint64)",
+            "hash": "0xd5686579b0479b50306d74b7e7fa72b04b41c658f8ad102dd22296a05bbbe349",
+            "gasUsed": 47414,
+            "status": 1
+          },
+          {
+            "name": "MockPositionSource",
+            "function": "create",
+            "hash": "0xf4e119da8872a322c186dc445d39ff86fd7c20b2140a7840ad0ff35ca0145e1b",
+            "gasUsed": 299504,
+            "status": 1
+          },
+          {
+            "name": "CoverPool",
+            "function": "create",
+            "hash": "0xc014748279f15cf5c66539e51ae64d7dc867b56924e14fde5dbae204fe1d3bed",
+            "gasUsed": 4866173,
             "status": 1
           }
-        ]
+        ],
+        "e2e_2026-10-02": {
+          "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
+          "note": "LP deposit and exit on MOCK v2 by the founder wallet; receipts read with cast on 2026-10-02",
+          "txs": [
+            {
+              "purpose": "deposit 2000 mUSDC",
+              "hash": "0xf82489568debf759909329af626c8c266705c28a56a62fa02f7e63ba7702aad6",
+              "block": 65825557,
+              "gasUsed": 114603,
+              "status": 1
+            },
+            {
+              "purpose": "requestRedeem 2000 shares (ready at 1790941831, deadline 1790945431, reported)",
+              "hash": "0x9ea37c8c58ae2756e0269810422faca9308ddc7e30ddf30c4ea45ea9efee1bfb",
+              "block": 65825616,
+              "gasUsed": 119380,
+              "status": 1
+            },
+            {
+              "purpose": "withdraw: 2000 assets for 2000 shares after the delay; pool totalAssets back to 0",
+              "hash": "0x4d7000d7f53316997ed53648e2414e9817a3b4e2d6bcefb9514935c8d86c0099",
+              "block": 65827849,
+              "gasUsed": 67270,
+              "status": 1
+            }
+          ]
+        },
+        "e2e_F9_2026-10-02": {
+          "proof": "F9: the keeper triggered the breached cover",
+          "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
+          "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+          "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+          "coverId": 1,
+          "quote": {
+            "spotRef": 86642900000,
+            "level": 85776471000,
+            "payout": 10000000,
+            "premium": 332772,
+            "durationSec": 3600,
+            "expiry": 1790953194,
+            "nonce": 3550234802362,
+            "touchProb": 0.01358829771928952,
+            "floorApplied": false,
+            "spotSource": "pool"
+          },
+          "trigger": {
+            "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
+            "oraclePx": 85347588645,
+            "payoutTransfer": 10000000
+          },
+          "timing": {
+            "priceBlock": 65834128,
+            "triggerBlock": 65834135,
+            "blocks": 7,
+            "blockTimestampDeltaS": 7,
+            "wallClockToPaidSeenS": 7.8
+          },
+          "txs": [
+            {
+              "purpose": "setPosition BTC long szi 230 entryNtl 200000000 lev 10",
+              "hash": "0xf84f5805ac3a3dfa8deaf46d1d03a229e33e497c8f3eee62a289f41cce4739db",
+              "block": 65834109,
+              "status": 1,
+              "gasUsed": 49523
+            },
+            {
+              "purpose": "setPrice BTC 86642900000 (live oracle)",
+              "hash": "0x4457e33be0e2fec2cce3eb6d984c1e011c4d7ff8c5a38fc492749ca8f3fa86ea",
+              "block": 65834112,
+              "status": 1,
+              "gasUsed": 30326
+            },
+            {
+              "purpose": "approve 0.332772 mUSDC (exact cover price)",
+              "hash": "0x873ebe12af03ca9c0f45439d2b4791e578498f285494c304cd6c7488f7accbdb",
+              "block": 65834121,
+              "status": 1,
+              "gasUsed": 45921
+            },
+            {
+              "purpose": "buyCover payout 10.000000 cover price 0.332772",
+              "hash": "0x18a764fe09d6977896416482ded7090ec449f14f72267e25976127392a132da4",
+              "block": 65834124,
+              "status": 1,
+              "gasUsed": 402769
+            },
+            {
+              "purpose": "setPrice BTC 85347588645 (breach: 50 bps below level 85776471000)",
+              "hash": "0x9fb5d5734ee6576344d32d1bbafd23d08dbbb309b601941dc4e1b51cdade5dd6",
+              "block": 65834128,
+              "status": 1,
+              "gasUsed": 30326
+            },
+            {
+              "purpose": "trigger(1) by the keeper",
+              "hash": "0x8617e3d1323e3768fa667301509c6a773c211f6afdb2a0f37cecd53beb6c5477",
+              "block": 65834135,
+              "status": 1,
+              "gasUsed": 161468,
+              "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
+            },
+            {
+              "purpose": "setPrice BTC 86563600000 (reset to the live oracle)",
+              "hash": "0x564673a51b9b1c3622a0f7d80433f31e09934069f4784002ee47648afe6daeb1",
+              "block": 65834142,
+              "status": 1,
+              "gasUsed": 30326
+            }
+          ]
+        },
+        "e2e_F9_2026-10-02_2": {
+          "proof": "F9: the keeper triggered the breached cover",
+          "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e79e949",
+          "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+          "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+          "coverId": 2,
+          "quote": {
+            "spotRef": 86356000000,
+            "level": 85492440000,
+            "payout": 10000000,
+            "premium": 475606,
+            "durationSec": 3600,
+            "expiry": 1790954124,
+            "nonce": 6425089851002421,
+            "touchProb": 0.012342354191994266,
+            "floorApplied": false,
+            "spotSource": "pool"
+          },
+          "trigger": {
+            "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
+            "oraclePx": 85064977800,
+            "payoutTransfer": 10000000
+          },
+          "timing": {
+            "priceBlock": 65835073,
+            "triggerBlock": 65835079,
+            "blocks": 6,
+            "blockTimestampDeltaS": 6,
+            "wallClockToPaidSeenS": 6.4
+          },
+          "txs": [
+            {
+              "purpose": "setPrice BTC 86356000000 (live oracle)",
+              "hash": "0xeffa713fe006b7948eb5088172bad323b66d7a487b03af083dafbef21fada37e",
+              "block": 65835056,
+              "status": 1,
+              "gasUsed": 30314
+            },
+            {
+              "purpose": "approve 0.475606 mUSDC (exact cover price)",
+              "hash": "0x763607869d2149a5b27d5239124ba8ce856f1ff6097881bcdce7ace0f3764066",
+              "block": 65835067,
+              "status": 1,
+              "gasUsed": 45921
+            },
+            {
+              "purpose": "buyCover payout 10.000000 cover price 0.475606",
+              "hash": "0xb980543db25486f65f42bb587e4f03b2c8b2be290243e169eb7498f2c041774c",
+              "block": 65835070,
+              "status": 1,
+              "gasUsed": 311329
+            },
+            {
+              "purpose": "setPrice BTC 85064977800 (breach: 50 bps below level 85492440000)",
+              "hash": "0xb150bbe9e2badb7ea8d931619df0ec2f8047d4f845b73c55bb40a51a82adcd22",
+              "block": 65835073,
+              "status": 1,
+              "gasUsed": 30326
+            },
+            {
+              "purpose": "trigger(2) by the keeper",
+              "hash": "0xc63d624cae0aad9a6cf599298affa7f4df0cdb659dcb669e915d3031a0d8a0d2",
+              "block": 65835079,
+              "status": 1,
+              "gasUsed": 115744,
+              "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
+            },
+            {
+              "purpose": "setPrice BTC 86295400000 (reset to the live oracle)",
+              "hash": "0x7d80ac2b98e3e755931c97c2b7206c410b0b8705661f46c2b60162e9e16d8335",
+              "block": 65835085,
+              "status": 1,
+              "gasUsed": 30326
+            }
+          ]
+        },
+        "e2e_F9_2026-10-02_3": {
+          "proof": "F9: the keeper triggered the breached cover",
+          "note": "MOCK v2 pool, perp BTC=3; deployer as buyer (mock position source); mock price set to the live testnet oracle, cover bought from an engine quote, price moved 50 bps past the level; by scripts/e2e-mock-v2.mjs at e31dfca",
+          "wallet": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+          "keeper": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+          "coverId": 3,
+          "quote": {
+            "spotRef": 85386000000,
+            "level": 84532140000,
+            "payout": 10000000,
+            "premium": 434298,
+            "durationSec": 3600,
+            "expiry": 1790959449,
+            "nonce": 7792123772943889,
+            "touchProb": 0.029569209053433153,
+            "floorApplied": false,
+            "spotSource": "pool"
+          },
+          "trigger": {
+            "caller": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b",
+            "oraclePx": 84109479300,
+            "payoutTransfer": 10000000
+          },
+          "timing": {
+            "priceBlock": 65840488,
+            "triggerBlock": 65840491,
+            "blocks": 3,
+            "blockTimestampDeltaS": 3,
+            "wallClockToPaidSeenS": 3.9
+          },
+          "txs": [
+            {
+              "purpose": "setPrice BTC 85386000000 (live oracle)",
+              "hash": "0xb274ae9dda410dbfbd642b9582956807f73d4c467adf73f7c1cb7c46642f090a",
+              "block": 65840470,
+              "status": 1,
+              "gasUsed": 30326
+            },
+            {
+              "purpose": "approve 0.434298 mUSDC (exact cover price)",
+              "hash": "0x717fa65ed1782ca80ea1a885dafb20093a60f4b107b550774d486a854703a6df",
+              "block": 65840481,
+              "status": 1,
+              "gasUsed": 45921
+            },
+            {
+              "purpose": "buyCover payout 10.000000 cover price 0.434298",
+              "hash": "0x622f124ec9967fbdb638a466558811833d12a05a17a876e8106a9ccdb87557a5",
+              "block": 65840484,
+              "status": 1,
+              "gasUsed": 317281
+            },
+            {
+              "purpose": "setPrice BTC 84109479300 (breach: 50 bps below level 84532140000)",
+              "hash": "0x62443d410f7d5c85c7da2ab479fbacc59b8ab009b99d9c34be9b829c00547035",
+              "block": 65840488,
+              "status": 1,
+              "gasUsed": 30326
+            },
+            {
+              "purpose": "trigger(3) by the keeper",
+              "hash": "0x84ef09ef47dd2ce87e77da512fd5623b99eb50060a5b820eb644bf2d697e7ac0",
+              "block": 65840491,
+              "status": 1,
+              "gasUsed": 120428,
+              "from": "0x9a809ef608f5ae30ddd26708cc6794bd7dad7a1b"
+            },
+            {
+              "purpose": "setPrice BTC 85344000000 (reset to the live oracle)",
+              "hash": "0x09bbe3e0fc3c831af6690490ce2cd648af88847bbeaeca2a778a851637aac4f3",
+              "block": 65840497,
+              "status": 1,
+              "gasUsed": 30314
+            }
+          ]
+        }
       }
-    }
+    ],
+    "hypercore": [
+      {
+        "deployedAt": "2026-10-02",
+        "commit": "269abd4",
+        "chainId": 998,
+        "mode": "hypercore",
+        "pool": "0xcb909999bc241b6970134a440001c7b758df2b00",
+        "priceSource": "0xBae5a5175698EaBe85703f1676bA598f96caA5FF",
+        "positionSource": "0x6DB11839fc8CDe5779638e477f26E77d6b1c01e6",
+        "usdc": "0x8675c05F2403f220e19057F3f60c6c91bb14462A",
+        "config": {
+          "owner": "0x2BA514Ca28fc6f34072F2cBB7467D0849cfF52A9",
+          "quoteSigner": "0x2d6154D11190E900B99e1EE164fF0a176b19532c",
+          "guardian": "0x9a809EF608F5AE30Ddd26708cC6794bD7dad7a1B",
+          "configDelay": 600,
+          "withdrawDelay": 600,
+          "claimWindow": 3600,
+          "configGrace": 259200,
+          "strict": false,
+          "paused": false,
+          "limits": {
+            "maxUtilizationBps": "8000",
+            "perPerpCapBps": "5000",
+            "maxDuration": "604800",
+            "maxSpotDeviationBps": "30",
+            "minPayout": "1000000",
+            "minPremiumBps": "20",
+            "minLevelDistanceBps": "25",
+            "saleWindow": "3600",
+            "maxSoldPerWindowBps": "2500",
+            "maxBuyerWindowShareBps": "2500",
+            "maxPaidPerWindowBps": "1500"
+          },
+          "perps": {
+            "BTC": {
+              "index": 3,
+              "allowed": true
+            },
+            "ETH": {
+              "index": 4,
+              "allowed": true
+            },
+            "SOL": {
+              "index": 0,
+              "allowed": true
+            },
+            "HYPE": {
+              "index": 135,
+              "allowed": true
+            }
+          }
+        },
+        "txs": [
+          {
+            "name": "HyperCorePriceSource",
+            "function": "create",
+            "hash": "0x5d50f5cf6d72045c25d8ab7b72229173bd7456dcd60b2993e450736dfba8efbe",
+            "gasUsed": 439814,
+            "status": 1
+          },
+          {
+            "name": "HyperCorePriceSource",
+            "function": "cachePerp(uint32)",
+            "hash": "0xe7330a4cd269fc5749e935f17ed4432d3d228bdf27a9732719e4e4cbb4fa1374",
+            "gasUsed": 58613,
+            "status": 1
+          },
+          {
+            "name": "HyperCorePriceSource",
+            "function": "cachePerp(uint32)",
+            "hash": "0xeb4503e03cea3d4a5093a621a8d32e85b8737587043aee41f3422099362836fa",
+            "gasUsed": 58613,
+            "status": 1
+          },
+          {
+            "name": "HyperCorePriceSource",
+            "function": "cachePerp(uint32)",
+            "hash": "0x2c83222ea6f05909b6785c7ebe7533bfd880c2abbf6e81c0d1c226babfe6086a",
+            "gasUsed": 58601,
+            "status": 1
+          },
+          {
+            "name": "HyperCorePriceSource",
+            "function": "cachePerp(uint32)",
+            "hash": "0x3be148b98f1e404478f5b24dba40a9e800b74ef9dbddd73c1fdee26320675456",
+            "gasUsed": 58613,
+            "status": 1
+          },
+          {
+            "name": "HyperCorePositionSource",
+            "function": "create",
+            "hash": "0x4dc68d3a0c7ee2a9e2458f39fa69ec34ee8d47fff26832643572a349af3b895d",
+            "gasUsed": 241921,
+            "status": 1
+          },
+          {
+            "name": "CoverPool",
+            "function": "create",
+            "hash": "0x2e2d7a146ffab847c49b41e4b54440bcdddcb99e8c91768788f306a52d14acda",
+            "gasUsed": 4883053,
+            "status": 1
+          }
+        ],
+        "e2e_2026-10-02": {
+          "wallet": "0x66DDA666bf32Cae48cf190bbAd04Effc90b7d5e7",
+          "note": "LP deposit on Real v2 from a testnet wallet; totalAssets 1900 mUSDC after. A reverted deposit (insufficient wallet balance) and duplicate approvals in the v2 deposit path came from app bugs and are not listed here",
+          "txs": [
+            {
+              "purpose": "deposit 1900 mUSDC",
+              "hash": "0xa6ee4511c734e6134fb24ee4674d5fb3b0049016ecabe84d4444e45db0198986",
+              "block": 65825665,
+              "gasUsed": 114603,
+              "status": 1
+            }
+          ]
+        }
+      }
+    ]
   }
 }
